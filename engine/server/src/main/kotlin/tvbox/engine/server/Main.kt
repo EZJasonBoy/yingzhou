@@ -15,6 +15,12 @@ import tvbox.engine.core.model.EngineInfo
 import tvbox.engine.core.net.SiteHttp
 import tvbox.engine.core.store.JsonFileStore
 import tvbox.engine.core.store.MemoryStore
+import tvbox.engine.js.FileJsLocalStore
+import tvbox.engine.js.JsEnvironment
+import tvbox.engine.js.JsHttp
+import tvbox.engine.js.JsModules
+import tvbox.engine.js.JsRuntime
+import tvbox.engine.js.MemoryJsLocalStore
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -41,6 +47,16 @@ fun main(args: Array<String>) {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
+    val locator = ConfigLocator("$local/file/")
+    val jsRuntime = JsRuntime(
+        JsEnvironment(
+            modules = JsModules(client, locator, cacheDir = dataDir?.let { File(it, "js-cache") }),
+            http = JsHttp(client),
+            local = dataDir?.let { FileJsLocalStore(File(it, "js-local.json")) } ?: MemoryJsLocalStore(),
+            proxyUrl = "$local/proxy",
+            log = { line -> if ("[log]" !in line && "[debug]" !in line && "[info]" !in line) System.err.println(line) },
+        ),
+    )
     val engine = Engine(
         info = EngineInfo(
             name = "tvbox-engine",
@@ -48,10 +64,11 @@ fun main(args: Array<String>) {
             platform = "jvm-" + System.getProperty("os.name").lowercase().substringBefore(' '),
             capabilities = Capabilities(jar = false, js = false, py = false, sniff = false),
         ),
-        loader = ConfigLoader(client, ConfigLocator("$local/file/")),
+        loader = ConfigLoader(client, locator),
         http = SiteHttp(client),
         proxyBase = "$local/proxy?",
         store = store,
+        runtimes = listOf(jsRuntime),
     )
     val demo = if ("--demo" in args) DemoSite(local) else null
 

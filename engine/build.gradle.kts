@@ -17,6 +17,7 @@ subprojects {
             compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
         }
         extensions.configure<JavaPluginExtension> {
+            sourceCompatibility = JavaVersion.VERSION_17
             targetCompatibility = JavaVersion.VERSION_17
         }
         tasks.withType<Test>().configureEach {

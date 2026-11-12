@@ -30,6 +30,9 @@ import tvbox.engine.core.site.ExtResolver
 import tvbox.engine.core.site.RemoteSource
 import tvbox.engine.core.site.SiteSource
 import tvbox.engine.core.site.UnsupportedSiteException
+import tvbox.engine.core.spider.SpiderLoadException
+import tvbox.engine.core.spider.SpiderRuntime
+import tvbox.engine.core.spider.SpiderSource
 import tvbox.engine.core.store.EngineStore
 import tvbox.engine.core.store.Library
 import tvbox.engine.core.store.MemoryStore
@@ -53,13 +56,23 @@ sealed class EngineException(val code: String, message: String) : Exception(mess
  * (history, favorites). Subscriptions and the library are persisted through [store].
  */
 class Engine(
-    val info: EngineInfo,
+    info: EngineInfo,
     private val loader: ConfigLoader,
     private val http: SiteHttp,
     /** Where `proxy://` urls point, e.g. `http://127.0.0.1:9978/proxy?`. */
     proxyBase: String,
     private val store: EngineStore = MemoryStore(),
+    /** Spider runtimes available on this platform (js, jar, py). */
+    private val runtimes: List<SpiderRuntime> = emptyList(),
 ) {
+    /** Capabilities are derived from the runtimes actually present. */
+    val info: EngineInfo = info.copy(
+        capabilities = info.capabilities.copy(
+            js = runtimes.any { it.kind == "js" },
+            jar = runtimes.any { it.kind == "jar" },
+            py = runtimes.any { it.kind == "py" },
+        ),
+    )
     val library = Library(store)
     private class Active(
         val subscriptionId: String,
@@ -149,8 +162,11 @@ class Engine(
             }
         }
         ext.clear()
-        val loaded = Active(id, url, repos, config, config.sites.associate { it.key to createSource(it) })
+        val loaded = Active(id, url, repos, config, config.sites.associate { it.key to createSource(it, config) })
         lock.withLock {
+            // Spiders of the previous config are released before the new ones take over.
+            active?.sources?.values?.forEach { (it as? SpiderSource)?.destroy() }
+            runtimes.forEach { it.reset() }
             active = loaded
             savedActiveId = id
             savedActiveRepo = if (repos.isEmpty()) null else url
@@ -190,7 +206,7 @@ class Engine(
         if (keyword.isBlank()) throw EngineException.BadRequest("keyword is empty")
         val sources = current().sources.values.filter { src ->
             val bean = src.bean
-            bean.isSearchable && isSupported(bean.runtime) && (siteKeys == null || bean.key in siteKeys)
+            bean.isSearchable && src !is UnsupportedSource && (siteKeys == null || bean.key in siteKeys)
         }
         return searchAggregator.search(sources, keyword.trim()) { describe(it) }
     }
@@ -212,13 +228,13 @@ class Engine(
 
     private fun current(): Active = active ?: throw EngineException.NoConfig()
 
-    private fun createSource(bean: tvbox.engine.core.config.SiteBean): SiteSource = when (bean.runtime) {
+    private fun createSource(bean: tvbox.engine.core.config.SiteBean, config: TvboxConfig): SiteSource = when (bean.runtime) {
         SiteRuntime.CMS -> CmsSource(bean, http, ext)
         SiteRuntime.REMOTE -> RemoteSource(bean, http, ext)
-        else -> UnsupportedSource(bean)
+        else -> runtimes.firstOrNull { it.supports(bean) }
+            ?.let { SpiderSource(bean, it, ext, vipFlags = { config.flags }) }
+            ?: UnsupportedSource(bean)
     }
-
-    private fun isSupported(runtime: SiteRuntime) = runtime == SiteRuntime.CMS || runtime == SiteRuntime.REMOTE
 
     private suspend fun <T> siteCall(site: String, block: suspend (SiteSource) -> T): T {
         val source = current().sources[site] ?: throw EngineException.NotFound("site $site")
@@ -241,6 +257,7 @@ class Engine(
         is SiteHttpException -> (if (e.message?.startsWith("timeout") == true) "SITE_TIMEOUT" else "SITE_UNREACHABLE") to (e.message ?: "network error")
         is SiteResultException -> "SITE_BAD_RESULT" to (e.message ?: "unexpected data")
         is UnsupportedSiteException -> "UNSUPPORTED_SITE" to (e.message ?: "unsupported")
+        is SpiderLoadException -> "SPIDER_LOAD_FAILED" to (e.message ?: "spider failed to load")
         else -> "SITE_ERROR" to (e.message ?: e.javaClass.simpleName)
     }
 

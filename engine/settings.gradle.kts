@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "tvbox-engine"
 
-include(":core", ":api", ":server")
+include(":core", ":api", ":server", ":runtime-js")

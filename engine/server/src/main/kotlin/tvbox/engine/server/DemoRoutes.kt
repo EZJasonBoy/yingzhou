@@ -49,6 +49,14 @@ class DemoSite(private val base: String) {
                 put("api", "$base/demo/api.php/provide/vod/")
                 put("searchable", 1)
             })
+            add(buildJsonObject {
+                put("key", "demo_js")
+                put("name", "演示JS站")
+                put("type", 3)
+                put("api", "$base/demo/spider.js")
+                put("searchable", 1)
+                put("ext", buildJsonObject { put("api", "$base/demo/api.php/provide/vod/") })
+            })
         })
         put("parses", buildJsonArray {
             add(buildJsonObject {
@@ -154,6 +162,24 @@ class DemoSite(private val base: String) {
         ByteArrayOutputStream().also { ImageIO.write(img, "png", it) }.toByteArray()
     }
 
+    /** A cat-style JS spider wrapping the demo CMS api, to exercise the JS runtime end to end. */
+    val spiderJs: String = """
+        let api = '';
+        async function init(cfg) { api = cfg.ext.api; }
+        async function home(filter) {
+          const d = JSON.parse((await req(api, {})).content);
+          d.list = d.list.map(v => Object.assign({}, v, { vod_remarks: 'JS · ' + (v.vod_remarks || '') }));
+          return JSON.stringify(d);
+        }
+        async function category(tid, pg, filter, extend) {
+          return (await req(api + '?ac=detail&t=' + tid + '&pg=' + pg, {})).content;
+        }
+        async function detail(id) { return (await req(api + '?ac=detail&ids=' + id, {})).content; }
+        async function search(wd, quick) { return (await req(api + '?ac=detail&wd=' + encodeURIComponent(wd), {})).content; }
+        async function play(flag, id) { return JSON.stringify({ parse: id.indexOf('/demo/page/') >= 0 ? 1 : 0, url: id }); }
+        export function __jsEvalReturn() { return { init, home, category, detail, search, play }; }
+    """.trimIndent()
+
     companion object {
         private const val LINE_SEP = "\$\$\$"
 
@@ -164,6 +190,7 @@ class DemoSite(private val base: String) {
 
 fun Route.demoRoutes(site: DemoSite) {
     get("/demo/config.json") { call.respondText(site.configJson, ContentType.Application.Json) }
+    get("/demo/spider.js") { call.respondText(site.spiderJs, ContentType.Text.JavaScript) }
     get("/demo/api.php/provide/vod/") {
         val params = call.request.queryParameters.entries().associate { (k, v) -> k to v.firstOrNull().orEmpty() }
         call.respondText(site.api(params), ContentType.Application.Json)

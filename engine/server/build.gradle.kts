@@ -5,6 +5,7 @@ plugins {
 
 dependencies {
     implementation(project(":api"))
+    implementation(project(":runtime-js"))
     implementation(libs.ktor.server.cio)
     runtimeOnly(libs.logback)
 }
