@@ -6,17 +6,22 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../app_state.dart';
+import '../engine/engine_client.dart';
+import '../engine/library_models.dart';
 import '../engine/vod_models.dart';
 import 'browse_page.dart' show errorText;
 
 /// Full-window player: resolves the episode through the engine, plays it with media_kit (libmpv on desktop),
 /// and draws its own controls so they work the same with mouse, touch and keyboard.
 class PlayerPage extends StatefulWidget {
-  const PlayerPage({super.key, required this.detail, required this.line, required this.episode});
+  const PlayerPage({super.key, required this.detail, required this.line, required this.episode, this.startPosition});
 
   final VodDetail detail;
   final int line;
   final int episode;
+
+  /// Resume point for the first episode played (from history).
+  final Duration? startPosition;
 
   @override
   State<PlayerPage> createState() => _PlayerPageState();
@@ -25,11 +30,13 @@ class PlayerPage extends StatefulWidget {
 class _PlayerPageState extends State<PlayerPage> {
   late final Player _player = Player();
   late final VideoController _video = VideoController(_player);
+  late final EngineClient _client;
   final _focus = FocusNode();
   final _subs = <StreamSubscription<dynamic>>[];
 
   late int _line = widget.line;
   late int _episode = widget.episode;
+  late Duration? _pendingSeek = widget.startPosition;
   String? _status;
   String? _error;
   String _parsedBy = '';
@@ -37,6 +44,7 @@ class _PlayerPageState extends State<PlayerPage> {
   bool _panelOpen = false;
   bool _opening = false;
   Timer? _hideTimer;
+  Timer? _saveTimer;
   int _requestSeq = 0;
 
   PlayLine get _currentLine => widget.detail.lines[_line];
@@ -46,9 +54,19 @@ class _PlayerPageState extends State<PlayerPage> {
   @override
   void initState() {
     super.initState();
+    _client = AppScope.read(context).client;
     _subs.add(_player.stream.completed.listen((done) {
       if (done && _hasNext) _openEpisode(_line, _episode + 1);
     }));
+    // Resume once the media knows its length (seeking earlier is ignored by some backends).
+    _subs.add(_player.stream.duration.listen((d) {
+      final seek = _pendingSeek;
+      if (seek != null && d > Duration.zero && seek < d - const Duration(seconds: 5)) {
+        _pendingSeek = null;
+        _player.seek(seek);
+      }
+    }));
+    _saveTimer = Timer.periodic(const Duration(seconds: 10), (_) => _saveProgress());
     _subs.add(_player.stream.error.listen((e) {
       // Stopping/replacing the media emits errors (e.g. "empty src" on web); only report real playback errors.
       if (mounted && !_opening) setState(() => _error = '播放出错：$e');
@@ -63,6 +81,8 @@ class _PlayerPageState extends State<PlayerPage> {
   @override
   void dispose() {
     _hideTimer?.cancel();
+    _saveTimer?.cancel();
+    _saveProgress();
     for (final s in _subs) {
       s.cancel();
     }
@@ -71,9 +91,33 @@ class _PlayerPageState extends State<PlayerPage> {
     super.dispose();
   }
 
+  /// Records where we are, so any client of this engine can resume. Failures are ignored (best effort).
+  void _saveProgress({bool episodeStart = false}) {
+    final d = widget.detail;
+    final position = episodeStart ? Duration.zero : _player.state.position;
+    final duration = episodeStart ? Duration.zero : _player.state.duration;
+    if (!episodeStart && duration <= Duration.zero) return;
+    _client
+        .putHistory(HistoryEntry(
+          site: d.site,
+          vodId: d.id,
+          name: d.name,
+          pic: d.pic,
+          line: _currentLine.name,
+          episodeId: _currentEpisode.id,
+          episodeName: _currentEpisode.name,
+          episodeIndex: _episode,
+          positionMs: position.inMilliseconds,
+          durationMs: duration.inMilliseconds,
+        ))
+        .catchError((Object _) {});
+  }
+
   Future<void> _openEpisode(int line, int episode) async {
     final seq = ++_requestSeq;
-    final client = AppScope.read(context).client;
+    final client = _client;
+    final isFirst = seq == 1;
+    if (!isFirst) _saveProgress();
     setState(() {
       _line = line;
       _episode = episode;
@@ -81,6 +125,8 @@ class _PlayerPageState extends State<PlayerPage> {
       _error = null;
       _parsedBy = '';
     });
+    if (!isFirst) _pendingSeek = null;
+    if (_pendingSeek == null) _saveProgress(episodeStart: true);
     _opening = true;
     await _player.stop();
     try {

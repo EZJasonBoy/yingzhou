@@ -7,11 +7,16 @@ import 'package:tvbox_client/main.dart';
 import 'fake_engine.dart';
 
 void main() {
-  Future<void> pumpApp(WidgetTester tester, {bool hasConfig = false, Size size = const Size(1400, 900)}) async {
+  Future<void> pumpApp(
+    WidgetTester tester, {
+    bool hasConfig = false,
+    Size size = const Size(1400, 900),
+    List<Map<String, Object>> history = const [],
+  }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    final engine = fakeEngine(hasConfig: hasConfig);
+    final engine = fakeEngine(hasConfig: hasConfig, history: history);
     await tester.pumpWidget(TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url, httpClient: engine))));
     await tester.pumpAndSettle();
   }
@@ -57,6 +62,63 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('推荐片'), findsWidgets);
     expect(find.textContaining('搜索完成 · 1/1 个站点 · 找到 1 条'), findsOneWidget);
+  });
+
+  testWidgets('detail offers resume from history, favorites show up under 我的', (tester) async {
+    await pumpApp(tester, hasConfig: true, history: [
+      {
+        'site': 'cms',
+        'vodId': '7',
+        'name': '推荐片',
+        'line': '线路一',
+        'episodeId': 'https://cdn.test/2.m3u8',
+        'episodeName': '第2集',
+        'episodeIndex': 1,
+        'positionMs': 61000,
+        'durationMs': 122000,
+        'updatedAt': 1,
+      },
+    ]);
+
+    await tester.tap(find.text('推荐片'));
+    await tester.pumpAndSettle();
+    expect(find.text('继续播放 第2集  01:01'), findsOneWidget);
+    expect(find.text('从头播放'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('收藏'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('取消收藏'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+    expect(find.text('推荐片'), findsWidgets, reason: 'history entry');
+    expect(find.text('第2集'), findsOneWidget, reason: 'episode shown on the history card');
+
+    await tester.tap(find.text('收藏'));
+    await tester.pumpAndSettle();
+    expect(find.text('片名'), findsOneWidget, reason: 'favorite saved from the detail page');
+  });
+
+  testWidgets('resume picks the recorded episode even when episodes share a url', (tester) async {
+    await pumpApp(tester, hasConfig: true, history: [
+      {
+        'site': 'cms',
+        'vodId': '7',
+        'name': '推荐片',
+        'line': '线路一',
+        'episodeId': 'https://cdn.test/2.m3u8',
+        'episodeName': '第3集',
+        'episodeIndex': 2,
+        'positionMs': 5000,
+        'durationMs': 100000,
+        'updatedAt': 1,
+      },
+    ]);
+    await tester.tap(find.text('推荐片'));
+    await tester.pumpAndSettle();
+    expect(find.text('继续播放 第3集  00:05'), findsOneWidget);
   });
 
   testWidgets('phone layout uses a bottom navigation bar', (tester) async {

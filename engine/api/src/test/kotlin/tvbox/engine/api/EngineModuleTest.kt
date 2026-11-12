@@ -1,7 +1,9 @@
 package tvbox.engine.api
 
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -110,6 +112,29 @@ class EngineModuleTest {
         } finally {
             upstream.shutdown()
         }
+    }
+
+    @Test
+    fun `history and favorites round trip, including ids with slashes`() = testApplication {
+        application { engineModule(engine()) }
+        val id = java.net.URLEncoder.encode("https://site.test/vod/1", "UTF-8")
+        val put = client.put("/api/v1/history/s/$id") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"site":"ignored","vodId":"ignored","name":"片","episodeIndex":2,"positionMs":61000}""")
+        }
+        assertEquals(HttpStatusCode.OK, put.status)
+        val entry = EngineJson.parseToJsonElement(client.get("/api/v1/history/s/$id").bodyAsText()).jsonObject
+        assertEquals("https://site.test/vod/1", entry["vodId"]!!.jsonPrimitive.content)
+        assertEquals("61000", entry["positionMs"]!!.jsonPrimitive.content)
+        assertEquals(1, EngineJson.parseToJsonElement(client.get("/api/v1/history").bodyAsText()).jsonArray.size)
+
+        client.put("/api/v1/favorites/s/$id") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"site":"s","vodId":"x","name":"片"}""")
+        }
+        assertEquals(HttpStatusCode.OK, client.get("/api/v1/favorites/s/$id").status)
+        client.delete("/api/v1/favorites/s/$id")
+        assertEquals(HttpStatusCode.NotFound, client.get("/api/v1/favorites/s/$id").status)
     }
 
     @Test

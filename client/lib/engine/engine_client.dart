@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'library_models.dart';
 import 'models.dart';
 import 'vod_models.dart';
 
@@ -63,6 +64,49 @@ class EngineClient {
 
   Future<PlayInfo> resolvePlay(String site, String line, String episodeId) async =>
       PlayInfo.fromJson(await _send('POST', 'play/resolve', body: {'site': site, 'line': line, 'episodeId': episodeId}));
+
+  // ---- library ----
+
+  Future<List<HistoryEntry>> history({int limit = 100}) async => [
+        for (final h in await _send('GET', 'history', query: {'limit': '$limit'}) as List<dynamic>)
+          HistoryEntry.fromJson(h as Map<String, dynamic>),
+      ];
+
+  /// Null when the video has no history.
+  Future<HistoryEntry?> historyFor(String site, String vodId) async {
+    try {
+      return HistoryEntry.fromJson(await _send('GET', 'history/${_seg(site)}/${_seg(vodId)}'));
+    } on EngineException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  Future<void> putHistory(HistoryEntry entry) =>
+      _send('PUT', 'history/${_seg(entry.site)}/${_seg(entry.vodId)}', body: entry.toJson());
+
+  Future<void> removeHistory(String site, String vodId) => _send('DELETE', 'history/${_seg(site)}/${_seg(vodId)}');
+
+  Future<void> clearHistory() => _send('DELETE', 'history');
+
+  Future<List<FavoriteEntry>> favorites() async => [
+        for (final f in await _send('GET', 'favorites') as List<dynamic>) FavoriteEntry.fromJson(f as Map<String, dynamic>),
+      ];
+
+  Future<bool> isFavorite(String site, String vodId) async {
+    try {
+      await _send('GET', 'favorites/${_seg(site)}/${_seg(vodId)}');
+      return true;
+    } on EngineException catch (e) {
+      if (e.statusCode == 404) return false;
+      rethrow;
+    }
+  }
+
+  Future<void> putFavorite(FavoriteEntry entry) =>
+      _send('PUT', 'favorites/${_seg(entry.site)}/${_seg(entry.vodId)}', body: entry.toJson());
+
+  Future<void> removeFavorite(String site, String vodId) => _send('DELETE', 'favorites/${_seg(site)}/${_seg(vodId)}');
 
   /// Aggregated search over every searchable site, streamed as each site answers (SSE).
   Stream<SearchEvent> searchAll(String keyword, {Set<String>? sites}) async* {

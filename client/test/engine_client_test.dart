@@ -42,7 +42,7 @@ void main() {
     expect(home.filters['1']!.single.values.length, 2);
 
     final detail = await client.detail('cms', '7');
-    expect(detail.lines.single.episodes.map((e) => e.name), ['第1集', '第2集']);
+    expect(detail.lines.single.episodes.map((e) => e.name), ['第1集', '第2集', '第3集']);
 
     final events = await client.searchAll('推荐').toList();
     expect(events.whereType<SearchResults>().single.items.single.name, '推荐片');

@@ -4,8 +4,10 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 /// A tiny in-memory stand-in for the engine's HTTP API.
-MockClient fakeEngine({bool hasConfig = false}) {
+MockClient fakeEngine({bool hasConfig = false, List<Map<String, Object>> history = const []}) {
   var configured = hasConfig;
+  final historyById = {for (final h in history) h['vodId'] as String: h};
+  final favoritesById = <String, Map<String, dynamic>>{};
 
   http.Response json(Object body, [int status = 200]) => http.Response.bytes(
         utf8.encode(jsonEncode(body)),
@@ -35,6 +37,32 @@ MockClient fakeEngine({bool hasConfig = false}) {
   return MockClient((request) async {
     final path = request.url.path;
     if (!configured && path.startsWith('/api/v1/sites')) return json(noConfig, 409);
+
+    // Library: /history[/cms/<id>] and /favorites[/cms/<id>]
+    final lib = RegExp(r'^/api/v1/(history|favorites)(?:/cms/(.+))?$').firstMatch(path);
+    if (lib != null) {
+      final store = lib.group(1) == 'history' ? historyById : favoritesById;
+      final id = lib.group(2) == null ? null : Uri.decodeComponent(lib.group(2)!);
+      if (id == null) {
+        if (request.method == 'DELETE') {
+          store.clear();
+          return http.Response('', 204);
+        }
+        return json(store.values.toList());
+      }
+      switch (request.method) {
+        case 'GET':
+          return store.containsKey(id) ? json(store[id]!) : json({'error': {'code': 'NOT_FOUND', 'message': 'none'}}, 404);
+        case 'PUT':
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          store[id] = {...body, 'site': 'cms', 'vodId': id};
+          return json(store[id]!);
+        case 'DELETE':
+          store.remove(id);
+          return http.Response('', 204);
+      }
+    }
+
     switch ((request.method, path)) {
       case ('GET', '/api/v1/info'):
         return json({
@@ -88,6 +116,8 @@ MockClient fakeEngine({bool hasConfig = false}) {
               'episodes': [
                 {'id': 'https://cdn.test/1.m3u8', 'name': '第1集'},
                 {'id': 'https://cdn.test/2.m3u8', 'name': '第2集'},
+                // Sites sometimes reuse one url for several episodes.
+                {'id': 'https://cdn.test/2.m3u8', 'name': '第3集'},
               ],
             },
           ],

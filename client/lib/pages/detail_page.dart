@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
+import '../engine/library_models.dart';
 import '../engine/vod_models.dart';
 import '../ui/common.dart';
 import 'browse_page.dart' show errorText;
@@ -26,21 +27,73 @@ class _DetailPageState extends State<DetailPage> {
   late Future<VodDetail> _detail;
   int _line = 0;
   bool _expanded = false;
+  HistoryEntry? _history;
+  bool _favorite = false;
+  bool _lineFromHistory = false;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _loadLibrary();
   }
 
   void _load() {
     _detail = AppScope.read(context).client.detail(widget.preview.site, widget.preview.id);
   }
 
-  void _play(VodDetail detail, int line, int episode) {
-    Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => PlayerPage(detail: detail, line: line, episode: episode),
+  Future<void> _loadLibrary() async {
+    final client = AppScope.read(context).client;
+    final site = widget.preview.site;
+    final id = widget.preview.id;
+    try {
+      final results = await Future.wait([client.historyFor(site, id), client.isFavorite(site, id)]);
+      if (!mounted) return;
+      setState(() {
+        _history = results[0] as HistoryEntry?;
+        _favorite = results[1] as bool;
+      });
+    } catch (_) {
+      // Library is a nice-to-have on this page; browsing still works without it.
+    }
+  }
+
+  Future<void> _toggleFavorite(VodDetail d) async {
+    final client = AppScope.read(context).client;
+    final next = !_favorite;
+    setState(() => _favorite = next);
+    try {
+      if (next) {
+        await client.putFavorite(FavoriteEntry(site: d.site, vodId: d.id, name: d.name, pic: d.pic, remarks: d.remarks));
+      } else {
+        await client.removeFavorite(d.site, d.id);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _favorite = !next);
+    }
+  }
+
+  Future<void> _play(VodDetail detail, int line, int episode, {Duration? start}) async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => PlayerPage(detail: detail, line: line, episode: episode, startPosition: start),
     ));
+    if (mounted) _loadLibrary();
+  }
+
+  /// Where the history says we were: (line, episode, position), matched by line name and episode id.
+  (int, int, Duration)? _resumePoint(VodDetail d) {
+    final h = _history;
+    if (h == null || d.lines.isEmpty) return null;
+    var line = d.lines.indexWhere((l) => l.name == h.line);
+    if (line < 0) line = _line.clamp(0, d.lines.length - 1);
+    final episodes = d.lines[line].episodes;
+    if (episodes.isEmpty) return null;
+    // Prefer the recorded position when it still holds the same episode: sites sometimes reuse one url
+    // for several episodes, so matching by id alone can land on the wrong one.
+    final atIndex = h.episodeIndex >= 0 && h.episodeIndex < episodes.length && episodes[h.episodeIndex].id == h.episodeId;
+    var ep = atIndex ? h.episodeIndex : episodes.indexWhere((e) => e.id == h.episodeId);
+    if (ep < 0) ep = h.episodeIndex.clamp(0, episodes.length - 1);
+    return (line, ep, Duration(milliseconds: h.positionMs));
   }
 
   @override
@@ -78,6 +131,12 @@ class _DetailPageState extends State<DetailPage> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final wide = MediaQuery.sizeOf(context).width >= 720;
+    final resume = _resumePoint(d);
+    if (resume != null && !_lineFromHistory) {
+      // Start on the line the user watched last time.
+      _lineFromHistory = true;
+      _line = resume.$1;
+    }
     final line = d.lines.isEmpty ? null : d.lines[_line.clamp(0, d.lines.length - 1)];
     final meta = [d.year, d.area, d.type, d.remarks].where((s) => s.isNotEmpty).join(' · ');
 
@@ -96,11 +155,38 @@ class _DetailPageState extends State<DetailPage> {
         if (d.director.isNotEmpty) ...[const SizedBox(height: 10), _kv('导演', d.director, scheme)],
         if (d.actor.isNotEmpty) ...[const SizedBox(height: 4), _kv('主演', d.actor, scheme)],
         const SizedBox(height: 18),
-        FilledButton.icon(
-          onPressed: line == null || line.episodes.isEmpty ? null : () => _play(d, _line, 0),
-          icon: const Icon(Icons.play_arrow_rounded),
-          label: Text(line == null ? '暂无播放线路' : '播放'),
-          style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16)),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            if (resume != null)
+              FilledButton.icon(
+                onPressed: () => _play(d, resume.$1, resume.$2, start: resume.$3),
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: Text('继续播放 ${d.lines[resume.$1].episodes[resume.$2].name}  ${_fmt(resume.$3)}'),
+                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16)),
+              )
+            else
+              FilledButton.icon(
+                onPressed: line == null || line.episodes.isEmpty ? null : () => _play(d, _line, 0),
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: Text(line == null ? '暂无播放线路' : '播放'),
+                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16)),
+              ),
+            if (resume != null && line != null && line.episodes.isNotEmpty)
+              OutlinedButton(
+                onPressed: () => _play(d, _line, 0),
+                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16)),
+                child: const Text('从头播放'),
+              ),
+            IconButton.filledTonal(
+              tooltip: _favorite ? '取消收藏' : '收藏',
+              onPressed: () => _toggleFavorite(d),
+              icon: Icon(_favorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                  color: _favorite ? Colors.pinkAccent : null),
+            ),
+          ],
         ),
       ],
     );
@@ -154,6 +240,8 @@ class _DetailPageState extends State<DetailPage> {
                       onPressed: () => _play(d, _line, i),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
+                        // The episode watched last time is highlighted.
+                        backgroundColor: resume != null && resume.$1 == _line && resume.$2 == i ? scheme.primaryContainer : null,
                         side: BorderSide(color: scheme.outlineVariant),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
@@ -176,6 +264,13 @@ class _DetailPageState extends State<DetailPage> {
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
       );
+
+  static String _fmt(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return h > 0 ? '$h:$m:$s' : '$m:$s';
+  }
 
   /// Site descriptions often contain HTML.
   static String _plain(String html) => html

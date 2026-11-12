@@ -20,6 +20,7 @@ import io.ktor.server.routing.RoutingCall
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
+import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.ktor.http.CacheControl
@@ -33,6 +34,8 @@ import tvbox.engine.core.model.ActivateRequest
 import tvbox.engine.core.model.AddSubscriptionRequest
 import tvbox.engine.core.model.ApiError
 import tvbox.engine.core.model.ErrorBody
+import tvbox.engine.core.model.FavoriteEntry
+import tvbox.engine.core.model.HistoryEntry
 import tvbox.engine.core.model.PlayRequest
 import tvbox.engine.core.search.SearchEvent
 
@@ -149,11 +152,53 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
             post("/play/resolve") {
                 call.respond(engine.resolvePlay(call.receive<PlayRequest>()))
             }
+
+            route("/history") {
+                get { call.respond(engine.library.history(call.parameters["limit"]?.toIntOrNull() ?: 100)) }
+                delete {
+                    engine.library.clearHistory()
+                    call.respond(HttpStatusCode.NoContent)
+                }
+                route("/{site}/{vodId}") {
+                    get {
+                        val entry = engine.library.historyFor(call.site(), call.vodId()) ?: throw EngineException.NotFound("no history for this video")
+                        call.respond(entry)
+                    }
+                    put {
+                        val body = call.receive<HistoryEntry>()
+                        call.respond(engine.library.putHistory(body.copy(site = call.site(), vodId = call.vodId())))
+                    }
+                    delete {
+                        engine.library.removeHistory(call.site(), call.vodId())
+                        call.respond(HttpStatusCode.NoContent)
+                    }
+                }
+            }
+
+            route("/favorites") {
+                get { call.respond(engine.library.favorites()) }
+                route("/{site}/{vodId}") {
+                    get {
+                        val entry = engine.library.favoriteFor(call.site(), call.vodId()) ?: throw EngineException.NotFound("not a favorite")
+                        call.respond(entry)
+                    }
+                    put {
+                        val body = call.receive<FavoriteEntry>()
+                        call.respond(engine.library.putFavorite(body.copy(site = call.site(), vodId = call.vodId())))
+                    }
+                    delete {
+                        engine.library.removeFavorite(call.site(), call.vodId())
+                        call.respond(HttpStatusCode.NoContent)
+                    }
+                }
+            }
         }
     }
 }
 
 private fun RoutingCall.site(): String = parameters["site"]!!
+
+private fun RoutingCall.vodId(): String = parameters["vodId"]!!
 
 private fun RoutingCall.required(name: String): String =
     parameters[name]?.takeIf { it.isNotBlank() } ?: throw EngineException.BadRequest("missing parameter: $name")

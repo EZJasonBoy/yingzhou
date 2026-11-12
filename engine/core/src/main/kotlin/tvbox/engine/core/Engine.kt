@@ -30,6 +30,10 @@ import tvbox.engine.core.site.ExtResolver
 import tvbox.engine.core.site.RemoteSource
 import tvbox.engine.core.site.SiteSource
 import tvbox.engine.core.site.UnsupportedSiteException
+import tvbox.engine.core.store.EngineStore
+import tvbox.engine.core.store.Library
+import tvbox.engine.core.store.MemoryStore
+import tvbox.engine.core.store.SubscriptionState
 import tvbox.engine.core.vod.SiteResultException
 import java.util.UUID
 
@@ -45,8 +49,8 @@ sealed class EngineException(val code: String, message: String) : Exception(mess
 }
 
 /**
- * Engine state: subscriptions, the active config and its site sources.
- * Subscriptions are in memory for now; persistence comes with the storage layer.
+ * Engine state: subscriptions, the active config and its site sources, plus the user's library
+ * (history, favorites). Subscriptions and the library are persisted through [store].
  */
 class Engine(
     val info: EngineInfo,
@@ -54,7 +58,9 @@ class Engine(
     private val http: SiteHttp,
     /** Where `proxy://` urls point, e.g. `http://127.0.0.1:9978/proxy?`. */
     proxyBase: String,
+    private val store: EngineStore = MemoryStore(),
 ) {
+    val library = Library(store)
     private class Active(
         val subscriptionId: String,
         val url: String,
@@ -72,6 +78,17 @@ class Engine(
     @Volatile
     private var active: Active? = null
 
+    /** The subscription to restore on the next start (persisted). */
+    private var savedActiveId: String? = null
+    private var savedActiveRepo: String? = null
+
+    init {
+        val saved = store.loadSubscriptions()
+        saved.subscriptions.forEach { subscriptions[it.id] = it }
+        savedActiveId = saved.activeId
+        savedActiveRepo = saved.activeRepo
+    }
+
     // ---- subscriptions ----
 
     suspend fun subscriptions(): List<Subscription> = lock.withLock { subscriptions.values.toList() }
@@ -83,6 +100,7 @@ class Engine(
             subscriptions.values.firstOrNull { it.url == trimmed }?.let { return@withLock it }
             val sub = Subscription(UUID.randomUUID().toString().take(8), name?.trim()?.ifEmpty { null } ?: trimmed, trimmed)
             subscriptions[sub.id] = sub
+            persistSubscriptions()
             sub
         }
     }
@@ -91,7 +109,23 @@ class Engine(
         lock.withLock {
             subscriptions.remove(id) ?: throw EngineException.NotFound("subscription $id")
             if (active?.subscriptionId == id) active = null
+            if (savedActiveId == id) {
+                savedActiveId = null
+                savedActiveRepo = null
+            }
+            persistSubscriptions()
         }
+    }
+
+    /** Re-activates the subscription that was active when the engine last ran. Null when there is none. */
+    suspend fun restore(): Result<ConfigSummary>? {
+        val id = savedActiveId ?: return null
+        return runCatching { activate(id, savedActiveRepo) }
+    }
+
+    /** Caller holds [lock]. */
+    private fun persistSubscriptions() {
+        store.saveSubscriptions(SubscriptionState(subscriptions.values.toList(), savedActiveId, savedActiveRepo))
     }
 
     /**
@@ -116,7 +150,12 @@ class Engine(
         }
         ext.clear()
         val loaded = Active(id, url, repos, config, config.sites.associate { it.key to createSource(it) })
-        active = loaded
+        lock.withLock {
+            active = loaded
+            savedActiveId = id
+            savedActiveRepo = if (repos.isEmpty()) null else url
+            persistSubscriptions()
+        }
         return summary(loaded)
     }
 

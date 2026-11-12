@@ -13,22 +13,29 @@ import tvbox.engine.core.config.ConfigLocator
 import tvbox.engine.core.model.Capabilities
 import tvbox.engine.core.model.EngineInfo
 import tvbox.engine.core.net.SiteHttp
+import tvbox.engine.core.store.JsonFileStore
+import tvbox.engine.core.store.MemoryStore
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
  * Standalone engine (desktop sidecar / Docker).
  *
- *   tvbox-engine [--port 9978] [--lan] [--subscribe <url>] [--demo] [--dev-cors]
+ *   tvbox-engine [--port 9978] [--lan] [--data <dir>] [--subscribe <url>] [--demo] [--dev-cors]
  *
  * - Port 9978 is the TVBox default; jar spiders look for their host on 9978..9999.
  * - Without --lan the engine only listens on 127.0.0.1.
- * - --demo serves a fake site under /demo and subscribes to it (development only).
+ * - --data is where subscriptions, history and favorites are kept (default ~/.tvbox-next/engine).
+ * - --demo serves a fake site under /demo and subscribes to it; it keeps data in memory unless --data is given.
  * - --dev-cors lets pages on http://localhost:* call the engine (Flutter web during development).
  */
 fun main(args: Array<String>) {
     val port = argValue(args, "--port")?.toIntOrNull() ?: 9978
     val host = if ("--lan" in args) "0.0.0.0" else "127.0.0.1"
     val local = "http://127.0.0.1:$port"
+    val dataDir = argValue(args, "--data")?.let(::File)
+        ?: if ("--demo" in args) null else File(System.getProperty("user.home"), ".tvbox-next/engine")
+    val store = dataDir?.let { JsonFileStore(it) } ?: MemoryStore()
 
     val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -44,6 +51,7 @@ fun main(args: Array<String>) {
         loader = ConfigLoader(client, ConfigLocator("$local/file/")),
         http = SiteHttp(client),
         proxyBase = "$local/proxy?",
+        store = store,
     )
     val demo = if ("--demo" in args) DemoSite(local) else null
 
@@ -51,16 +59,19 @@ fun main(args: Array<String>) {
         engineModule(engine, EngineModuleOptions(allowLocalhostCors = "--dev-cors" in args))
         if (demo != null) routing { demoRoutes(demo) }
     }.start(wait = false)
-    println("tvbox-engine listening on http://$host:$port")
+    println("tvbox-engine listening on http://$host:$port" + (dataDir?.let { ", data in ${it.absolutePath}" } ?: ", data in memory"))
 
     val subscribe = argValue(args, "--subscribe") ?: demo?.let { "$local/demo/config.json" }
-    subscribe?.let { url ->
-        runBlocking {
-            val sub = engine.addSubscription(url, if (demo != null && url.endsWith("/demo/config.json")) "演示订阅" else null)
+    runBlocking {
+        val result = if (subscribe != null) {
+            val sub = engine.addSubscription(subscribe, if (demo != null && subscribe.endsWith("/demo/config.json")) "演示订阅" else null)
             runCatching { engine.activate(sub.id) }
-                .onSuccess { println("loaded ${it.url}: ${it.sites} sites, ${it.parses} parses, ${it.lives} live groups") }
-                .onFailure { println("failed to load $url: ${it.message}") }
+        } else {
+            engine.restore()
         }
+        result
+            ?.onSuccess { println("loaded ${it.url}: ${it.sites} sites, ${it.parses} parses, ${it.lives} live groups") }
+            ?.onFailure { println("failed to load the subscription: ${it.message}") }
     }
 
     Runtime.getRuntime().addShutdownHook(Thread { server.stop(500, 2000) })
