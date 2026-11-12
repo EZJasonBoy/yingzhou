@@ -149,7 +149,7 @@ class DemoSite(private val base: String) {
         name.chunked(6).forEachIndexed { i, line -> g.drawString(line, 24, 70 + i * 40) }
         g.font = Font(Font.SANS_SERIF, Font.PLAIN, 18)
         g.color = Color(255, 255, 255, 180)
-        g.drawString((item?.year ?: 2025).toString(), 24, h - 30)
+        g.drawString((item?.year ?: 2025).toString(), 24, 70 + 40 * (name.chunked(6).size - 1) + 34)
         g.dispose()
         ByteArrayOutputStream().also { ImageIO.write(img, "png", it) }.toByteArray()
     }

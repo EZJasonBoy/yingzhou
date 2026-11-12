@@ -3,11 +3,11 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'models.dart';
+import 'vod_models.dart';
 
 /// Client for engine protocol v1. The same client talks to the built-in engine and to remote ones.
 class EngineClient {
-  EngineClient(this.baseUrl, {http.Client? httpClient, this.token})
-      : _http = httpClient ?? http.Client();
+  EngineClient(this.baseUrl, {http.Client? httpClient, this.token}) : _http = httpClient ?? http.Client();
 
   /// e.g. `http://127.0.0.1:9978`
   final Uri baseUrl;
@@ -16,11 +16,12 @@ class EngineClient {
 
   static const timeout = Duration(seconds: 60);
 
+  // ---- engine and subscriptions ----
+
   Future<EngineInfo> info() async => EngineInfo.fromJson(await _send('GET', 'info'));
 
   Future<List<Subscription>> subscriptions() async => [
-        for (final s in await _send('GET', 'subscriptions') as List<dynamic>)
-          Subscription.fromJson(s as Map<String, dynamic>),
+        for (final s in await _send('GET', 'subscriptions') as List<dynamic>) Subscription.fromJson(s as Map<String, dynamic>),
       ];
 
   Future<Subscription> addSubscription(String url, {String? name}) async =>
@@ -40,15 +41,91 @@ class EngineClient {
   Future<ConfigSummary> config() async => ConfigSummary.fromJson(await _send('GET', 'config'));
 
   Future<List<SiteInfo>> sites() async => [
-        for (final s in await _send('GET', 'sites') as List<dynamic>)
-          SiteInfo.fromJson(s as Map<String, dynamic>),
+        for (final s in await _send('GET', 'sites') as List<dynamic>) SiteInfo.fromJson(s as Map<String, dynamic>),
       ];
+
+  // ---- browsing ----
+
+  Future<HomeResult> home(String site) async => HomeResult.fromJson(await _send('GET', 'sites/${_seg(site)}/home'));
+
+  Future<VodPage> category(String site, String classId, {int page = 1, Map<String, String> filters = const {}}) async =>
+      VodPage.fromJson(await _send('GET', 'sites/${_seg(site)}/category', query: {
+        'tid': classId,
+        'pg': '$page',
+        if (filters.isNotEmpty) 'f': jsonEncode(filters),
+      }));
+
+  Future<VodDetail> detail(String site, String id) async =>
+      VodDetail.fromJson(await _send('GET', 'sites/${_seg(site)}/detail', query: {'id': id}));
+
+  Future<VodPage> search(String site, String keyword, {int page = 1}) async =>
+      VodPage.fromJson(await _send('GET', 'sites/${_seg(site)}/search', query: {'wd': keyword, 'pg': '$page'}));
+
+  Future<PlayInfo> resolvePlay(String site, String line, String episodeId) async =>
+      PlayInfo.fromJson(await _send('POST', 'play/resolve', body: {'site': site, 'line': line, 'episodeId': episodeId}));
+
+  /// Aggregated search over every searchable site, streamed as each site answers (SSE).
+  Stream<SearchEvent> searchAll(String keyword, {Set<String>? sites}) async* {
+    final request = http.Request('GET', _uri('search/stream', {
+      'wd': keyword,
+      if (sites != null && sites.isNotEmpty) 'sites': sites.join(','),
+    }));
+    request.headers['Accept'] = 'text/event-stream';
+    _auth(request);
+
+    final http.StreamedResponse response;
+    try {
+      response = await _http.send(request).timeout(timeout);
+    } on Exception catch (e) {
+      throw EngineException('UNREACHABLE', '无法连接引擎：$e');
+    }
+    if (response.statusCode != 200) {
+      throw _error(response.statusCode, await response.stream.bytesToString());
+    }
+
+    String? event;
+    final data = StringBuffer();
+    await for (final line in response.stream.transform(utf8.decoder).transform(const LineSplitter())) {
+      if (line.isEmpty) {
+        if (event != null && data.isNotEmpty) {
+          final json = jsonDecode(data.toString()) as Map<String, dynamic>;
+          switch (event) {
+            case 'site':
+              yield SearchSiteStatus.fromJson(json);
+            case 'results':
+              yield SearchResults.fromJson(json);
+            case 'end':
+              yield SearchEnd.fromJson(json);
+          }
+        }
+        event = null;
+        data.clear();
+      } else if (line.startsWith('event:')) {
+        event = line.substring(6).trim();
+      } else if (line.startsWith('data:')) {
+        data.write(line.substring(5).trim());
+      }
+    }
+  }
 
   void close() => _http.close();
 
-  Future<dynamic> _send(String method, String path, {Object? body}) async {
-    final request = http.Request(method, baseUrl.resolve('/api/v1/$path'));
+  // ---- plumbing ----
+
+  String _seg(String s) => Uri.encodeComponent(s);
+
+  Uri _uri(String path, [Map<String, String>? query]) {
+    final u = baseUrl.resolve('/api/v1/$path');
+    return query == null || query.isEmpty ? u : u.replace(queryParameters: query);
+  }
+
+  void _auth(http.BaseRequest request) {
     if (token != null) request.headers['Authorization'] = 'Bearer $token';
+  }
+
+  Future<dynamic> _send(String method, String path, {Object? body, Map<String, String>? query}) async {
+    final request = http.Request(method, _uri(path, query));
+    _auth(request);
     if (body != null) {
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode(body);
@@ -65,17 +142,15 @@ class EngineClient {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return text.isEmpty ? null : jsonDecode(text);
     }
+    throw _error(response.statusCode, text);
+  }
+
+  EngineException _error(int status, String text) {
     try {
       final error = (jsonDecode(text) as Map<String, dynamic>)['error'] as Map<String, dynamic>;
-      throw EngineException(
-        error['code'] as String,
-        error['message'] as String,
-        statusCode: response.statusCode,
-      );
-    } on EngineException {
-      rethrow;
+      return EngineException(error['code'] as String, error['message'] as String, statusCode: status);
     } catch (_) {
-      throw EngineException('HTTP_${response.statusCode}', text, statusCode: response.statusCode);
+      return EngineException('HTTP_$status', text, statusCode: status);
     }
   }
 }

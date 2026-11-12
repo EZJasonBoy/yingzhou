@@ -1,0 +1,406 @@
+import 'package:material_ui/material_ui.dart';
+
+import '../app_state.dart';
+import '../engine/models.dart';
+import '../engine/vod_models.dart';
+import '../ui/common.dart';
+import '../ui/poster.dart';
+import 'detail_page.dart';
+
+/// 首页：current site's recommendations and categories.
+class BrowsePage extends StatelessWidget {
+  const BrowsePage({super.key, required this.onOpenSources});
+
+  final VoidCallback onOpenSources;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final site = state.currentSite;
+    final Widget body;
+    if (!state.connected) {
+      body = StatusView(icon: Icons.link_off, message: state.error ?? '还没有连接引擎', actionLabel: '去设置', onAction: onOpenSources);
+    } else if (!state.hasConfig) {
+      body = StatusView(icon: Icons.playlist_add, message: '还没有导入订阅', actionLabel: '导入订阅', onAction: onOpenSources);
+    } else if (site == null) {
+      body = StatusView(icon: Icons.block, message: '当前订阅里没有可浏览的站点\n（JS / JAR / PY 站点的运行时还在开发中）', actionLabel: '查看站点', onAction: onOpenSources);
+    } else {
+      body = _SiteBrowser(key: ValueKey(site.key), site: site);
+    }
+    return Scaffold(body: SafeArea(child: body));
+  }
+}
+
+class _SiteBrowser extends StatefulWidget {
+  const _SiteBrowser({super.key, required this.site});
+
+  final SiteInfo site;
+
+  @override
+  State<_SiteBrowser> createState() => _SiteBrowserState();
+}
+
+class _SiteBrowserState extends State<_SiteBrowser> {
+  late Future<HomeResult> _home;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  void _load() {
+    _home = AppScope.read(context).client.home(widget.site.key);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<HomeResult>(
+      future: _home,
+      builder: (context, snap) {
+        final header = _Header(site: widget.site);
+        if (snap.connectionState != ConnectionState.done) {
+          return Column(children: [header, const Expanded(child: LoadingView())]);
+        }
+        if (snap.hasError) {
+          return Column(children: [
+            header,
+            Expanded(
+              child: StatusView(
+                icon: Icons.cloud_off,
+                message: '${widget.site.name} 加载失败\n${errorText(snap.error)}',
+                actionLabel: '重试',
+                onAction: () => setState(_load),
+              ),
+            ),
+          ]);
+        }
+        final home = snap.data!;
+        final hasRecommend = home.list.isNotEmpty;
+        final tabs = [if (hasRecommend) '推荐', for (final c in home.classes) c.name];
+        if (tabs.isEmpty) {
+          return Column(children: [header, const Expanded(child: StatusView(icon: Icons.inbox, message: '这个站点没有返回分类'))]);
+        }
+        return DefaultTabController(
+          length: tabs.length,
+          child: Column(
+            children: [
+              header,
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TabBar(isScrollable: true, tabs: [for (final t in tabs) Tab(text: t, height: 40)]),
+              ),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    if (hasRecommend) _VodGrid.fixed(items: home.list),
+                    for (final c in home.classes)
+                      _CategoryView(site: widget.site.key, classId: c.id, filters: home.filters[c.id] ?? const []),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _Header extends StatelessWidget {
+  const _Header({required this.site});
+
+  final SiteInfo site;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 14, 12, 4),
+      child: Row(
+        children: [
+          Text('首页', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(width: 16),
+          MenuAnchor(
+            menuChildren: [
+              for (final s in state.browsableSites)
+                MenuItemButton(
+                  leadingIcon: Icon(s.key == site.key ? Icons.check : null, size: 18),
+                  onPressed: () => state.selectSite(s.key),
+                  child: Text(s.name),
+                ),
+            ],
+            builder: (context, controller, _) => ActionChip(
+              avatar: const Icon(Icons.dns_outlined, size: 18),
+              label: Row(mainAxisSize: MainAxisSize.min, children: [Text(site.name), const Icon(Icons.arrow_drop_down, size: 20)]),
+              onPressed: () => controller.isOpen ? controller.close() : controller.open(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A category: filter bar + paged poster wall that loads more as you scroll.
+class _CategoryView extends StatefulWidget {
+  const _CategoryView({required this.site, required this.classId, required this.filters});
+
+  final String site;
+  final String classId;
+  final List<VodFilter> filters;
+
+  @override
+  State<_CategoryView> createState() => _CategoryViewState();
+}
+
+class _CategoryViewState extends State<_CategoryView> with AutomaticKeepAliveClientMixin {
+  final _items = <VodCard>[];
+  final _selected = <String, String>{};
+  int _page = 0;
+  bool _hasMore = true;
+  bool _loading = false;
+  bool _showFilters = false;
+  Object? _error;
+  int _generation = 0;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMore();
+  }
+
+  Future<void> _loadMore() async {
+    if (_loading || !_hasMore) return;
+    final generation = _generation;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final page = await AppScope.read(context).client.category(
+            widget.site,
+            widget.classId,
+            page: _page + 1,
+            filters: {for (final e in _selected.entries) if (e.value.isNotEmpty) e.key: e.value},
+          );
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _page += 1;
+        _items.addAll(page.list);
+        _hasMore = page.hasMore && page.list.isNotEmpty;
+      });
+    } catch (e) {
+      if (mounted && generation == _generation) setState(() => _error = e);
+    } finally {
+      if (mounted && generation == _generation) setState(() => _loading = false);
+    }
+  }
+
+  void _setFilter(String key, String value) {
+    setState(() {
+      _selected[key] = value;
+      _generation++;
+      _items.clear();
+      _page = 0;
+      _hasMore = true;
+      _loading = false;
+    });
+    _loadMore();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return Column(
+      children: [
+        if (widget.filters.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+            child: Row(
+              children: [
+                TextButton.icon(
+                  onPressed: () => setState(() => _showFilters = !_showFilters),
+                  icon: Icon(_showFilters ? Icons.expand_less : Icons.tune, size: 18),
+                  label: Text(_showFilters ? '收起筛选' : '筛选'),
+                ),
+                if (_selected.values.any((v) => v.isNotEmpty))
+                  Expanded(
+                    child: Text(
+                      _summary(),
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 13),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 180),
+          alignment: Alignment.topCenter,
+          child: _showFilters ? _FilterBar(filters: widget.filters, selected: _selected, onSelect: _setFilter) : const SizedBox(width: double.infinity),
+        ),
+        Expanded(
+          child: _VodGrid(
+            items: _items,
+            loading: _loading,
+            error: _error,
+            hasMore: _hasMore,
+            onLoadMore: _loadMore,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _summary() {
+    final parts = <String>[];
+    for (final f in widget.filters) {
+      final v = _selected[f.key];
+      if (v == null || v.isEmpty) continue;
+      parts.add(f.values.firstWhere((x) => x.value == v, orElse: () => FilterValue(name: v, value: v)).name);
+    }
+    return parts.join(' · ');
+  }
+}
+
+class _FilterBar extends StatelessWidget {
+  const _FilterBar({required this.filters, required this.selected, required this.onSelect});
+
+  final List<VodFilter> filters;
+  final Map<String, String> selected;
+  final void Function(String key, String value) onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final f in filters)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                children: [
+                  SizedBox(width: 48, child: Text(f.name, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13))),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (final v in f.values)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: ChoiceChip(
+                                label: Text(v.name),
+                                visualDensity: VisualDensity.compact,
+                                selected: (selected[f.key] ?? (f.values.isNotEmpty ? f.values.first.value : '')) == v.value,
+                                onSelected: (_) => onSelect(f.key, v.value),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Poster wall. With [onLoadMore] it pages as the user nears the end.
+class _VodGrid extends StatefulWidget {
+  const _VodGrid({required this.items, this.loading = false, this.error, this.hasMore = false, this.onLoadMore});
+
+  const _VodGrid.fixed({required List<VodCard> items}) : this(items: items);
+
+  final List<VodCard> items;
+  final bool loading;
+  final Object? error;
+  final bool hasMore;
+  final VoidCallback? onLoadMore;
+
+  @override
+  State<_VodGrid> createState() => _VodGridState();
+}
+
+class _VodGridState extends State<_VodGrid> {
+  final _scroll = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(() {
+      if (_scroll.position.extentAfter < 600) widget.onLoadMore?.call();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _VodGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A short first page may not fill the screen; keep loading until it scrolls.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scroll.hasClients && _scroll.position.maxScrollExtent == 0 && widget.hasMore && widget.error == null) {
+        widget.onLoadMore?.call();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.items.isEmpty) {
+      if (widget.error != null) {
+        return StatusView(icon: Icons.cloud_off, message: '加载失败\n${errorText(widget.error)}', actionLabel: '重试', onAction: widget.onLoadMore);
+      }
+      if (widget.loading) return const LoadingView();
+      return const StatusView(icon: Icons.inbox_outlined, message: '这里还没有内容');
+    }
+    return CustomScrollView(
+      controller: _scroll,
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+          sliver: SliverGrid.builder(
+            gridDelegate: posterGridDelegate,
+            itemCount: widget.items.length,
+            itemBuilder: (context, i) {
+              final vod = widget.items[i];
+              return PosterCard(vod: vod, onTap: () => openDetail(context, vod));
+            },
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 24),
+            child: Center(
+              child: widget.loading
+                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                  : widget.error != null
+                      ? TextButton(onPressed: widget.onLoadMore, child: const Text('加载失败，点此重试'))
+                      : widget.onLoadMore != null && !widget.hasMore
+                          ? Text('没有更多了', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12))
+                          : const SizedBox.shrink(),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+String errorText(Object? error) => error is EngineException ? error.message : '$error';
