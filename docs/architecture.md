@@ -1,0 +1,111 @@
+# tvbox-next 架构设计
+
+> 工作名，正式名称以后再定。许可证：AGPL-3.0（会移植 TVBoxOS / Box 的 Java 实现，同为 AGPL-3.0；参考 Win-box 的部分为 MIT，保留其版权声明）。
+
+## 1. 目标
+
+- **完全兼容 TVBox 配置与蜘蛛协议**：订阅链接、加密配置、多仓、type 0/1/3/4 站点、jar / js / py 蜘蛛、解析接口、直播源。目标是"安卓能播的，这里也能播"。
+- **全平台**：Windows、macOS、Linux、Android 手机 / 平板 / 电视、iOS / iPadOS。
+- **现代界面、友好交互**：单窗口、流式聚合搜索、自动换线换源、跨设备续播。
+- **播放性能好、弹幕完整**：每个平台用最强的播放内核，弹幕由引擎统一抓取匹配。
+
+## 2. 总体架构：一个引擎 + 一个客户端 + 一套协议
+
+```
+┌──────────── 引擎 tvbox-engine（Kotlin/JVM，一份代码）────────────┐
+│ 订阅/配置 · 站点分发 · jar/js/py 运行时 · 解析/嗅探 · 聚合搜索    │
+│ 直播/EPG · 弹幕抓取与匹配 · /proxy（兼容 9978）· 历史/收藏/进度   │
+└──────────────────────────────────────────────────────────────────┘
+ 部署：NAS/Linux Docker │ Windows/macOS 桌面版内置 │ 安卓 App 内置 │ 云（可选）
+                 ▲ HTTP + SSE + WebSocket · 局域网 mDNS 发现 · 扫码配对 + 令牌
+ 客户端（Flutter，一份代码）：Windows · macOS · Linux · 安卓手机/平板/TV · iOS/iPadOS
+```
+
+- **引擎**是唯一理解 TVBox 协议的地方。客户端只消费规整后的数据（不解析 `$$$`、`#`、`$` 这类拼接串）。
+- **客户端**只负责界面、播放、弹幕渲染、本地偏好。客户端连"本机引擎"和"远程引擎"走的是同一套协议，没有区别。
+- **协议**见 [protocol.md](protocol.md)。
+
+### 2.1 各平台形态
+
+| 平台 | 客户端 | 引擎 | jar 蜘蛛 |
+|---|---|---|---|
+| Android 手机/TV | Flutter | **同进程内置**（Kotlin 直接打进 APK，Ktor 监听 127.0.0.1） | `DexClassLoader` 原生加载，含带 `.so` 的加固 jar |
+| Windows / macOS / Linux | Flutter | 内置引擎（精简 JRE 子进程，可关闭）或连 NAS | dex 转换 + 安卓桩类，加固 jar 走 unidbg |
+| NAS / 服务器 | — | Docker 镜像（amd64 / arm64） | 同桌面 |
+| iOS / iPadOS | Flutter | **无**，连局域网引擎；外出用 Tailscale 等连回家 | 由远程引擎负责 |
+
+最兼容的引擎是一台安卓设备（盒子、旧手机）：ART 原生运行所有 jar。
+
+## 3. 仓库结构
+
+```
+tvbox-next/
+├─ docs/                    设计文档
+├─ engine/                  Kotlin/JVM（Gradle 多模块）
+│  ├─ core/                 纯 JVM、可在 Android 上运行：模型、配置、站点分发、采集站、搜索聚合
+│  ├─ api/                  协议 v1 的 Ktor 路由，独立进程与 Android 内置引擎共用
+│  ├─ server/               独立进程入口（桌面内置 / Docker），Ktor CIO
+│  ├─ runtime-js/           （M1）QuickJS 宿主：移植 TVBox 的 Global/Req/Crypto/HtmlParser 等宿主函数
+│  ├─ runtime-jar-jvm/      （M2）桌面/服务器 jar 运行时：dex 转换、安卓桩类、宿主类
+│  └─ runtime-py/           （M3）Python 蜘蛛
+└─ client/                  Flutter 客户端
+   └─ android/              Android 宿主工程，以 Gradle 复合构建引入 engine/core + runtime-*
+```
+
+### 3.1 引擎技术选型
+
+| 关注点 | 选择 | 理由 |
+|---|---|---|
+| 语言 | Kotlin，字节码目标 JVM 17 | 同一份代码跑在 HotSpot 和 Android ART 上 |
+| HTTP 服务 | Ktor（CIO 引擎） | 纯 Kotlin，JVM 与 Android 都能跑 |
+| HTTP 客户端 | OkHttp 4.x | 与 TVBox 和 jar 蜘蛛使用的一致；4.x 仍保留 3.x 的 Java 签名 |
+| HTML | Jsoup | `pdfh/pdfa` 与安卓版同一个实现，行为一致 |
+| TVBox JSON | Gson（宽松模式） | 与安卓版解析行为一致（配置里常见不规范 JSON） |
+| 我们自己的 API | kotlinx.serialization | 类型安全 |
+| JS | QuickJS（JNI），全平台同一个引擎 | 与安卓版一致；可缓存字节码 |
+| 存储 | `Storage` 接口；JVM 用 SQLite JDBC，Android 用系统 SQLite | 历史、收藏、进度、订阅 |
+
+### 3.2 引擎核心模块（engine/core）
+
+- `config`：订阅拉取与解密（`FindResult` 的三种格式：图片藏 base64 `**`、`2423` AES-CBC、`;pk;` AES-ECB）、`clan://` 与 `file://` 路径、多仓 `urls`、`sites / parses / lives / hosts / rules / doh / flags / ads / spider / wallpaper / danmaku` 字段。
+- `site`：`SiteSource` 接口，四种实现：
+  - `CmsXmlSource`（type 0）、`CmsJsonSource`（type 1）：`ac=videolist / detail`。
+  - `SpiderSource`（type 3）：按 api 后缀分发到 js / py / jar 运行时。
+  - `RemoteSpiderSource`（type 4）：HTTP 远程蜘蛛。
+- `model`：规整后的影片、分类、筛选、线路、剧集；`TvboxCompat` 负责与 TVBox JSON 互转。
+- `search`：聚合搜索调度（并发上限、每源超时、按片名+年份合并）。
+- `play`：播放解析链（直链 / 解析接口 type 0–4 / `jx` / VIP flags），嗅探请求转交客户端或服务端无头浏览器。
+- HTTP 路由在独立的 `engine/api` 模块，见 protocol.md。
+
+## 4. 客户端（Flutter）
+
+- **单窗口 + 路由**：首页、分类、搜索、详情、播放、直播、历史、收藏、设置。支持迷你播放器与画中画。
+- **两种交互模式**：触控/鼠标模式；遥控器焦点模式（电视）。组件共用，布局与焦点逻辑分开。
+- **播放内核抽象** `PlayerKernel`：
+  - 桌面：libmpv（media_kit），硬解（d3d11va / videotoolbox / vaapi）。
+  - Android：ExoPlayer（官方 video_player）为默认，libmpv 兜底冷门格式。
+  - iOS：AVPlayer 为默认，libmpv 兜底 mkv / flv 等。
+- **弹幕**：引擎下发统一格式；客户端两种渲染：
+  1. Flutter 图层：文字预栅格化缓存、只绘制可见部分，兼容任何内核、可交互。
+  2. 桌面 mpv 模式：转成 ASS 交给 libmpv 渲染，几乎零开销。
+
+## 5. 安全
+
+- 引擎默认只监听本机；开启"局域网共享"后监听局域网，客户端扫码配对拿到令牌。
+- `/proxy` 与 API 都要求令牌（本机回环且来自内置客户端时可免）。
+- 网盘 Cookie 等凭据只存在引擎所在设备。
+
+## 6. 里程碑
+
+| 阶段 | 内容 |
+|---|---|
+| **M1 能看**（Windows + Android） | 引擎：配置拉取/解密/多仓、type 0/1/4、JS 蜘蛛（QuickJS + 完整宿主函数）、规整模型、流式聚合搜索、播放解析（直链 + JSON 解析接口）、历史/收藏。客户端：首页、分类、详情、搜索、播放（media_kit / ExoPlayer）、订阅管理。Android 内置引擎，Windows 内置引擎子进程。 |
+| **M2 兼容** | jar：Android `DexClassLoader`；桌面 dex 转换 + 安卓桩类（参考 Win-box `stubs-src`，MIT）。`/proxy` 与 `/proxyM3u8`、网页嗅探、直播 + EPG + 回看、电视焦点模式。 |
+| **M3 好用** | 弹幕、字幕、Python 蜘蛛、DLNA、扫码配对与 mDNS、Docker 镜像、网盘（WebDAV / AList）、自动换线换源。 |
+| **M4 全平台** | macOS、Linux、iOS / iPadOS 客户端；加固 jar 的 unidbg 支持。 |
+
+## 7. 参考资料（不在本仓库内）
+
+- `../TVBoxOS`（q215613905，AGPL-3.0）：协议行为的主要参照。
+- `../Box`（takagen99，AGPL-3.0）：网盘、播放器等扩展。
+- `../Win-box`（yagami-hue，MIT）：桌面 jar 运行的踩坑记录、安卓桩类、测试用例。
