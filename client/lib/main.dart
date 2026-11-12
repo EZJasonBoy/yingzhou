@@ -3,15 +3,17 @@ import 'package:media_kit/media_kit.dart';
 
 import 'app_state.dart';
 import 'engine/engine_client.dart';
+import 'settings.dart';
 import 'ui/shell.dart';
 import 'ui/theme.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   // During development, point the client at another engine with --dart-define=ENGINE_URL=http://127.0.0.1:19978
   const engineUrl = String.fromEnvironment('ENGINE_URL', defaultValue: defaultEngineUrl);
-  runApp(TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl)));
+  final settings = await SharedPreferencesSettings.load();
+  runApp(TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings)));
 }
 
 class TvboxApp extends StatefulWidget {
@@ -27,7 +29,7 @@ class _TvboxAppState extends State<TvboxApp> {
   @override
   void initState() {
     super.initState();
-    widget.state.connect();
+    widget.state.start();
   }
 
   @override

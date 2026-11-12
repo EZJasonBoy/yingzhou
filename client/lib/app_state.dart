@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'engine/engine_client.dart';
 import 'engine/models.dart';
+import 'settings.dart';
 
 typedef EngineClientFactory = EngineClient Function(Uri baseUrl);
 
@@ -9,10 +10,22 @@ const defaultEngineUrl = 'http://127.0.0.1:9978';
 
 /// App-wide state: which engine we talk to, its active config, and the site being browsed.
 class AppState extends ChangeNotifier {
-  AppState({required this.clientFactory, this.engineUrl = defaultEngineUrl});
+  AppState({required this.clientFactory, this.engineUrl = defaultEngineUrl, SettingsStore? settings})
+      : _settings = settings ?? MemorySettings();
 
   final EngineClientFactory clientFactory;
+  final SettingsStore _settings;
   String engineUrl;
+
+  static const _engineUrlKey = 'engineUrl';
+  static const _siteKey = 'siteKey';
+
+  /// Restores the last engine and site, then connects.
+  Future<void> start() {
+    engineUrl = _settings.getString(_engineUrlKey) ?? engineUrl;
+    currentSiteKey = _settings.getString(_siteKey);
+    return connect();
+  }
 
   EngineClient? _client;
   EngineInfo? info;
@@ -60,6 +73,7 @@ class AppState extends ChangeNotifier {
         summary = null;
         sites = const [];
         info = await client.info();
+        await _settings.setString(_engineUrlKey, engineUrl);
         try {
           summary = await client.config();
           await _loadSites();
@@ -82,6 +96,7 @@ class AppState extends ChangeNotifier {
   void selectSite(String key) {
     if (key == currentSiteKey) return;
     currentSiteKey = key;
+    _settings.setString(_siteKey, key);
     notifyListeners();
   }
 

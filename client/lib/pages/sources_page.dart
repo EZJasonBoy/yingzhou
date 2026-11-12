@@ -64,6 +64,11 @@ class _SourcesPageState extends State<SourcesPage> {
                         key: const Key('engine-status'),
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '引擎在另一台设备上时：在那台设备用 --lan 启动引擎，这里填 http://它的局域网IP:9978',
+                        style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+                      ),
                     ],
                   ),
                 ),
