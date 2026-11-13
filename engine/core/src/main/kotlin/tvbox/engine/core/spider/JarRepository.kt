@@ -30,20 +30,24 @@ class JarRepository(
         val expectedMd5 = if (md5Spec.startsWith("http")) runCatching { text(md5Spec).trim() }.getOrDefault("") else md5Spec
         val file = File(dir, md5(source) + ".jar")
 
+        // The md5 in the config is of the download, which may be an image wrapping the jar.
+        val md5File = File(dir, file.name + ".md5")
         val cacheValid = file.length() > 0 && when {
-            expectedMd5.isNotEmpty() -> fileMd5(file).equals(expectedMd5, ignoreCase = true)
+            expectedMd5.isNotEmpty() -> (md5File.takeIf { it.isFile }?.readText()?.trim() ?: fileMd5(file)).equals(expectedMd5, ignoreCase = true)
             else -> System.currentTimeMillis() - file.lastModified() < TimeUnit.DAYS.toMillis(7)
         }
         if (cacheValid) return file
 
-        val bytes = try {
-            download(url, isImage)
+        val raw = try {
+            download(url)
         } catch (e: Exception) {
             // Offline or the host is down: an older copy is better than nothing.
             if (file.length() > 0) return file
             throw e
         }
+        val bytes = unwrap(raw, isImage, url)
         dir.mkdirs()
+        md5File.writeText(hex(MessageDigest.getInstance("MD5").digest(raw)))
         // Android 14+ refuses to load writable dex files, so write elsewhere and publish read-only.
         val tmp = File(dir, file.name + ".tmp")
         tmp.writeBytes(bytes)
@@ -53,21 +57,39 @@ class JarRepository(
         return file
     }
 
-    private fun download(url: String, isImage: Boolean): ByteArray {
+    private fun download(url: String): ByteArray {
         http.newCall(Request.Builder().url(url).build()).execute().use { res ->
             if (!res.isSuccessful) throw IllegalStateException("HTTP ${res.code} for $url")
-            val body = res.body ?: throw IllegalStateException("empty jar body from $url")
-            if (!isImage) return body.bytes()
-            val text = body.string()
-            val marker = IMAGE_MARKER.find(text) ?: throw IllegalStateException("no jar inside image $url")
-            return Base64Compat.decode(text.substring(text.indexOf(marker.value) + 10))
+            return res.body?.bytes() ?: throw IllegalStateException("empty jar body from $url")
         }
     }
 
     private fun text(url: String): String = http.newCall(Request.Builder().url(url).build()).execute().use { it.body?.string().orEmpty() }
 
-    private companion object {
+    internal companion object {
         val IMAGE_MARKER = Regex("[A-Za-z0-9]{8}\\*\\*")
+
+        /**
+         * Jars are often disguised as images: `img+url` (base64 after an 8-character marker and `**`), or a plain
+         * image url whose file is an image with the jar appended. Returns the jar (or dex) itself.
+         */
+        fun unwrap(bytes: ByteArray, isImage: Boolean, url: String): ByteArray {
+            if (!isImage && (isZip(bytes, 0) || isDex(bytes))) return bytes
+            val text = String(bytes, Charsets.ISO_8859_1)
+            IMAGE_MARKER.find(text)?.let { marker ->
+                val decoded = runCatching { Base64Compat.decode(text.substring(marker.range.last + 1).trim()) }.getOrNull()
+                if (decoded != null && (isZip(decoded, 0) || isDex(decoded))) return decoded
+            }
+            val zipAt = (0..bytes.size - 4).firstOrNull { isZip(bytes, it) }
+            if (zipAt != null) return bytes.copyOfRange(zipAt, bytes.size)
+            if (isImage) throw IllegalStateException("no jar inside image $url")
+            return bytes
+        }
+
+        private fun isZip(b: ByteArray, at: Int) =
+            b.size >= at + 4 && b[at] == 0x50.toByte() && b[at + 1] == 0x4b.toByte() && b[at + 2] == 3.toByte() && b[at + 3] == 4.toByte()
+
+        private fun isDex(b: ByteArray) = b.size > 4 && b[0] == 'd'.code.toByte() && b[1] == 'e'.code.toByte() && b[2] == 'x'.code.toByte() && b[3] == '\n'.code.toByte()
 
         fun md5(s: String): String = hex(MessageDigest.getInstance("MD5").digest(s.toByteArray()))
 

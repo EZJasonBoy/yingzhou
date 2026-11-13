@@ -15,6 +15,7 @@ import io.ktor.server.request.receive
 import io.ktor.server.response.cacheControl
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondOutputStream
+import io.ktor.server.response.respondRedirect
 import io.ktor.server.response.respondText
 import io.ktor.server.response.respondTextWriter
 import io.ktor.server.routing.RoutingCall
@@ -37,7 +38,9 @@ import tvbox.engine.core.model.ApiError
 import tvbox.engine.core.model.ErrorBody
 import tvbox.engine.core.model.FavoriteEntry
 import tvbox.engine.core.model.HistoryEntry
+import tvbox.engine.core.model.PlayInfo
 import tvbox.engine.core.model.PlayRequest
+import tvbox.engine.core.util.Base64Compat
 import tvbox.engine.core.search.SearchEvent
 
 val EngineJson = Json {
@@ -114,6 +117,23 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
             }
         }
 
+        // HLS playlists the engine cleans of ads (see M3u8Cleaner). Any trouble sends the player to the original url.
+        get("/m3u8") {
+            val url = call.parameters["url"].orEmpty()
+            if (!url.startsWith("http")) throw BadRequestException("url is required")
+            val headers = call.parameters["h"]?.let { h ->
+                runCatching {
+                    Json.parseToJsonElement(String(Base64Compat.decode(h))).jsonObject.mapValues { (it.value as JsonPrimitive).content }
+                }.getOrNull()
+            } ?: emptyMap()
+            val text = runCatching { engine.playlist(url, headers, call.selfBase() + "/m3u8?") }.getOrNull()
+            if (text == null) {
+                call.respondRedirect(url, permanent = false)
+            } else {
+                call.respondText(text, ContentType("application", "vnd.apple.mpegurl"))
+            }
+        }
+
         route("/api/v1") {
             get("/info") { call.respond(engine.info) }
 
@@ -168,7 +188,7 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
             }
 
             post("/play/resolve") {
-                call.respond(engine.resolvePlay(call.receive<PlayRequest>()))
+                call.respond(forClient(engine.resolvePlay(call.receive<PlayRequest>()), call))
             }
 
             route("/history") {
@@ -230,4 +250,19 @@ private fun RoutingCall.filters(): Map<String, String> {
         throw EngineException.BadRequest("f must be a JSON object")
     }
     return obj.mapValues { (_, v) -> (v as? JsonPrimitive)?.content ?: v.toString() }
+}
+
+/** The engine as this caller reaches it, e.g. `http://192.168.1.5:9978` for a TV on the LAN. */
+private fun RoutingCall.selfBase(): String = "http://" + (request.headers[HttpHeaders.Host] ?: "127.0.0.1:${request.local.localPort}")
+
+/**
+ * Engine urls in a play answer (playlist endpoint, spider proxies) are built for 127.0.0.1; a client on another
+ * device gets them on the address it used to reach the engine.
+ */
+private fun forClient(info: PlayInfo, call: RoutingCall): PlayInfo {
+    val loopback = "http://127.0.0.1:${call.request.local.localPort}/"
+    val self = call.selfBase() + "/"
+    if (self == loopback) return info
+    fun fix(url: String) = if (url.startsWith(loopback)) self + url.removePrefix(loopback) else url
+    return info.copy(url = fix(info.url), sniff = info.sniff?.let { it.copy(pageUrl = fix(it.pageUrl)) })
 }

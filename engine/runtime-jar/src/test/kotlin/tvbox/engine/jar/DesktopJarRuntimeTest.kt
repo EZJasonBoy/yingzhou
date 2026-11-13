@@ -51,6 +51,7 @@ class DesktopJarRuntimeTest {
                 "/api" -> MockResponse().setBody(
                     """{"class":[{"type_id":"1","type_name":"电影"}],"list":[{"vod_id":"7","vod_name":"星河","vod_remarks":"HD"}]}""",
                 )
+                "/jx" -> MockResponse().setBody("""{"url":"https://cdn.test/jx/index.m3u8"}""")
                 else -> MockResponse().setResponseCode(404)
             }
         }
@@ -95,6 +96,21 @@ class DesktopJarRuntimeTest {
         }
         // The conversion is cached by content.
         assertEquals(1, File(dir, "d2j").listFiles()!!.count { it.name.endsWith(".jar") })
+    }
+
+    @Test
+    fun `a Mix parser in the config's spider jar runs with TVBox's arguments`() = runBlocking {
+        val runtime = runtime()
+        runtime.onConfig(TvboxConfig(spider = server.url("/spider.jar").toString()))
+        val jxs = linkedMapOf(
+            "聚合" to hashMapOf("url" to "Demo", "type" to "3", "ext" to ""),
+            "演示解析" to hashMapOf("url" to server.url("/jx?url=").toString(), "type" to "1", "ext" to ""),
+        )
+        val answer = runtime.jsonExtMix("qq111", "Demo", "聚合", jxs, "https://site.test/v/1")!!
+        assertTrue(answer.contains("\"url\":\"https:\\/\\/cdn.test\\/jx\\/index.m3u8\""), answer)
+        assertTrue(answer.contains("\"jxFrom\":\"演示解析\""), answer)
+        assertTrue(answer.contains("\"flag\":\"qq111\""), answer)
+        assertNull(runtime.jsonExtMix("qq111", "Nope", "x", jxs, "u"), "unknown parser classes give null")
     }
 
     @Test

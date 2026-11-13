@@ -22,7 +22,10 @@ import tvbox.engine.core.model.VodPage
 import tvbox.engine.core.net.SiteHttp
 import tvbox.engine.core.net.SiteHttpException
 import tvbox.engine.core.play.PlayResolveException
+import tvbox.engine.core.play.JarParsers
+import tvbox.engine.core.play.M3u8Cleaner
 import tvbox.engine.core.play.PlayResolver
+import tvbox.engine.core.play.PlayRules
 import tvbox.engine.core.play.Sniffer
 import tvbox.engine.core.search.SearchAggregator
 import tvbox.engine.core.search.SearchEvent
@@ -90,7 +93,13 @@ class Engine(
     private val lock = Mutex()
     private val subscriptions = LinkedHashMap<String, Subscription>()
     private val ext = ExtResolver(http)
-    private val playResolver = PlayResolver(http, proxyBase, sniffer)
+    private val playResolver = PlayResolver(
+        http = http,
+        proxyBase = proxyBase,
+        sniffer = sniffer,
+        jarParsers = runtimes.filterIsInstance<JarParsers>().firstOrNull(),
+        playlistBase = proxyBase.substringBefore("/proxy") + "/m3u8?",
+    )
     private val searchAggregator = SearchAggregator()
 
     @Volatile
@@ -196,7 +205,25 @@ class Engine(
 
     // ---- browsing ----
 
-    suspend fun home(site: String): HomeResult = siteCall(site) { it.home() }
+    /** A site's `categories` (TVBox) keeps only those classes, in that order. */
+    suspend fun home(site: String): HomeResult = siteCall(site) { src ->
+        val home = src.home()
+        val wanted = src.bean.categories
+        if (wanted.isEmpty()) home else home.copy(classes = wanted.mapNotNull { name -> home.classes.firstOrNull { it.name == name } })
+    }
+
+    /**
+     * An HLS playlist for the player, cleaned of ads with the active config's rules. Variants of a master playlist
+     * point back here through [selfBase] (`http://<engine>/m3u8?`).
+     */
+    suspend fun playlist(url: String, headers: Map<String, String>, selfBase: String): String {
+        val (text, finalUrl) = http.getWithUrl(url, headers)
+        if (!text.removePrefix("\uFEFF").trimStart().startsWith("#EXTM3U")) throw EngineException.BadRequest("not an HLS playlist")
+        if (M3u8Cleaner.isMaster(text)) return M3u8Cleaner.rewriteMaster(text, finalUrl) { PlayResolver.playlistUrl(selfBase, it, headers) }
+        val rules = active?.config?.let { playResolver.rules(it) } ?: PlayRules.NONE
+        val ads = (rules.adsFor(url) + rules.adsFor(finalUrl)).distinct()
+        return M3u8Cleaner.clean(text, finalUrl, ads, heuristic = true).text
+    }
 
     suspend fun category(site: String, classId: String, page: Int, filters: Map<String, String>): VodPage =
         siteCall(site) { it.category(classId, page.coerceAtLeast(1), filters) }

@@ -53,11 +53,19 @@
 - 桌面 / NAS（`engine/runtime-jar`）：进程内 dex2jar 转换（按内容哈希缓存，多 dex，保留 assets 等资源），以父优先的 `URLClassLoader` 加载，父加载器提供安卓桩类（`src/main/java/android/**`，源自 Win-box，MIT）、宿主类、AOSP 版 org.json、androidx.collection。蜘蛛运行时再 `new DexClassLoader(...)` 加载的 dex 也走同一个转换器。
 - dex2jar 产物修复（`ClassRepairs`）：`invoke-super` 被转成自递归 `invokespecial` 的改指父类；R8 删掉构造器后被误译成「`NEW` 祖先类」的实例化，按 dex 里的 `new-instance` 改回真实类型并补合成构造器。转换时会列出 jar 用到但桩类缺失的安卓类，方便补齐。
 - 转换后的类不保证过 JVM 校验器（安卓也不校验），桌面引擎用 `-XX:+UnlockDiagnosticVMOptions -XX:-BytecodeVerificationRemote` 启动。
-- 尚未支持：加固 jar（native 壳，计划 unidbg）、解析器 type 2/3（jar 里的 `MixDemo` 等）。
+- jar 里的解析器（`JarParsers`）：type 2 调 `com.github.catvod.parser.Json<url>.parse(jxs, url)`，type 3（「Json聚合」）调 `Mix<url>.parse(jxs, name, flag+"111", url)`，参数与 TVBox 一致（JSON 解析带 `ext` 时以 `cat_ext` 拼进地址）；先找最近用过的 jar，再找全局 `spider`。返回 `parse=1` 时交给嗅探。
+- 伪装成图片的 jar（`img+` 前缀，或 `.png` 后面直接拼 jar）会被解包；`;md5;` 校验的是下载的原始文件。
+- 尚未支持：加固 jar（native 壳，计划 unidbg）。
 
 ### 2.4 网页嗅探（已实现）
 
-解析链遇到 type 0 解析或 `parse=1` 的页面时，由引擎自己嗅探（`Sniffer`），判定规则同 TVBox：配置 `rules` 的 `host`/`rule`/`filter`，再加内置视频地址正则。桌面 / NAS 用无头 Edge/Chrome/Chromium（CDP，独立 profile，关闭站点隔离以便同一会话看到播放器 iframe 的请求；首次嗅探时启动，空闲 5 分钟、引擎退出、或上次被强杀时残留的都会关掉；`TVBOX_BROWSER` 可指定浏览器）。没有浏览器时 `capabilities.sniff=false`，返回 `kind=sniff` 给客户端。
+解析链遇到 type 0 解析或 `parse=1` 的页面时，由引擎自己嗅探（`Sniffer`），判定规则同 TVBox：`PlayRules` 解析配置 `rules`（`host`+`rule`/`filter` 正则、`hosts`+`regex` 里非广告的条目、`exclude`），再加内置视频地址正则；`hosts`+`script` 的点击脚本在页面加载后执行。桌面 / NAS 用无头 Edge/Chrome/Chromium（CDP，独立 profile，关闭站点隔离以便同一会话看到播放器 iframe 的请求；首次嗅探时启动，空闲 5 分钟、引擎退出、或上次被强杀时残留的都会关掉；`TVBOX_BROWSER` 可指定浏览器）。没有浏览器时 `capabilities.sniff=false`，返回 `kind=sniff` 给客户端。
+
+### 2.5 解析与去广告（已实现）
+
+- 默认解析器与 TVBox 一样取配置里的第一个（没有 jar 运行时就跳过 type 2/3）；它失败时再并发尝试所有 JSON 解析接口。
+- HLS 经引擎的 `/m3u8` 播放：`M3u8Cleaner` 按配置 `rules` 里 `hosts`+`regex` 的广告规则去掉广告（`#EXT…` 正则删除匹配段；数字按 DISCONTINUITY 块的首段或总时长匹配，`-n` 匹配末段，规则来自 Box / TVBoxOS），再用保守的启发式去掉夹在 DISCONTINUITY 里、来自少数路径的分片；删除超过一半时放弃、保留原列表。
+- 站点的 `categories` 只保留并按顺序排列这些分类。
 
 ## 3. 仓库结构
 

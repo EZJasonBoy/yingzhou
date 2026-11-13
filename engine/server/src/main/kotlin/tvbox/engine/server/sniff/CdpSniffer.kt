@@ -2,6 +2,7 @@ package tvbox.engine.server.sniff
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -293,8 +294,10 @@ internal class CdpSession(launcher: ProcessHandle, wsUrl: String, http: OkHttpCl
             val sessionId = call("Target.attachToTarget", obj("targetId" to JsonPrimitive(targetId), "flatten" to JsonPrimitive(true)))
                 .string("sessionId") ?: throw IOException("could not attach to the tab")
             val found = CompletableDeferred<Pair<String, JsonObject>>()
+            val loaded = CompletableDeferred<Unit>()
             val listener: (JsonObject) -> Unit = listener@{ msg ->
                 if ((msg["sessionId"] as? JsonPrimitive)?.content != sessionId) return@listener
+                if ((msg["method"] as? JsonPrimitive)?.content == "Page.loadEventFired") loaded.complete(Unit)
                 val params = msg["params"] as? JsonObject ?: return@listener
                 when ((msg["method"] as? JsonPrimitive)?.content) {
                     "Network.requestWillBeSent" -> {
@@ -324,8 +327,27 @@ internal class CdpSession(launcher: ProcessHandle, wsUrl: String, http: OkHttpCl
                     put("url", JsonPrimitive(request.pageUrl))
                     request.headers.header("Referer")?.let { put("referrer", JsonPrimitive(it)) }
                 }
+                if (request.scripts.isNotEmpty()) call("Page.enable", sessionId = sessionId)
                 call("Page.navigate", JsonObject(navigate), sessionId)
-                val (url, sentHeaders) = withTimeoutOrNull(request.timeoutMs) { found.await() } ?: return null
+                val (url, sentHeaders) = coroutineScope {
+                    // The config's click scripts, once the page has loaded and again a little later for slow players.
+                    val clicks = if (request.scripts.isEmpty()) null else launch {
+                        loaded.await()
+                        repeat(2) {
+                            for (script in request.scripts) {
+                                runCatching {
+                                    call("Runtime.evaluate", obj("expression" to JsonPrimitive("(function(){try{$script\n}catch(e){}})()")), sessionId)
+                                }
+                            }
+                            delay(1500)
+                        }
+                    }
+                    try {
+                        withTimeoutOrNull(request.timeoutMs) { found.await() }
+                    } finally {
+                        clicks?.cancel()
+                    }
+                } ?: return null
                 val headers = LinkedHashMap<String, String>()
                 for ((k, v) in sentHeaders) {
                     if (k.lowercase() in KEPT_HEADERS) headers[canonical(k)] = (v as? JsonPrimitive)?.content ?: continue

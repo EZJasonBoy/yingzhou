@@ -90,6 +90,8 @@ data class SniffRequest(
     val pageUrl: String,
     val headers: Map<String, String> = emptyMap(),
     val timeoutMs: Long = 15_000,
+    /** JavaScript to run once the page has loaded (the config's click scripts for this page). */
+    val scripts: List<String> = emptyList(),
 )
 
 @Serializable

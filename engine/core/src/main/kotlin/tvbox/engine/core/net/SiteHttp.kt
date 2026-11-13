@@ -31,7 +31,13 @@ class SiteHttp(private val client: OkHttpClient) {
     ): String {
         val base = url.toHttpUrlOrNull() ?: throw SiteHttpException("invalid url: $url")
         val full = base.newBuilder().apply { params.forEach { (k, v) -> addQueryParameter(k, v) } }.build()
-        return execute(Request.Builder().url(full).headers(headers), timeoutMs)
+        return execute(Request.Builder().url(full).headers(headers), timeoutMs).first
+    }
+
+    /** GET returning the body and the final url after redirects (to resolve relative references). */
+    suspend fun getWithUrl(url: String, headers: Map<String, String> = emptyMap(), timeoutMs: Long = DEFAULT_TIMEOUT_MS): Pair<String, String> {
+        val base = url.toHttpUrlOrNull() ?: throw SiteHttpException("invalid url: $url")
+        return execute(Request.Builder().url(base).headers(headers), timeoutMs)
     }
 
     suspend fun postForm(
@@ -42,10 +48,10 @@ class SiteHttp(private val client: OkHttpClient) {
     ): String {
         val base: HttpUrl = url.toHttpUrlOrNull() ?: throw SiteHttpException("invalid url: $url")
         val body = FormBody.Builder().apply { form.forEach { (k, v) -> add(k, v) } }.build()
-        return execute(Request.Builder().url(base).headers(headers).post(body), timeoutMs)
+        return execute(Request.Builder().url(base).headers(headers).post(body), timeoutMs).first
     }
 
-    private suspend fun execute(builder: Request.Builder, timeoutMs: Long): String {
+    private suspend fun execute(builder: Request.Builder, timeoutMs: Long): Pair<String, String> {
         val call = client.newBuilder().callTimeout(timeoutMs, TimeUnit.MILLISECONDS).build().newCall(builder.build())
         return suspendCancellableCoroutine { cont ->
             cont.invokeOnCancellation { call.cancel() }
@@ -66,7 +72,7 @@ class SiteHttp(private val client: OkHttpClient) {
                             cont.resumeWithException(SiteHttpException(describe(call, e), e))
                             return
                         }
-                        cont.resume(text)
+                        cont.resume(text to it.request.url.toString())
                     }
                 }
             })

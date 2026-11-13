@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import tvbox.engine.core.config.SiteBean
 import tvbox.engine.core.config.SiteRuntime
 import tvbox.engine.core.config.TvboxConfig
+import tvbox.engine.core.play.JarParsers
 import tvbox.engine.core.spider.JarRepository
 import tvbox.engine.core.spider.ProxyResponse
 import tvbox.engine.core.spider.Spider
@@ -33,7 +34,7 @@ abstract class JarSpiderRuntime(
     private val context: Context,
     private val jars: JarRepository,
     private val port: () -> Int,
-) : SpiderRuntime {
+) : SpiderRuntime, JarParsers {
     override val kind = "jar"
 
     private class LoadedJar(val loader: ClassLoader, val proxy: Method?)
@@ -81,21 +82,22 @@ abstract class JarSpiderRuntime(
         CatSpiderAdapter(spider, onUse = { recent = jar })
     }
 
-    private suspend fun load(spec: String, site: SiteBean): LoadedJar {
+    private suspend fun load(spec: String, site: SiteBean?): LoadedJar {
+        val name = site?.name ?: "spider jar"
         loaded[spec]?.let { return it }
         return loadLock.withLock {
             loaded[spec] ?: run {
                 val file = try {
                     jars.fetch(spec)
                 } catch (e: Exception) {
-                    throw SpiderLoadException("${site.name}: cannot download the spider jar: ${e.message}", e)
+                    throw SpiderLoadException("$name: cannot download the spider jar: ${e.message}", e)
                 }
                 val loader = try {
                     classLoader(file)
                 } catch (e: SpiderLoadException) {
                     throw e
                 } catch (e: Throwable) {
-                    throw SpiderLoadException("${site.name}: cannot load the spider jar: ${e.message ?: e.javaClass.simpleName}", e)
+                    throw SpiderLoadException("$name: cannot load the spider jar: ${e.message ?: e.javaClass.simpleName}", e)
                 }
                 initJar(loader)
                 LoadedJar(loader, proxyMethod(loader)).also { loaded[spec] = it }
@@ -118,6 +120,31 @@ abstract class JarSpiderRuntime(
 
     private fun proxyMethod(loader: ClassLoader): Method? =
         runCatching { loader.loadClass("com.github.catvod.spider.Proxy").getMethod("proxy", Map::class.java) }.getOrNull()
+
+    // ---- parsers in the jar (TVBox `JarLoader.jsonExt` / `jsonExtMix`) ----
+
+    override suspend fun jsonExt(key: String, jxs: LinkedHashMap<String, String>, url: String): String? =
+        parser("com.github.catvod.parser.Json$key") { cls ->
+            cls.getMethod("parse", LinkedHashMap::class.java, String::class.java).invoke(null, jxs, url)
+        }
+
+    override suspend fun jsonExtMix(flag: String, key: String, name: String, jxs: LinkedHashMap<String, HashMap<String, String>>, url: String): String? =
+        parser("com.github.catvod.parser.Mix$key") { cls ->
+            cls.getMethod("parse", LinkedHashMap::class.java, String::class.java, String::class.java, String::class.java)
+                .invoke(null, jxs, name, flag, url)
+        }
+
+    /** Looks the class up in the most recently used jar, then the config's spider jar. */
+    private suspend fun parser(className: String, call: (Class<*>) -> Any?): String? = withContext(Dispatchers.IO) {
+        val candidates = listOfNotNull(recent, globalSpider.takeIf { it.isNotEmpty() }?.let { runCatching { load(it, null) }.getOrNull() })
+        val cls = candidates.firstNotNullOfOrNull { jar -> runCatching { jar.loader.loadClass(className) }.getOrNull() } ?: return@withContext null
+        try {
+            call(cls)?.toString()
+        } catch (e: Throwable) {
+            System.err.println("$className failed: ${(e.cause ?: e)}")
+            null
+        }
+    }
 
     override suspend fun proxy(params: Map<String, String>): ProxyResponse? = withContext(Dispatchers.IO) {
         params["siteKey"]?.let { siteSpiders[it] }?.let { sp ->

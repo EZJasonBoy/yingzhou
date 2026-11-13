@@ -2,11 +2,13 @@ package tvbox.engine.api
 
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
@@ -89,13 +91,14 @@ class EngineModuleTest {
                     setBody("""{"site":"cms","line":"直链","episodeId":"https://cdn.test/a/index.m3u8"}""")
                 }.bodyAsText()).jsonObject
                 assertEquals("direct", direct["kind"]!!.jsonPrimitive.content)
-                assertEquals("https://cdn.test/a/index.m3u8", direct["url"]!!.jsonPrimitive.content)
+                // HLS goes through the engine's playlist endpoint (ad cleaning).
+                assertEquals("http://127.0.0.1:9978/m3u8?url=https%3A%2F%2Fcdn.test%2Fa%2Findex.m3u8", direct["url"]!!.jsonPrimitive.content)
 
                 val parsed = EngineJson.parseToJsonElement(client.post("/api/v1/play/resolve") {
                     contentType(ContentType.Application.Json)
                     setBody("""{"site":"cms","line":"网页","episodeId":"https://page.test/play/1"}""")
                 }.bodyAsText()).jsonObject
-                assertEquals("https://cdn.test/real.m3u8", parsed["url"]!!.jsonPrimitive.content)
+                assertTrue(parsed["url"]!!.jsonPrimitive.content.startsWith("http://127.0.0.1:9978/m3u8?url=https%3A%2F%2Fcdn.test%2Freal.m3u8&h="))
                 assertEquals("https://site.test/", parsed["headers"]!!.jsonObject["Referer"]!!.jsonPrimitive.content)
                 assertEquals("jx", parsed["parsedBy"]!!.jsonPrimitive.content)
 
@@ -178,6 +181,69 @@ class EngineModuleTest {
 
                 val sites = EngineJson.parseToJsonElement(client.get("/api/v1/sites").bodyAsText()).jsonArray
                 assertEquals(listOf("cms", "js"), sites.map { it.jsonObject["runtime"]!!.jsonPrimitive.content })
+            }
+        } finally {
+            upstream.shutdown()
+        }
+    }
+    @Test
+    fun `playlists are cleaned with the config's ad rules, and LAN clients get reachable urls`() {
+        val upstream = MockWebServer().apply { start() }
+        try {
+            val playlist = buildString {
+                appendLine("#EXTM3U")
+                appendLine("#EXT-X-TARGETDURATION:10")
+                for (i in 0 until 10) appendLine("#EXTINF:10.0,").appendLine("seg$i.ts")
+                appendLine("#EXT-X-DISCONTINUITY")
+                appendLine("#EXTINF:7.5,").appendLine("/ads/ad/1.ts")
+                appendLine("#EXTINF:7.6666,").appendLine("/ads/ad/2.ts")
+                appendLine("#EXT-X-DISCONTINUITY")
+                for (i in 10 until 20) appendLine("#EXTINF:10.0,").appendLine("seg$i.ts")
+                appendLine("#EXT-X-ENDLIST")
+            }
+            upstream.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when (request.requestUrl!!.encodedPath) {
+                    "/tv.json" -> MockResponse().setBody(
+                        """{"sites":[{"key":"cms","type":1,"api":"${upstream.url("/api")}"}],"rules":[{"name":"ad","hosts":["/ads/"],"regex":["15.1666"]}]}""",
+                    )
+                    "/ads/index.m3u8" -> MockResponse().setBody(playlist)
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+            testApplication {
+                // The engine's own urls use the port it listens on (80 in the test host).
+                application {
+                    engineModule(
+                        Engine(
+                            EngineInfo("tvbox-engine", "test", platform = "test", capabilities = Capabilities(false, false, false, false)),
+                            ConfigLoader(OkHttpClient(), ConfigLocator("http://127.0.0.1:80/file/")),
+                            SiteHttp(OkHttpClient()),
+                            proxyBase = "http://127.0.0.1:80/proxy?",
+                        ),
+                    )
+                }
+                val created = client.post("/api/v1/subscriptions") {
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"url":"${upstream.url("/tv.json")}"}""")
+                }
+                val id = EngineJson.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+                client.post("/api/v1/subscriptions/$id/activate")
+
+                val source = upstream.url("/ads/index.m3u8").toString()
+                val cleaned = client.get("/m3u8?url=" + java.net.URLEncoder.encode(source, "UTF-8")).bodyAsText()
+                assertTrue(!cleaned.contains("/ads/ad/"), cleaned)
+                assertTrue(cleaned.contains(upstream.url("/ads/seg19.ts").toString()), "segments are absolute")
+
+                val noRedirects = createClient { followRedirects = false }
+                val broken = noRedirects.get("/m3u8?url=" + java.net.URLEncoder.encode("http://127.0.0.1:1/x.m3u8", "UTF-8"))
+                assertEquals(HttpStatusCode.Found, broken.status, "unreachable playlists send the player to the original")
+
+                val lan = EngineJson.parseToJsonElement(client.post("/api/v1/play/resolve") {
+                    contentType(ContentType.Application.Json)
+                    header(HttpHeaders.Host, "192.168.1.5:9978")
+                    setBody("""{"site":"cms","line":"x","episodeId":"https://cdn.test/a/index.m3u8"}""")
+                }.bodyAsText()).jsonObject
+                assertTrue(lan["url"]!!.jsonPrimitive.content.startsWith("http://192.168.1.5:9978/m3u8?url="), lan.toString())
             }
         } finally {
             upstream.shutdown()

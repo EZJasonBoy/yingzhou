@@ -61,7 +61,7 @@ class WebViewSniffer(private val app: Application) : Sniffer {
                         if (!cont.isActive) return@post
                         val view = createWebView(request)
                         web = view
-                        view.webViewClient = SniffClient(isMedia) { url, sent ->
+                        view.webViewClient = SniffClient(isMedia, request.scripts) { url, sent ->
                             if (done.compareAndSet(false, true)) cont.resume(SniffResult(url, keptHeaders(url, sent, request)))
                         }
                         val extra = request.headers.filterKeys { !it.equals("User-Agent", true) }
@@ -116,12 +116,18 @@ class WebViewSniffer(private val app: Application) : Sniffer {
 
     private class SniffClient(
         private val isMedia: (String) -> Boolean,
+        private val scripts: List<String>,
         private val onMedia: (String, Map<String, String>) -> Unit,
     ) : WebViewClient() {
         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
             val url = request.url.toString()
             if (isMedia(url)) onMedia(url, request.requestHeaders ?: emptyMap())
             return null
+        }
+
+        // The config's click scripts for this page (TVBox runs them when the page has finished loading).
+        override fun onPageFinished(view: WebView, url: String) {
+            for (script in scripts) view.evaluateJavascript("(function(){try{$script\n}catch(e){}})()", null)
         }
 
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {

@@ -8,6 +8,7 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -43,6 +44,8 @@ class DemoSite {
     /** Urls use the host the request came in on, so an emulator or a phone on the LAN gets reachable links. */
     fun configJson(base: String): String = buildJsonObject {
         put("wallpaper", "")
+        // The global spider jar also carries the "Json聚合" parser (com.github.catvod.parser.MixDemo).
+        put("spider", "$base/demo/spider.jar")
         put("sites", buildJsonArray {
             add(buildJsonObject {
                 put("key", "demo")
@@ -80,6 +83,12 @@ class DemoSite {
             })
         })
         put("parses", buildJsonArray {
+            // First = default parser, as in TVBox; engines without jar spiders skip it.
+            add(buildJsonObject {
+                put("name", "演示聚合")
+                put("type", 3)
+                put("url", "Demo")
+            })
             add(buildJsonObject {
                 put("name", "演示解析")
                 put("type", 1)
@@ -89,6 +98,14 @@ class DemoSite {
                 put("name", "演示嗅探")
                 put("type", 0)
                 put("url", "$base/demo/sniff?url=")
+            })
+        })
+        // Ad rule for /demo/ads/index.m3u8: drop discontinuity blocks lasting 15.1666 s.
+        put("rules", buildJsonArray {
+            add(buildJsonObject {
+                put("name", "演示去广告")
+                put("hosts", buildJsonArray { add(JsonPrimitive("/demo/ads/")) })
+                put("regex", buildJsonArray { add(JsonPrimitive("15.1666")) })
             })
         })
     }.toString()
@@ -243,6 +260,23 @@ fun Route.demoRoutes(site: DemoSite) {
         )
     }
     get("/demo/stream/{name}") { call.respondRedirect(DemoSite.TEST_STREAM, permanent = false) }
+    // A playlist with an ad spliced in (3 segments, 15.1666 s in all), for checking the engine's ad cleaning.
+    get("/demo/ads/index.m3u8") {
+        val text = buildString {
+            appendLine("#EXTM3U")
+            appendLine("#EXT-X-VERSION:3")
+            appendLine("#EXT-X-TARGETDURATION:10")
+            for (i in 0 until 10) appendLine("#EXTINF:10.000000,").appendLine("seg%04d.ts".format(i))
+            appendLine("#EXT-X-DISCONTINUITY")
+            appendLine("#EXTINF:3.000000,").appendLine("/demo/ads/ad/a1.ts")
+            appendLine("#EXTINF:4.166666,").appendLine("/demo/ads/ad/a2.ts")
+            appendLine("#EXTINF:8.000000,").appendLine("/demo/ads/ad/a3.ts")
+            appendLine("#EXT-X-DISCONTINUITY")
+            for (i in 10 until 20) appendLine("#EXTINF:10.000000,").appendLine("seg%04d.ts".format(i))
+            appendLine("#EXT-X-ENDLIST")
+        }
+        call.respondText(text, ContentType("application", "vnd.apple.mpegurl"))
+    }
     get("/demo/poster/{id}.png") {
         val id = call.parameters["id"]?.toIntOrNull() ?: 0
         call.respondBytes(site.poster(id), ContentType.Image.PNG)
