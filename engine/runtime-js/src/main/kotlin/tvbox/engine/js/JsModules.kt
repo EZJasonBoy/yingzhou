@@ -22,6 +22,7 @@ class JsModules(
     private val locator: ConfigLocator,
     private val cacheDir: File? = null,
     private val maxAgeMs: Long = TimeUnit.DAYS.toMillis(7),
+    private val log: (String) -> Unit = {},
 ) {
     private val memory = ConcurrentHashMap<String, String>()
 
@@ -61,9 +62,15 @@ class JsModules(
         }
         val text = try {
             http.newCall(Request.Builder().url(url).build()).execute().use { res ->
-                if (!res.isSuccessful) null else res.body?.string()
+                if (!res.isSuccessful) {
+                    log("js module $url: HTTP ${res.code}")
+                    null
+                } else {
+                    res.body?.string()
+                }
             }
         } catch (e: Exception) {
+            log("js module $url: $e")
             null
         }
         if (text == null || isInvalid(text)) return cached?.takeIf { it.exists() }?.readText()

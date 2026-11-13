@@ -40,10 +40,24 @@
 
 - `client/android` 通过 Gradle 复合构建（`includeBuild("../../engine")`）直接编译引擎源码，不复制代码。
 - `TvboxApplication` 启动时在 127.0.0.1:9978 拉起引擎（Ktor CIO），数据在 `files/engine`，并恢复上次的订阅；客户端默认地址就是它。
-- jar 运行时 `DexSpiderRuntime`：`DexClassLoader` 加载 jar（全局 `spider` 或站点 `jar`，支持 `img+`、`;md5;`，缓存 7 天、文件只读以满足 Android 14），调用 `Init.init(Context)`，类名 `com.github.catvod.spider.<api 去掉 csp_>`，`/proxy` 依次交给站点 jar、最近使用的 jar、其他 jar 的 `Proxy.proxy(Map)`。
-- jar 编译时依赖的 TVBox 宿主类在 `client/android/app/src/main/java/com/github/catvod/`（`crawler.Spider`、`SpiderApi`、`SpiderDebug`、`SpiderNull`、`net.OkHttp`、`net.OkDns`、`Proxy`），包名与方法签名必须保持一致；`proguard-rules.pro` 保留它们和 OkHttp / Gson / Jsoup。
+- jar 运行时：`DexSpiderRuntime` 只负责用 `DexClassLoader` 把 jar 变成类加载器（文件只读以满足 Android 14），其余逻辑在与桌面共用的 `JarSpiderRuntime`（见 2.3）。
+- 网页嗅探：`WebViewSniffer`，有可见 Activity 时 1×1 透明挂在窗口上（部分播放器不在窗口里不加载），否则不挂窗口运行。
+- `proguard-rules.pro` 保留宿主类和 OkHttp / Gson / Jsoup。
 - 引擎代码不用 `java.util.Base64`（Android 8.0 才有），统一走 `Base64Compat`，最低支持 Android 7.0（API 24）。
 - 开发用演示 jar：`engine/server/demo-jar/build.sh`（javac + d8），演示引擎在 `/demo/spider.jar` 提供，演示站的链接按请求的 Host 生成，模拟器通过 10.0.2.2 访问。
+
+### 2.3 jar 蜘蛛（Android 与桌面共用，已实现）
+
+- `engine/jar-host/java/com/github/catvod/`：jar 编译时依赖的 TVBox 宿主类（`crawler.Spider`、`SpiderApi`、`net.OkHttp`、`Proxy` 等），包名与签名必须保持一致；`tvbox.engine.jarhost.HostBridge` 给它们提供 Context 与端口。
+- `JarSpiderRuntime`（`engine/jar-host/kotlin`）：全局 `spider` 或站点 `jar`（`JarRepository`：`img+`、`;md5;`、`clan://`，缓存 7 天），每个 jar 调一次 `Init.init(Context)`，类名 `com.github.catvod.spider.<api 去掉 csp_>`；`/proxy` 先给 `siteKey` 对应蜘蛛实例的 `proxy()`，再依次给站点 jar、最近使用的 jar、其他 jar 的静态 `Proxy.proxy(Map)`。
+- 桌面 / NAS（`engine/runtime-jar`）：进程内 dex2jar 转换（按内容哈希缓存，多 dex，保留 assets 等资源），以父优先的 `URLClassLoader` 加载，父加载器提供安卓桩类（`src/main/java/android/**`，源自 Win-box，MIT）、宿主类、AOSP 版 org.json、androidx.collection。蜘蛛运行时再 `new DexClassLoader(...)` 加载的 dex 也走同一个转换器。
+- dex2jar 产物修复（`ClassRepairs`）：`invoke-super` 被转成自递归 `invokespecial` 的改指父类；R8 删掉构造器后被误译成「`NEW` 祖先类」的实例化，按 dex 里的 `new-instance` 改回真实类型并补合成构造器。转换时会列出 jar 用到但桩类缺失的安卓类，方便补齐。
+- 转换后的类不保证过 JVM 校验器（安卓也不校验），桌面引擎用 `-XX:+UnlockDiagnosticVMOptions -XX:-BytecodeVerificationRemote` 启动。
+- 尚未支持：加固 jar（native 壳，计划 unidbg）、解析器 type 2/3（jar 里的 `MixDemo` 等）。
+
+### 2.4 网页嗅探（已实现）
+
+解析链遇到 type 0 解析或 `parse=1` 的页面时，由引擎自己嗅探（`Sniffer`），判定规则同 TVBox：配置 `rules` 的 `host`/`rule`/`filter`，再加内置视频地址正则。桌面 / NAS 用无头 Edge/Chrome/Chromium（CDP，独立 profile，关闭站点隔离以便同一会话看到播放器 iframe 的请求；首次嗅探时启动，空闲 5 分钟、引擎退出、或上次被强杀时残留的都会关掉；`TVBOX_BROWSER` 可指定浏览器）。没有浏览器时 `capabilities.sniff=false`，返回 `kind=sniff` 给客户端。
 
 ## 3. 仓库结构
 
@@ -54,8 +68,9 @@ tvbox-next/
 │  ├─ core/                 纯 JVM、可在 Android 上运行：模型、配置、站点分发、采集站、搜索聚合
 │  ├─ api/                  协议 v1 的 Ktor 路由，独立进程与 Android 内置引擎共用
 │  ├─ server/               独立进程入口（桌面内置 / Docker），Ktor CIO
-│  ├─ runtime-js/           （M1）QuickJS 宿主：移植 TVBox 的 Global/Req/Crypto/HtmlParser 等宿主函数
-│  ├─ runtime-jar-jvm/      （M2）桌面/服务器 jar 运行时：dex 转换、安卓桩类、宿主类
+│  ├─ runtime-js/           QuickJS 宿主：移植 TVBox 的 Global/Req/Crypto/HtmlParser 等宿主函数
+│  ├─ jar-host/            TVBox 宿主类与 jar 运行时，Android 与桌面共用（源码目录，被两边编译）
+│  ├─ runtime-jar/         桌面/服务器 jar 运行时：dex2jar 转换与修复、安卓桩类
 │  └─ runtime-py/           （M3）Python 蜘蛛
 └─ client/                  Flutter 客户端
    └─ android/              Android 宿主工程，以 Gradle 复合构建引入 engine/core + runtime-*
@@ -83,7 +98,7 @@ tvbox-next/
   - `RemoteSpiderSource`（type 4）：HTTP 远程蜘蛛。
 - `model`：规整后的影片、分类、筛选、线路、剧集；`TvboxCompat` 负责与 TVBox JSON 互转。
 - `search`：聚合搜索调度（并发上限、每源超时、按片名+年份合并）。
-- `play`：播放解析链（直链 / 解析接口 type 0–4 / `jx` / VIP flags），嗅探请求转交客户端或服务端无头浏览器。
+- `play`：播放解析链（直链 / 解析接口 type 0–4 / `jx` / VIP flags）；需要嗅探的页面交给平台的 `Sniffer`（见 2.4），没有时转交客户端。
 - HTTP 路由在独立的 `engine/api` 模块，见 protocol.md。
 
 ## 4. 客户端（Flutter）

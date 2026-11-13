@@ -63,7 +63,7 @@ fun main(args: Array<String>) {
     val locator = ConfigLocator("$local/file/")
     val jsRuntime = JsRuntime(
         JsEnvironment(
-            modules = JsModules(client, locator, cacheDir = dataDir?.let { File(it, "js-cache") }),
+            modules = JsModules(client, locator, cacheDir = dataDir?.let { File(it, "js-cache") }, log = { System.err.println(it) }),
             http = JsHttp(client),
             local = dataDir?.let { FileJsLocalStore(File(it, "js-local.json")) } ?: MemoryJsLocalStore(),
             proxyUrl = "$local/proxy",

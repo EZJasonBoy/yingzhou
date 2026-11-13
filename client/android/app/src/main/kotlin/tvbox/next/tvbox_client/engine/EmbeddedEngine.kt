@@ -62,7 +62,7 @@ object EmbeddedEngine {
         val locator = ConfigLocator("$local/file/")
         val js = JsRuntime(
             JsEnvironment(
-                modules = JsModules(client, locator, cacheDir = File(app.cacheDir, "js")),
+                modules = JsModules(client, locator, cacheDir = File(app.cacheDir, "js"), log = { Log.w(TAG, it) }),
                 http = JsHttp(client),
                 local = FileJsLocalStore(File(data, "js-local.json")),
                 proxyUrl = "$local/proxy",
