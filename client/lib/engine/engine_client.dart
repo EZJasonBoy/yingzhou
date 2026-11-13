@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'library_models.dart';
+import 'live_models.dart';
 import 'models.dart';
 import 'vod_models.dart';
 
@@ -22,42 +23,31 @@ class EngineClient {
   Future<EngineInfo> info() async => EngineInfo.fromJson(await _send('GET', 'info'));
 
   Future<List<Subscription>> subscriptions() async => [
-        for (final s in await _send('GET', 'subscriptions') as List<dynamic>) Subscription.fromJson(s as Map<String, dynamic>),
-      ];
+    for (final s in await _send('GET', 'subscriptions') as List<dynamic>) Subscription.fromJson(s as Map<String, dynamic>),
+  ];
 
   Future<Subscription> addSubscription(String url, {String? name}) async =>
-      Subscription.fromJson(await _send('POST', 'subscriptions', body: {
-        'url': url,
-        if (name != null && name.isNotEmpty) 'name': name,
-      }));
+      Subscription.fromJson(await _send('POST', 'subscriptions', body: {'url': url, if (name != null && name.isNotEmpty) 'name': name}));
 
   Future<void> removeSubscription(String id) => _send('DELETE', 'subscriptions/$id');
 
   /// Loads a subscription. For a multi-repository subscription, [repo] picks the entry (default: first).
   Future<ConfigSummary> activate(String id, {String? repo}) async =>
-      ConfigSummary.fromJson(await _send('POST', 'subscriptions/$id/activate', body: {
-        'repo': ?repo,
-      }));
+      ConfigSummary.fromJson(await _send('POST', 'subscriptions/$id/activate', body: {'repo': ?repo}));
 
   Future<ConfigSummary> config() async => ConfigSummary.fromJson(await _send('GET', 'config'));
 
-  Future<List<SiteInfo>> sites() async => [
-        for (final s in await _send('GET', 'sites') as List<dynamic>) SiteInfo.fromJson(s as Map<String, dynamic>),
-      ];
+  Future<List<SiteInfo>> sites() async => [for (final s in await _send('GET', 'sites') as List<dynamic>) SiteInfo.fromJson(s as Map<String, dynamic>)];
 
   // ---- browsing ----
 
   Future<HomeResult> home(String site) async => HomeResult.fromJson(await _send('GET', 'sites/${_seg(site)}/home'));
 
-  Future<VodPage> category(String site, String classId, {int page = 1, Map<String, String> filters = const {}}) async =>
-      VodPage.fromJson(await _send('GET', 'sites/${_seg(site)}/category', query: {
-        'tid': classId,
-        'pg': '$page',
-        if (filters.isNotEmpty) 'f': jsonEncode(filters),
-      }));
+  Future<VodPage> category(String site, String classId, {int page = 1, Map<String, String> filters = const {}}) async => VodPage.fromJson(
+    await _send('GET', 'sites/${_seg(site)}/category', query: {'tid': classId, 'pg': '$page', if (filters.isNotEmpty) 'f': jsonEncode(filters)}),
+  );
 
-  Future<VodDetail> detail(String site, String id) async =>
-      VodDetail.fromJson(await _send('GET', 'sites/${_seg(site)}/detail', query: {'id': id}));
+  Future<VodDetail> detail(String site, String id) async => VodDetail.fromJson(await _send('GET', 'sites/${_seg(site)}/detail', query: {'id': id}));
 
   Future<VodPage> search(String site, String keyword, {int page = 1}) async =>
       VodPage.fromJson(await _send('GET', 'sites/${_seg(site)}/search', query: {'wd': keyword, 'pg': '$page'}));
@@ -68,9 +58,8 @@ class EngineClient {
   // ---- library ----
 
   Future<List<HistoryEntry>> history({int limit = 100}) async => [
-        for (final h in await _send('GET', 'history', query: {'limit': '$limit'}) as List<dynamic>)
-          HistoryEntry.fromJson(h as Map<String, dynamic>),
-      ];
+    for (final h in await _send('GET', 'history', query: {'limit': '$limit'}) as List<dynamic>) HistoryEntry.fromJson(h as Map<String, dynamic>),
+  ];
 
   /// Null when the video has no history.
   Future<HistoryEntry?> historyFor(String site, String vodId) async {
@@ -82,16 +71,25 @@ class EngineClient {
     }
   }
 
-  Future<void> putHistory(HistoryEntry entry) =>
-      _send('PUT', 'history/${_seg(entry.site)}/${_seg(entry.vodId)}', body: entry.toJson());
+  Future<void> putHistory(HistoryEntry entry) => _send('PUT', 'history/${_seg(entry.site)}/${_seg(entry.vodId)}', body: entry.toJson());
 
   Future<void> removeHistory(String site, String vodId) => _send('DELETE', 'history/${_seg(site)}/${_seg(vodId)}');
 
   Future<void> clearHistory() => _send('DELETE', 'history');
 
+  // ---- live TV ----
+
+  Future<List<LiveSourceInfo>> liveSources() async => [for (final s in await _send('GET', 'live') as List) LiveSourceInfo.fromJson(s as Map<String, dynamic>)];
+
+  Future<LiveList> liveList(int source, {bool refresh = false}) async =>
+      LiveList.fromJson(await _send('GET', 'live/$source', query: refresh ? {'refresh': '1'} : null));
+
+  Future<EpgDay> epg(int source, String channel, {String? date}) async =>
+      EpgDay.fromJson(await _send('GET', 'live/$source/epg', query: {'channel': channel, 'date': ?date}));
+
   Future<List<FavoriteEntry>> favorites() async => [
-        for (final f in await _send('GET', 'favorites') as List<dynamic>) FavoriteEntry.fromJson(f as Map<String, dynamic>),
-      ];
+    for (final f in await _send('GET', 'favorites') as List<dynamic>) FavoriteEntry.fromJson(f as Map<String, dynamic>),
+  ];
 
   Future<bool> isFavorite(String site, String vodId) async {
     try {
@@ -103,17 +101,13 @@ class EngineClient {
     }
   }
 
-  Future<void> putFavorite(FavoriteEntry entry) =>
-      _send('PUT', 'favorites/${_seg(entry.site)}/${_seg(entry.vodId)}', body: entry.toJson());
+  Future<void> putFavorite(FavoriteEntry entry) => _send('PUT', 'favorites/${_seg(entry.site)}/${_seg(entry.vodId)}', body: entry.toJson());
 
   Future<void> removeFavorite(String site, String vodId) => _send('DELETE', 'favorites/${_seg(site)}/${_seg(vodId)}');
 
   /// Aggregated search over every searchable site, streamed as each site answers (SSE).
   Stream<SearchEvent> searchAll(String keyword, {Set<String>? sites}) async* {
-    final request = http.Request('GET', _uri('search/stream', {
-      'wd': keyword,
-      if (sites != null && sites.isNotEmpty) 'sites': sites.join(','),
-    }));
+    final request = http.Request('GET', _uri('search/stream', {'wd': keyword, if (sites != null && sites.isNotEmpty) 'sites': sites.join(',')}));
     request.headers['Accept'] = 'text/event-stream';
     _auth(request);
 

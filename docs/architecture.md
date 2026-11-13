@@ -67,6 +67,12 @@
 - HLS 经引擎的 `/m3u8` 播放：`M3u8Cleaner` 按配置 `rules` 里 `hosts`+`regex` 的广告规则去掉广告（`#EXT…` 正则删除匹配段；数字按 DISCONTINUITY 块的首段或总时长匹配，`-n` 匹配末段，规则来自 Box / TVBoxOS），再用保守的启发式去掉夹在 DISCONTINUITY 里、来自少数路径的分片；删除超过一半时放弃、保留原列表。
 - 站点的 `categories` 只保留并按顺序排列这些分类。
 
+### 2.6 直播与节目单（已实现，桌面优先）
+
+- 引擎 `live` 包：`LiveSourceSpec` 解析 `lives` 的几种写法，`LivePlaylistParser` 解析 TXT / M3U，`Epg` 处理模板接口与 XMLTV 和频道名规整，`LiveService` 负责缓存（列表半小时、模板节目单半小时、XMLTV 6 小时）。不用 `java.time`，Android 7 也能跑。
+- 客户端「直播」页：宽屏为 分组 | 频道（带当前节目和进度）| 播放器 + 节目单；窄屏上下堆叠。↑/↓ 换台（跨分组）、←/→ 换线路、PageUp/PageDown 换分组、F 或双击全屏（频道列表变成浮层）、M 静音、滚轮音量。线路报错或 15 秒没有画面就自动换下一条；记住上次看的频道；离开该页即停止播放，播放器在第一次打开该页时才创建。
+- 尚未支持：蜘蛛直播（`type: 3`）、回看（`catchup`）、`hosts` / `headers` 配置项。
+
 ## 3. 仓库结构
 
 ```

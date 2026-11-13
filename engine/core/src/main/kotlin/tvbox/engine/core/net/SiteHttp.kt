@@ -51,7 +51,16 @@ class SiteHttp(private val client: OkHttpClient) {
         return execute(Request.Builder().url(base).headers(headers).post(body), timeoutMs).first
     }
 
-    private suspend fun execute(builder: Request.Builder, timeoutMs: Long): Pair<String, String> {
+    /** GET returning the raw body (gzipped files, images). */
+    suspend fun getBytes(url: String, headers: Map<String, String> = emptyMap(), timeoutMs: Long = DEFAULT_TIMEOUT_MS): ByteArray {
+        val base = url.toHttpUrlOrNull() ?: throw SiteHttpException("invalid url: $url")
+        return execute(Request.Builder().url(base).headers(headers), timeoutMs) { it.body?.bytes() ?: ByteArray(0) }
+    }
+
+    private suspend fun execute(builder: Request.Builder, timeoutMs: Long): Pair<String, String> =
+        execute(builder, timeoutMs) { (it.body?.string() ?: "") to it.request.url.toString() }
+
+    private suspend fun <T> execute(builder: Request.Builder, timeoutMs: Long, read: (Response) -> T): T {
         val call = client.newBuilder().callTimeout(timeoutMs, TimeUnit.MILLISECONDS).build().newCall(builder.build())
         return suspendCancellableCoroutine { cont ->
             cont.invokeOnCancellation { call.cancel() }
@@ -66,13 +75,13 @@ class SiteHttp(private val client: OkHttpClient) {
                             cont.resumeWithException(SiteHttpException("HTTP ${it.code} from ${call.request().url.host}"))
                             return
                         }
-                        val text = try {
-                            it.body?.string() ?: ""
+                        val value = try {
+                            read(it)
                         } catch (e: IOException) {
                             cont.resumeWithException(SiteHttpException(describe(call, e), e))
                             return
                         }
-                        cont.resume(text to it.request.url.toString())
+                        cont.resume(value)
                     }
                 }
             })

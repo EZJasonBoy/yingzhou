@@ -38,6 +38,7 @@ import tvbox.engine.core.model.ApiError
 import tvbox.engine.core.model.ErrorBody
 import tvbox.engine.core.model.FavoriteEntry
 import tvbox.engine.core.model.HistoryEntry
+import tvbox.engine.core.model.LiveList
 import tvbox.engine.core.model.PlayInfo
 import tvbox.engine.core.model.PlayRequest
 import tvbox.engine.core.util.Base64Compat
@@ -187,6 +188,20 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
                 }
             }
 
+            // Live TV: the config's `lives` as sources, each a list of channel groups; EPG per channel and day.
+            route("/live") {
+                get { call.respond(engine.liveSources()) }
+                get("/{index}") {
+                    val index = call.parameters["index"]?.toIntOrNull() ?: throw BadRequestException("index must be a number")
+                    call.respond(forClient(engine.liveList(index, refresh = call.parameters["refresh"] == "1"), call))
+                }
+                get("/{index}/epg") {
+                    val index = call.parameters["index"]?.toIntOrNull() ?: throw BadRequestException("index must be a number")
+                    val channel = call.parameters["channel"]?.takeIf { it.isNotBlank() } ?: throw BadRequestException("channel is required")
+                    call.respond(engine.epg(index, channel, call.parameters["date"].orEmpty()))
+                }
+            }
+
             post("/play/resolve") {
                 call.respond(forClient(engine.resolvePlay(call.receive<PlayRequest>()), call))
             }
@@ -259,6 +274,14 @@ private fun RoutingCall.selfBase(): String = "http://" + (request.headers[HttpHe
  * Engine urls in a play answer (playlist endpoint, spider proxies) are built for 127.0.0.1; a client on another
  * device gets them on the address it used to reach the engine.
  */
+private fun forClient(list: LiveList, call: RoutingCall): LiveList {
+    val loopback = "http://127.0.0.1:${call.request.local.localPort}/"
+    val self = call.selfBase() + "/"
+    if (self == loopback) return list
+    fun fix(url: String) = if (url.startsWith(loopback)) self + url.removePrefix(loopback) else url
+    return list.copy(groups = list.groups.map { g -> g.copy(channels = g.channels.map { c -> c.copy(urls = c.urls.map { it.copy(url = fix(it.url)) }) }) })
+}
+
 private fun forClient(info: PlayInfo, call: RoutingCall): PlayInfo {
     val loopback = "http://127.0.0.1:${call.request.local.localPort}/"
     val self = call.selfBase() + "/"

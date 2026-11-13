@@ -101,6 +101,14 @@ class DemoSite {
             })
         })
         // Ad rule for /demo/ads/index.m3u8: drop discontinuity blocks lasting 15.1666 s.
+        put("lives", buildJsonArray {
+            add(buildJsonObject {
+                put("name", "演示直播")
+                put("type", 0)
+                put("url", "$base/demo/live.m3u")
+                put("epg", "$base/demo/epg?ch={name}&date={date}")
+            })
+        })
         put("rules", buildJsonArray {
             add(buildJsonObject {
                 put("name", "演示去广告")
@@ -228,6 +236,30 @@ class DemoSite {
 
         /** Public HLS test stream (Big Buck Bunny, CC BY 3.0), widely used for player development. */
         const val TEST_STREAM = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+
+        /** Public test streams: Apple's HLS example and Unified Streaming's live demo channel. */
+        const val BIPBOP = "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8"
+        const val LIVE_TEST = "https://demo.unified-streaming.com/k8s/live/stable/scte35.isml/.m3u8"
+
+        private val PROGRAMS = listOf("早间新闻", "纪录片时间", "午间剧场", "动画乐园", "体育快报", "晚间新闻", "黄金剧场", "深夜电影")
+
+        /** A made-up schedule in the `epg_data` format: one programme every 90 minutes. */
+        fun epg(channel: String, date: String): String = buildJsonObject {
+            put("date", date)
+            put("channel_name", channel)
+            put("epg_data", buildJsonArray {
+                val offset = channel.hashCode().mod(PROGRAMS.size)
+                for (i in 0 until 16) {
+                    val start = i * 90
+                    val end = start + 90
+                    add(buildJsonObject {
+                        put("start", "%02d:%02d".format(start / 60 % 24, start % 60))
+                        put("end", "%02d:%02d".format(end / 60 % 24, end % 60))
+                        put("title", PROGRAMS[(i + offset) % PROGRAMS.size])
+                    })
+                }
+            })
+        }.toString()
     }
 }
 
@@ -261,6 +293,27 @@ fun Route.demoRoutes(site: DemoSite) {
     }
     get("/demo/stream/{name}") { call.respondRedirect(DemoSite.TEST_STREAM, permanent = false) }
     // A playlist with an ad spliced in (3 segments, 15.1666 s in all), for checking the engine's ad cleaning.
+    // Live demo: an M3U with a real live stream, two test streams, and a channel whose first line is dead.
+    get("/demo/live.m3u") {
+        val base = call.base()
+        val text = buildString {
+            appendLine("#EXTM3U")
+            appendLine("#EXTINF:-1 tvg-logo=\"$base/demo/poster/1.png\" group-title=\"演示频道\",演示直播台")
+            appendLine(DemoSite.LIVE_TEST)
+            appendLine("#EXTINF:-1 tvg-logo=\"$base/demo/poster/2.png\" group-title=\"演示频道\",CCTV-1 综合")
+            appendLine(DemoSite.TEST_STREAM)
+            appendLine("#EXTINF:-1 tvg-logo=\"$base/demo/poster/3.png\" group-title=\"演示频道\",苹果示例台")
+            appendLine(DemoSite.BIPBOP)
+            appendLine("#EXTINF:-1 tvg-logo=\"$base/demo/poster/4.png\" group-title=\"测试\",备用线路演示")
+            appendLine("http://127.0.0.1:1/dead.m3u8")
+            appendLine("#EXTINF:-1 group-title=\"测试\",备用线路演示")
+            appendLine(DemoSite.TEST_STREAM)
+        }
+        call.respondText(text, ContentType("audio", "x-mpegurl"))
+    }
+    get("/demo/epg") {
+        call.respondText(DemoSite.epg(call.request.queryParameters["ch"].orEmpty(), call.request.queryParameters["date"].orEmpty()), ContentType.Application.Json)
+    }
     get("/demo/ads/index.m3u8") {
         val text = buildString {
             appendLine("#EXTM3U")

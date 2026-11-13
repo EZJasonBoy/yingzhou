@@ -22,6 +22,11 @@ import tvbox.engine.core.model.VodPage
 import tvbox.engine.core.net.SiteHttp
 import tvbox.engine.core.net.SiteHttpException
 import tvbox.engine.core.play.PlayResolveException
+import tvbox.engine.core.live.LiveException
+import tvbox.engine.core.live.LiveService
+import tvbox.engine.core.model.EpgDay
+import tvbox.engine.core.model.LiveList
+import tvbox.engine.core.model.LiveSourceInfo
 import tvbox.engine.core.play.JarParsers
 import tvbox.engine.core.play.M3u8Cleaner
 import tvbox.engine.core.play.PlayResolver
@@ -101,6 +106,7 @@ class Engine(
         playlistBase = proxyBase.substringBefore("/proxy") + "/m3u8?",
     )
     private val searchAggregator = SearchAggregator()
+    private val live = LiveService(http, proxyBase)
 
     @Volatile
     private var active: Active? = null
@@ -181,6 +187,7 @@ class Engine(
             // Spiders of the previous config are released before the new ones take over.
             active?.sources?.values?.forEach { (it as? SpiderSource)?.destroy() }
             runtimes.forEach { it.onConfig(config) }
+            live.onConfig(config.livesJson)
             active = loaded
             savedActiveId = id
             savedActiveRepo = if (repos.isEmpty()) null else url
@@ -223,6 +230,36 @@ class Engine(
         val rules = active?.config?.let { playResolver.rules(it) } ?: PlayRules.NONE
         val ads = (rules.adsFor(url) + rules.adsFor(finalUrl)).distinct()
         return M3u8Cleaner.clean(text, finalUrl, ads, heuristic = true).text
+    }
+
+    // ---- live TV ----
+
+    fun liveSources(): List<LiveSourceInfo> {
+        current()
+        return live.sources()
+    }
+
+    suspend fun liveList(index: Int, refresh: Boolean = false): LiveList = liveCall { live.list(index, refresh) }
+
+    suspend fun epg(index: Int, channel: String, date: String): EpgDay = liveCall { live.epg(index, channel, date) }
+
+    private suspend fun <T> liveCall(block: suspend () -> T): T {
+        current()
+        return try {
+            block()
+        } catch (e: LiveException) {
+            throw when (e.code) {
+                "NOT_FOUND" -> EngineException.NotFound(e.message ?: "")
+                "BAD_REQUEST" -> EngineException.BadRequest(e.message ?: "")
+                "UNSUPPORTED" -> EngineException.Unsupported(e.message ?: "")
+                else -> EngineException.SiteFailed("LIVE_FAILED", e.message ?: "")
+            }
+        } catch (e: EngineException) {
+            throw e
+        } catch (e: Exception) {
+            val (code, message) = describe(e)
+            throw EngineException.SiteFailed(code, message)
+        }
     }
 
     suspend fun category(site: String, classId: String, page: Int, filters: Map<String, String>): VodPage =
