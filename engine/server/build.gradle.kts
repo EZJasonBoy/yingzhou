@@ -6,6 +6,7 @@ plugins {
 dependencies {
     implementation(project(":api"))
     implementation(project(":runtime-js"))
+    implementation(project(":runtime-jar"))
     implementation(libs.ktor.server.cio)
     runtimeOnly(libs.logback)
 }
@@ -13,4 +14,6 @@ dependencies {
 application {
     mainClass.set("tvbox.engine.server.MainKt")
     applicationName = "tvbox-engine"
+    // Spider classes converted from dex do not always pass the JVM verifier; Android does not verify them either.
+    applicationDefaultJvmArgs = listOf("-Xss1m", "-XX:+UnlockDiagnosticVMOptions", "-XX:-BytecodeVerificationRemote")
 }

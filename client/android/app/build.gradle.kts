@@ -40,6 +40,13 @@ android {
         }
     }
 
+    sourceSets {
+        getByName("main") {
+            // TVBox host classes for jar spiders (com.github.catvod.*) and the jar runtime shared with the desktop engine.
+            java.srcDirs("../../../engine/jar-host/java", "../../../engine/jar-host/kotlin")
+        }
+    }
+
     packaging {
         resources {
             excludes += setOf("/META-INF/{AL2.0,LGPL2.1}", "META-INF/INDEX.LIST", "META-INF/io.netty.versions.properties", "META-INF/DEPENDENCIES")

@@ -14,7 +14,9 @@ import tvbox.engine.core.config.ConfigLocator
 import tvbox.engine.core.model.Capabilities
 import tvbox.engine.core.model.EngineInfo
 import tvbox.engine.core.net.SiteHttp
+import tvbox.engine.core.spider.JarRepository
 import tvbox.engine.core.store.JsonFileStore
+import tvbox.engine.jarhost.HostBridge
 import tvbox.engine.js.FileJsLocalStore
 import tvbox.engine.js.JsEnvironment
 import tvbox.engine.js.JsHttp

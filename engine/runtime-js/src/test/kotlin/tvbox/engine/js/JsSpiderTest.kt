@@ -122,6 +122,33 @@ class JsSpiderTest {
     }
 
     @Test
+    fun `proxy do=js goes to the right spider in both conventions`() = runBlocking {
+        val runtime = JsRuntime(env)
+        val drpy = runtime.create(site("/drpy.js", "drpy"), """{"token":"t"}""")
+        val cat = runtime.create(site("/cat.js-spider.js", "cat"), """{"host":"${base()}"}""")
+        try {
+            // proxy1 to the spider named by siteKey
+            val r1 = runtime.proxy(mapOf("do" to "js", "siteKey" to "drpy", "x" to "world"))!!
+            assertEquals(200, r1.status)
+            assertEquals("hello world", r1.body!!.readBytes().decodeToString())
+            assertEquals("1", r1.headers["X-Test"])
+
+            // proxy2 (js2Proxy urls, from=catvod) to the most recently used spider
+            cat.home(true)
+            val r2 = runtime.proxy(mapOf("do" to "js", "from" to "catvod", "url" to "a/b", "header" to """{"Referer":"r"}"""))!!
+            assertEquals("hi", r2.body!!.readBytes().decodeToString(), "buffer 2 is base64")
+            assertEquals("text/plain", r2.contentType)
+            assertEquals("a|b r", r2.headers["X-Seg"])
+
+            // other proxies are not for the JS runtime
+            assertEquals(null, runtime.proxy(mapOf("do" to "jar")))
+        } finally {
+            drpy.destroy()
+            cat.destroy()
+        }
+    }
+
+    @Test
     fun `missing and bytecode spiders fail with a clear error`() {
         val missing = assertThrows(SpiderLoadException::class.java) { runBlocking { JsSpider.load(site("/nope.js"), "", env) } }
         assertTrue(missing.message!!.contains("cannot download"), missing.message)
@@ -156,6 +183,7 @@ class JsSpiderTest {
               },
               search(wd, quick) { return JSON.stringify({ list: [{ vod_id: '1', vod_name: wd }] }); },
               play(flag, id, flags) { return JSON.stringify({ parse: 0, url: id, header: { Referer: 'r' }, flags }); },
+              proxy(params) { return [200, 'text/plain; charset=utf-8', 'hello ' + params.x, { 'X-Test': '1' }]; },
             };
         """.trimIndent()
 
@@ -177,7 +205,10 @@ class JsSpiderTest {
               const res = await req(host + '/echo', { method: 'post', data: { a: 1 } });
               return JSON.stringify({ parse: 0, url: res.content });
             }
-            export function __jsEvalReturn() { return { init, home, detail, search, play }; }
+            async function proxy(segs, header) {
+              return JSON.stringify({ code: 200, buffer: 2, content: 'aGk=', headers: { 'Content-Type': 'text/plain', 'X-Seg': segs.join('|') + ' ' + header.Referer } });
+            }
+            export function __jsEvalReturn() { return { init, home, detail, search, play, proxy }; }
         """.trimIndent()
     }
 }

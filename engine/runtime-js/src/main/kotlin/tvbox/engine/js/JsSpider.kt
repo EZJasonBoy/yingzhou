@@ -7,7 +7,11 @@ import com.dokar.quickjs.binding.define
 import com.dokar.quickjs.binding.function
 import com.dokar.quickjs.moduleLoader
 import com.google.gson.Gson
+import com.google.gson.JsonElement
 import com.google.gson.JsonParser
+import tvbox.engine.core.spider.ProxyResponse
+import tvbox.engine.core.util.Base64Compat
+import java.io.ByteArrayInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
@@ -70,8 +74,62 @@ class JsSpider private constructor(
         }
     }
 
-    private suspend fun invoke(method: String, vararg args: Any?): String? =
-        call("await globalThis.__tvbox_invoke(${json(method)}, ${gson.toJson(args.toList())})") as? String
+    /** Called on every use; the runtime sends `proxy?do=js` to the most recently used JS spider, like TVBox. */
+    @Volatile var onUse: (() -> Unit)? = null
+
+    override suspend fun proxy(params: Map<String, String>): ProxyResponse? {
+        val text = call("await globalThis.__tvbox_proxy(${gson.toJson(params)})") as? String ?: return null
+        val root = runCatching { JsonParser.parseString(text).asJsonObject }.getOrNull() ?: return null
+        val value = root.get("value") ?: return null
+        return if (root.get("style")?.asInt == 2) proxyStyle2(value) else proxyStyle1(value)
+    }
+
+    /** `[code, mime, content, headers?, base64?]`; content is text, a byte array, or base64 when the 5th item is 1. */
+    private fun proxyStyle1(value: JsonElement): ProxyResponse? {
+        if (!value.isJsonArray) return null
+        val a = value.asJsonArray
+        if (a.size() < 3) return null
+        val code = a[0].asNumberOrNull()?.toInt() ?: 200
+        val mime = a[1].takeIf { it.isJsonPrimitive }?.asString ?: "application/octet-stream"
+        val content = a[2]
+        val base64 = a.size() > 4 && a[4].asNumberOrNull()?.toInt() == 1
+        val bytes = when {
+            content.isJsonArray -> ByteArray(content.asJsonArray.size()) { i -> content.asJsonArray[i].asInt.toByte() }
+            base64 -> Base64Compat.decode(content.asString.let { if (it.contains("base64,")) it.substringAfter("base64,") else it })
+            content.isJsonPrimitive -> content.asString.toByteArray()
+            else -> ByteArray(0)
+        }
+        val headers = if (a.size() > 3) jsonHeaders(a[3]) else emptyMap()
+        return ProxyResponse(code, mime, ByteArrayInputStream(bytes), headers)
+    }
+
+    /** `{ code, buffer, content, headers }`; buffer 2 means base64 content. */
+    private fun proxyStyle2(value: JsonElement): ProxyResponse? {
+        if (!value.isJsonObject) return null
+        val o = value.asJsonObject
+        val headers = jsonHeaders(o.get("headers"))
+        val content = o.get("content")?.takeIf { it.isJsonPrimitive }?.asString ?: ""
+        val bytes = if (o.get("buffer")?.asNumberOrNull()?.toInt() == 2) Base64Compat.decode(content) else content.toByteArray()
+        val type = headers.entries.firstOrNull { it.key.equals("Content-Type", true) }?.value ?: "application/octet-stream"
+        return ProxyResponse(o.get("code")?.asNumberOrNull()?.toInt() ?: 200, type, ByteArrayInputStream(bytes), headers)
+    }
+
+    private fun jsonHeaders(el: JsonElement?): Map<String, String> {
+        val obj = when {
+            el == null || el.isJsonNull -> return emptyMap()
+            el.isJsonObject -> el.asJsonObject
+            el.isJsonPrimitive -> runCatching { JsonParser.parseString(el.asString).asJsonObject }.getOrNull() ?: return emptyMap()
+            else -> return emptyMap()
+        }
+        return obj.entrySet().associate { (k, v) -> k to (if (v.isJsonPrimitive) v.asString else v.toString()) }
+    }
+
+    private fun JsonElement.asNumberOrNull(): Number? = if (isJsonPrimitive && asJsonPrimitive.isNumber) asNumber else asString.toDoubleOrNull()
+
+    private suspend fun invoke(method: String, vararg args: Any?): String? {
+        onUse?.invoke()
+        return call("await globalThis.__tvbox_invoke(${json(method)}, ${gson.toJson(args.toList())})") as? String
+    }
 
     private suspend fun call(code: String): Any? = lock.withLock {
         try {

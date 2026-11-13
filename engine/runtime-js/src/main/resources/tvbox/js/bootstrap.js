@@ -44,6 +44,23 @@
     return typeof r === 'string' ? r : JSON.stringify(r);
   };
 
+  // TVBox JsSpider.proxyLocal. Two conventions:
+  //  1. proxy(params) -> [code, mime, content, headers?, base64?]
+  //  2. from=catvod (js2Proxy urls): proxy(url.split('/'), headerObject) -> { code, buffer, content, headers }
+  g.__tvbox_proxy = async (params) => {
+    const sp = g.__JS_SPIDER__;
+    if (!sp || typeof sp.proxy !== 'function') return null;
+    if (params.from === 'catvod') {
+      let header = {};
+      try { header = JSON.parse(params.header || '{}'); } catch (e) {}
+      let r = await sp.proxy(s(params.url).split('/'), header);
+      if (typeof r === 'string') { try { r = JSON.parse(r); } catch (e) {} }
+      return JSON.stringify({ style: 2, value: r });
+    }
+    const r = await sp.proxy(params);
+    return JSON.stringify({ style: 1, value: r });
+  };
+
   // TVBox JsSpider.init: cat-style spiders get { stype, skey, ext }, others the ext (parsed when it is a JSON object).
   g.__tvbox_init = async (ext, skey) => {
     const sp = g.__JS_SPIDER__;

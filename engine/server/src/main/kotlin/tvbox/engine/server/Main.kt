@@ -14,7 +14,9 @@ import tvbox.engine.core.model.Capabilities
 import tvbox.engine.core.model.EngineInfo
 import tvbox.engine.core.net.SiteHttp
 import tvbox.engine.core.store.JsonFileStore
+import tvbox.engine.core.spider.JarRepository
 import tvbox.engine.core.store.MemoryStore
+import tvbox.engine.jar.DesktopJarRuntime
 import tvbox.engine.js.FileJsLocalStore
 import tvbox.engine.js.JsEnvironment
 import tvbox.engine.js.JsHttp
@@ -65,6 +67,14 @@ fun main(args: Array<String>) {
             log = { line -> if ("[log]" !in line && "[debug]" !in line && "[info]" !in line) System.err.println(line) },
         ),
     )
+    // Jar spiders keep their app data and the converted jars on disk even in --demo mode.
+    val work = dataDir ?: File(System.getProperty("java.io.tmpdir"), "tvbox-next-engine")
+    val jarRuntime = DesktopJarRuntime(
+        dataDir = File(work, "spider"),
+        jars = JarRepository(client, locator, File(work, "cache/jar")),
+        port = { port },
+        cacheDir = File(work, "cache/d2j"),
+    )
     val engine = Engine(
         info = EngineInfo(
             name = "tvbox-engine",
@@ -76,7 +86,7 @@ fun main(args: Array<String>) {
         http = SiteHttp(client),
         proxyBase = "$local/proxy?",
         store = store,
-        runtimes = listOf(jsRuntime),
+        runtimes = listOf(jarRuntime, jsRuntime),
     )
     val demo = if ("--demo" in args) DemoSite() else null
 

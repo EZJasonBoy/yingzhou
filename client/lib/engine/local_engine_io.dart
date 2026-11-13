@@ -34,6 +34,9 @@ class DesktopEngine implements LocalEngine {
       final process = await Process.start(java, [
         '-Xss1m',
         '-XX:+UseSerialGC',
+        // Spider classes converted from dex do not always pass the JVM verifier; Android does not verify them either.
+        '-XX:+UnlockDiagnosticVMOptions',
+        '-XX:-BytecodeVerificationRemote',
         '-cp',
         '${engineDir.path}${Platform.pathSeparator}lib${Platform.pathSeparator}*',
         'tvbox.engine.server.MainKt',
