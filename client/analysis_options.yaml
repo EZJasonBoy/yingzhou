@@ -9,3 +9,7 @@ analyzer:
     - macos/**
     - linux/**
     - web/**
+
+formatter:
+  # The code base uses long lines; keep dart format from reflowing it to 80 columns.
+  page_width: 160

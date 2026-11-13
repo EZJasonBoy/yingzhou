@@ -31,11 +31,26 @@ flutter run -d windows
 
 桌面客户端启动时，如果 127.0.0.1:9978 上没有引擎，会自动在后台启动内置引擎（开发时用 `engine/server/build/install/tvbox-engine`，打包后用 `engine/` 目录和自带的精简 JRE），客户端退出时引擎随之退出。
 
-打包 Windows 版（客户端 + 引擎 + jlink 精简 JRE，输出 `dist/tvbox-next-windows-x64.zip`）：
+打包桌面版（客户端 + 引擎 + jlink 精简 JRE）：Windows 上输出 `dist/tvbox-next-windows-x64.zip`，Mac 上输出 `dist/tvbox-next-macos-<arm64|x86_64>.dmg`（JRE 跟构建机的 CPU 走；默认临时签名，设 `SIGN_IDENTITY` 用开发者证书签名）。没有 Mac 时，把仓库推到 GitHub 后用 `.github/workflows/desktop.yml` 一次出三个包。
 
 ```bash
 tools/package-desktop.sh
 ```
+
+桌面端操作：
+
+| 按键 / 鼠标 | 作用 |
+|---|---|
+| 单击画面 / 空格 | 播放、暂停 |
+| 双击画面 / F | 全屏，Esc 退出全屏 |
+| ← / →（按住 Shift） | 后退 / 快进 10 秒（60 秒） |
+| ↑ / ↓、滚轮 | 音量，M 静音（音量会记住） |
+| [ / ] | 减速 / 加速 |
+| N / P（PageDown / PageUp） | 下一集 / 上一集 |
+| 鼠标侧键后退、Alt+←（播放页里也可按 Esc） | 返回上一页 |
+| Ctrl+F（Mac 上 ⌘F） | 搜索 |
+
+窗口大小、位置和是否最大化会在下次启动时恢复。
 
 ## 许可
 

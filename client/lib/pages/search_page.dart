@@ -11,7 +11,10 @@ import 'detail_page.dart';
 
 /// Aggregated search: results stream in as each site answers.
 class SearchPage extends StatefulWidget {
-  const SearchPage({super.key});
+  const SearchPage({super.key, this.focusNode});
+
+  /// Lets the shell put the cursor in the search box (Ctrl+F).
+  final FocusNode? focusNode;
 
   @override
   State<SearchPage> createState() => _SearchPageState();
@@ -52,31 +55,33 @@ class _SearchPageState extends State<SearchPage> {
       _error = null;
       _searching = true;
     });
-    _sub = AppScope.read(context).client.searchAll(q).listen(
-      (event) {
-        setState(() {
-          switch (event) {
-            case SearchSiteStatus(:final site, :final status, :final message):
-              _started.add(site);
-              if (status == 'done') _finished.add(site);
-              if (status == 'error') {
-                _finished.add(site);
-                _failed[site] = message ?? '失败';
+    _sub = AppScope.read(context).client
+        .searchAll(q)
+        .listen(
+          (event) {
+            setState(() {
+              switch (event) {
+                case SearchSiteStatus(:final site, :final status, :final message):
+                  _started.add(site);
+                  if (status == 'done') _finished.add(site);
+                  if (status == 'error') {
+                    _finished.add(site);
+                    _failed[site] = message ?? '失败';
+                  }
+                case SearchResults(:final site, :final items):
+                  _results.addAll(items);
+                  _perSite[site] = (_perSite[site] ?? 0) + items.length;
+                case SearchEnd():
+                  _searching = false;
               }
-            case SearchResults(:final site, :final items):
-              _results.addAll(items);
-              _perSite[site] = (_perSite[site] ?? 0) + items.length;
-            case SearchEnd():
-              _searching = false;
-          }
-        });
-      },
-      onError: (Object e) => setState(() {
-        _error = errorText(e);
-        _searching = false;
-      }),
-      onDone: () => setState(() => _searching = false),
-    );
+            });
+          },
+          onError: (Object e) => setState(() {
+            _error = errorText(e);
+            _searching = false;
+          }),
+          onDone: () => setState(() => _searching = false),
+        );
   }
 
   @override
@@ -93,6 +98,7 @@ class _SearchPageState extends State<SearchPage> {
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
               child: TextField(
                 controller: _field,
+                focusNode: widget.focusNode,
                 enabled: state.hasConfig,
                 textInputAction: TextInputAction.search,
                 onSubmitted: (_) => _search(),
@@ -100,7 +106,10 @@ class _SearchPageState extends State<SearchPage> {
                   hintText: state.hasConfig ? '搜索片名，所有站点同时搜' : '先在"源"里导入订阅',
                   prefixIcon: const Icon(Icons.search),
                   suffixIcon: _searching
-                      ? IconButton(onPressed: () => _sub?.cancel().then((_) => setState(() => _searching = false)), icon: const Icon(Icons.stop_circle_outlined))
+                      ? IconButton(
+                          onPressed: () => _sub?.cancel().then((_) => setState(() => _searching = false)),
+                          icon: const Icon(Icons.stop_circle_outlined),
+                        )
                       : null,
                 ),
               ),
@@ -131,7 +140,11 @@ class _SearchPageState extends State<SearchPage> {
                   children: [
                     Padding(
                       padding: const EdgeInsets.only(right: 6),
-                      child: ChoiceChip(label: Text('全部 ${_results.length}'), selected: _siteFilter == null, onSelected: (_) => setState(() => _siteFilter = null)),
+                      child: ChoiceChip(
+                        label: Text('全部 ${_results.length}'),
+                        selected: _siteFilter == null,
+                        onSelected: (_) => setState(() => _siteFilter = null),
+                      ),
                     ),
                     for (final e in _perSite.entries)
                       Padding(

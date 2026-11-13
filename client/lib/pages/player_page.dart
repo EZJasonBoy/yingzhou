@@ -1,18 +1,25 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../app_state.dart';
+import '../desktop/desktop_window.dart';
 import '../engine/engine_client.dart';
 import '../engine/library_models.dart';
 import '../engine/vod_models.dart';
+import '../settings.dart';
 import 'browse_page.dart' show errorText;
 
 /// Full-window player: resolves the episode through the engine, plays it with media_kit (libmpv on desktop),
 /// and draws its own controls so they work the same with mouse, touch and keyboard.
+///
+/// Desktop conventions: click pauses, double-click / F toggles fullscreen, Esc leaves fullscreen, the wheel and
+/// ↑/↓ change the volume (M mutes), ←/→ seek 10 s (with Shift 60 s), [ / ] change speed, N / P next / previous
+/// episode. The volume is remembered between sessions.
 class PlayerPage extends StatefulWidget {
   const PlayerPage({super.key, required this.detail, required this.line, required this.episode, this.startPosition});
 
@@ -46,34 +53,63 @@ class _PlayerPageState extends State<PlayerPage> {
   Timer? _hideTimer;
   Timer? _saveTimer;
   int _requestSeq = 0;
+  late final SettingsStore _settings;
+  Timer? _volumeSave;
+  double _volumeBeforeMute = 100;
+  String? _osd;
+  Timer? _osdTimer;
+
+  static const _volumeKey = 'player.volume';
+  static const _speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
 
   PlayLine get _currentLine => widget.detail.lines[_line];
   Episode get _currentEpisode => _currentLine.episodes[_episode];
   bool get _hasNext => _episode + 1 < _currentLine.episodes.length;
+  bool get _hasPrevious => _episode > 0;
+  bool get _desktop => DesktopWindow.isDesktop;
+  DesktopWindow get _window => DesktopWindow.instance;
 
   @override
   void initState() {
     super.initState();
-    _client = AppScope.read(context).client;
-    _subs.add(_player.stream.completed.listen((done) {
-      if (done && _hasNext) _openEpisode(_line, _episode + 1);
-    }));
+    final app = AppScope.read(context);
+    _client = app.client;
+    _settings = app.settings;
+    final savedVolume = double.tryParse(_settings.getString(_volumeKey) ?? '');
+    if (savedVolume != null) _player.setVolume(savedVolume.clamp(0, 100));
+    _subs.add(
+      _player.stream.volume.listen((v) {
+        _volumeSave?.cancel();
+        _volumeSave = Timer(const Duration(milliseconds: 500), () => _settings.setString(_volumeKey, v.toStringAsFixed(0)));
+      }),
+    );
+    _subs.add(
+      _player.stream.completed.listen((done) {
+        if (done && _hasNext) _openEpisode(_line, _episode + 1);
+      }),
+    );
     // Resume once the media knows its length (seeking earlier is ignored by some backends).
-    _subs.add(_player.stream.duration.listen((d) {
-      final seek = _pendingSeek;
-      if (seek != null && d > Duration.zero && seek < d - const Duration(seconds: 5)) {
-        _pendingSeek = null;
-        _player.seek(seek);
-      }
-    }));
+    _subs.add(
+      _player.stream.duration.listen((d) {
+        final seek = _pendingSeek;
+        if (seek != null && d > Duration.zero && seek < d - const Duration(seconds: 5)) {
+          _pendingSeek = null;
+          _player.seek(seek);
+        }
+      }),
+    );
     _saveTimer = Timer.periodic(const Duration(seconds: 10), (_) => _saveProgress());
-    _subs.add(_player.stream.error.listen((e) {
-      // Stopping/replacing the media emits errors (e.g. "empty src" on web); only report real playback errors.
-      if (mounted && !_opening) setState(() => _error = '播放出错：$e');
-    }));
-    _subs.add(_player.stream.playing.listen((playing) {
-      if (playing && _error != null && mounted) setState(() => _error = null);
-    }));
+    _subs.add(
+      _player.stream.error.listen((e) {
+        // Stopping/replacing the media emits errors (e.g. "empty src" on web); only report real playback errors.
+        if (mounted && !_opening) setState(() => _error = '播放出错：$e');
+      }),
+    );
+    _subs.add(
+      _player.stream.playing.listen((playing) {
+        if (playing && _error != null && mounted) setState(() => _error = null);
+      }),
+    );
     _openEpisode(_line, _episode);
     _pokeControls();
   }
@@ -82,6 +118,11 @@ class _PlayerPageState extends State<PlayerPage> {
   void dispose() {
     _hideTimer?.cancel();
     _saveTimer?.cancel();
+    _osdTimer?.cancel();
+    _volumeSave?.cancel();
+    _settings.setString(_volumeKey, _player.state.volume.toStringAsFixed(0));
+    if (_window.isFullScreen) _window.fullScreen = false;
+    _window.title = 'TVBox Next';
     _saveProgress();
     for (final s in _subs) {
       s.cancel();
@@ -98,18 +139,20 @@ class _PlayerPageState extends State<PlayerPage> {
     final duration = episodeStart ? Duration.zero : _player.state.duration;
     if (!episodeStart && duration <= Duration.zero) return;
     _client
-        .putHistory(HistoryEntry(
-          site: d.site,
-          vodId: d.id,
-          name: d.name,
-          pic: d.pic,
-          line: _currentLine.name,
-          episodeId: _currentEpisode.id,
-          episodeName: _currentEpisode.name,
-          episodeIndex: _episode,
-          positionMs: position.inMilliseconds,
-          durationMs: duration.inMilliseconds,
-        ))
+        .putHistory(
+          HistoryEntry(
+            site: d.site,
+            vodId: d.id,
+            name: d.name,
+            pic: d.pic,
+            line: _currentLine.name,
+            episodeId: _currentEpisode.id,
+            episodeName: _currentEpisode.name,
+            episodeIndex: _episode,
+            positionMs: position.inMilliseconds,
+            durationMs: duration.inMilliseconds,
+          ),
+        )
         .catchError((Object _) {});
   }
 
@@ -127,6 +170,7 @@ class _PlayerPageState extends State<PlayerPage> {
     });
     if (!isFirst) _pendingSeek = null;
     if (_pendingSeek == null) _saveProgress(episodeStart: true);
+    _window.title = '${widget.detail.name} · ${_currentEpisode.name} - TVBox Next';
     _opening = true;
     await _player.stop();
     try {
@@ -158,10 +202,10 @@ class _PlayerPageState extends State<PlayerPage> {
 
   /// The engine names parsers it made up from a site's `playUrl` "sniff" / "json".
   static String _parserLabel(String parsedBy) => switch (parsedBy) {
-        'sniff' => '网页嗅探',
-        'json' => '经站点解析',
-        _ => '经 $parsedBy 解析',
-      };
+    'sniff' => '网页嗅探',
+    'json' => '经站点解析',
+    _ => '经 $parsedBy 解析',
+  };
 
   void _pokeControls() {
     _hideTimer?.cancel();
@@ -171,33 +215,96 @@ class _PlayerPageState extends State<PlayerPage> {
     });
   }
 
+  /// A short notice in the middle of the picture (seek, volume, speed).
+  void _showOsd(String text) {
+    _osdTimer?.cancel();
+    setState(() => _osd = text);
+    _osdTimer = Timer(const Duration(milliseconds: 900), () {
+      if (mounted) setState(() => _osd = null);
+    });
+  }
+
   void _seekBy(Duration delta) {
-    final target = _player.state.position + delta;
-    _player.seek(target < Duration.zero ? Duration.zero : target);
-    _pokeControls();
+    final duration = _player.state.duration;
+    var target = _player.state.position + delta;
+    if (target < Duration.zero) target = Duration.zero;
+    if (duration > Duration.zero && target > duration) target = duration;
+    _player.seek(target);
+    final seconds = delta.inSeconds.abs();
+    _showOsd('${delta.isNegative ? '⏪' : '⏩'} $seconds 秒   ${_TimeLabel.format(target)} / ${_TimeLabel.format(duration)}');
+  }
+
+  void _changeVolume(double delta) {
+    final v = (_player.state.volume + delta).clamp(0.0, 100.0);
+    _player.setVolume(v);
+    _showOsd(v == 0 ? '🔇 静音' : '🔊 音量 ${v.round()}%');
+  }
+
+  void _toggleMute() {
+    final v = _player.state.volume;
+    if (v > 0) {
+      _volumeBeforeMute = v;
+      _player.setVolume(0);
+      _showOsd('🔇 静音');
+    } else {
+      _player.setVolume(_volumeBeforeMute <= 0 ? 60 : _volumeBeforeMute);
+      _showOsd('🔊 音量 ${_volumeBeforeMute.round()}%');
+    }
+  }
+
+  void _stepSpeed(int step) {
+    final i = _speeds.indexOf(_player.state.rate);
+    final next = _speeds[((i < 0 ? _speeds.indexOf(1.0) : i) + step).clamp(0, _speeds.length - 1)];
+    _player.setRate(next);
+    _showOsd('倍速 ${next}x');
+  }
+
+  void _toggleFullScreen() {
+    if (!_window.supported) return;
+    _window.toggleFullScreen();
+    setState(() {});
+  }
+
+  void _back() {
+    if (_window.isFullScreen) {
+      _window.fullScreen = false;
+      setState(() {});
+    } else if (_panelOpen) {
+      setState(() => _panelOpen = false);
+    } else {
+      Navigator.of(context).maybePop();
+    }
   }
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
+    final shift = HardwareKeyboard.instance.isShiftPressed;
+    final step = Duration(seconds: shift ? 60 : 10);
     if (key == LogicalKeyboardKey.space || key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.select) {
       _player.playOrPause();
     } else if (key == LogicalKeyboardKey.arrowRight) {
-      _seekBy(const Duration(seconds: 10));
+      _seekBy(step);
     } else if (key == LogicalKeyboardKey.arrowLeft) {
-      _seekBy(const Duration(seconds: -10));
+      _seekBy(-step);
     } else if (key == LogicalKeyboardKey.arrowUp) {
-      _player.setVolume((_player.state.volume + 10).clamp(0, 100));
+      _changeVolume(5);
     } else if (key == LogicalKeyboardKey.arrowDown) {
-      _player.setVolume((_player.state.volume - 10).clamp(0, 100));
-    } else if (key == LogicalKeyboardKey.keyN && _hasNext) {
+      _changeVolume(-5);
+    } else if (key == LogicalKeyboardKey.keyM) {
+      _toggleMute();
+    } else if (key == LogicalKeyboardKey.keyF) {
+      _toggleFullScreen();
+    } else if (key == LogicalKeyboardKey.bracketLeft) {
+      _stepSpeed(-1);
+    } else if (key == LogicalKeyboardKey.bracketRight) {
+      _stepSpeed(1);
+    } else if ((key == LogicalKeyboardKey.keyN || key == LogicalKeyboardKey.pageDown) && _hasNext) {
       _openEpisode(_line, _episode + 1);
+    } else if ((key == LogicalKeyboardKey.keyP || key == LogicalKeyboardKey.pageUp) && _hasPrevious) {
+      _openEpisode(_line, _episode - 1);
     } else if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
-      if (_panelOpen) {
-        setState(() => _panelOpen = false);
-      } else {
-        Navigator.of(context).maybePop();
-      }
+      _back();
     } else {
       return KeyEventResult.ignored;
     }
@@ -216,22 +323,46 @@ class _PlayerPageState extends State<PlayerPage> {
         child: MouseRegion(
           onHover: (_) => _pokeControls(),
           cursor: _controlsVisible ? SystemMouseCursors.basic : SystemMouseCursors.none,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => _controlsVisible ? setState(() => _controlsVisible = false) : _pokeControls(),
-            onDoubleTap: _player.playOrPause,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                Video(controller: _video, controls: NoVideoControls, fill: Colors.black),
-                _buildStatus(),
-                AnimatedOpacity(
-                  opacity: _controlsVisible ? 1 : 0,
-                  duration: const Duration(milliseconds: 200),
-                  child: IgnorePointer(ignoring: !_controlsVisible, child: _buildControls(context)),
-                ),
-                if (_panelOpen) _buildEpisodePanel(context),
-              ],
+          child: Listener(
+            // The mouse wheel changes the volume, like desktop players.
+            onPointerSignal: (e) {
+              if (e is PointerScrollEvent) _changeVolume(e.scrollDelta.dy < 0 ? 5 : -5);
+            },
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              // Desktop: click pauses, double-click goes fullscreen. Touch: tap shows/hides the controls.
+              onTap: _desktop
+                  ? () {
+                      _player.playOrPause();
+                      _pokeControls();
+                    }
+                  : () => _controlsVisible ? setState(() => _controlsVisible = false) : _pokeControls(),
+              onDoubleTap: _desktop ? _toggleFullScreen : _player.playOrPause,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Video(controller: _video, controls: NoVideoControls, fill: Colors.black),
+                  _buildStatus(),
+                  if (_osd != null)
+                    Align(
+                      alignment: const Alignment(0, -0.55),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                        decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.6), borderRadius: BorderRadius.circular(10)),
+                        child: Text(
+                          _osd!,
+                          style: const TextStyle(color: Colors.white, fontSize: 16, fontFeatures: [FontFeature.tabularFigures()]),
+                        ),
+                      ),
+                    ),
+                  AnimatedOpacity(
+                    opacity: _controlsVisible ? 1 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: IgnorePointer(ignoring: !_controlsVisible, child: _buildControls(context)),
+                  ),
+                  if (_panelOpen) _buildEpisodePanel(context),
+                ],
+              ),
             ),
           ),
         ),
@@ -255,12 +386,13 @@ class _PlayerPageState extends State<PlayerPage> {
               const SizedBox(height: 16),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: Text(text, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70)),
+                child: Text(
+                  text,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70),
+                ),
               ),
-              if (_error != null) ...[
-                const SizedBox(height: 16),
-                FilledButton.tonal(onPressed: () => _openEpisode(_line, _episode), child: const Text('重试')),
-              ],
+              if (_error != null) ...[const SizedBox(height: 16), FilledButton.tonal(onPressed: () => _openEpisode(_line, _episode), child: const Text('重试'))],
             ],
           ),
         );
@@ -286,10 +418,19 @@ class _PlayerPageState extends State<PlayerPage> {
               padding: const EdgeInsets.fromLTRB(8, 8, 16, 0),
               child: Row(
                 children: [
-                  IconButton(onPressed: () => Navigator.of(context).maybePop(), icon: const Icon(Icons.arrow_back, color: Colors.white)),
+                  IconButton(
+                    tooltip: '返回 (Esc)',
+                    onPressed: _back,
+                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                  ),
                   const SizedBox(width: 4),
                   Expanded(
-                    child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600)),
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600),
+                    ),
                   ),
                   Text(
                     _parsedBy.isEmpty ? _currentLine.name : '${_currentLine.name} · ${_parserLabel(_parsedBy)}',
@@ -304,10 +445,17 @@ class _PlayerPageState extends State<PlayerPage> {
               padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
               child: Row(
                 children: [
+                  if (_hasPrevious)
+                    IconButton(
+                      tooltip: '上一集 (P)',
+                      onPressed: () => _openEpisode(_line, _episode - 1),
+                      icon: const Icon(Icons.skip_previous_rounded, color: Colors.white),
+                    ),
                   StreamBuilder<bool>(
                     stream: _player.stream.playing,
                     initialData: _player.state.playing,
                     builder: (context, snap) => IconButton(
+                      tooltip: '播放 / 暂停 (空格)',
                       iconSize: 32,
                       onPressed: _player.playOrPause,
                       icon: Icon(snap.data == true ? Icons.pause_rounded : Icons.play_arrow_rounded, color: Colors.white),
@@ -322,12 +470,19 @@ class _PlayerPageState extends State<PlayerPage> {
                   const SizedBox(width: 8),
                   _TimeLabel(player: _player),
                   const Spacer(),
-                  _SpeedButton(player: _player),
+                  if (_desktop) _VolumeControl(player: _player, onToggleMute: _toggleMute),
+                  _SpeedButton(player: _player, speeds: _speeds),
                   TextButton.icon(
                     onPressed: () => setState(() => _panelOpen = true),
                     icon: const Icon(Icons.playlist_play_rounded, color: Colors.white),
                     label: const Text('选集', style: TextStyle(color: Colors.white)),
                   ),
+                  if (_window.supported)
+                    IconButton(
+                      tooltip: _window.isFullScreen ? '退出全屏 (Esc)' : '全屏 (F / 双击)',
+                      onPressed: _toggleFullScreen,
+                      icon: Icon(_window.isFullScreen ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded, color: Colors.white),
+                    ),
                 ],
               ),
             ),
@@ -357,36 +512,44 @@ class _PlayerPageState extends State<PlayerPage> {
                     children: [
                       Text('线路', style: TextStyle(color: scheme.onSurfaceVariant)),
                       const SizedBox(height: 8),
-                      Wrap(spacing: 8, runSpacing: 8, children: [
-                        for (var i = 0; i < widget.detail.lines.length; i++)
-                          ChoiceChip(
-                            label: Text(widget.detail.lines[i].name),
-                            selected: i == _line,
-                            onSelected: (_) {
-                              final ep = _episode.clamp(0, widget.detail.lines[i].episodes.length - 1);
-                              setState(() => _panelOpen = false);
-                              _openEpisode(i, ep);
-                            },
-                          ),
-                      ]),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (var i = 0; i < widget.detail.lines.length; i++)
+                            ChoiceChip(
+                              label: Text(widget.detail.lines[i].name),
+                              selected: i == _line,
+                              onSelected: (_) {
+                                final ep = _episode.clamp(0, widget.detail.lines[i].episodes.length - 1);
+                                setState(() => _panelOpen = false);
+                                _openEpisode(i, ep);
+                              },
+                            ),
+                        ],
+                      ),
                       const SizedBox(height: 18),
                       Text('选集', style: TextStyle(color: scheme.onSurfaceVariant)),
                       const SizedBox(height: 8),
-                      Wrap(spacing: 8, runSpacing: 8, children: [
-                        for (var i = 0; i < _currentLine.episodes.length; i++)
-                          SizedBox(
-                            width: 98,
-                            child: i == _episode
-                                ? FilledButton(onPressed: null, child: Text(_currentLine.episodes[i].name, maxLines: 1, overflow: TextOverflow.ellipsis))
-                                : OutlinedButton(
-                                    onPressed: () {
-                                      setState(() => _panelOpen = false);
-                                      _openEpisode(_line, i);
-                                    },
-                                    child: Text(_currentLine.episodes[i].name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                                  ),
-                          ),
-                      ]),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (var i = 0; i < _currentLine.episodes.length; i++)
+                            SizedBox(
+                              width: 98,
+                              child: i == _episode
+                                  ? FilledButton(onPressed: null, child: Text(_currentLine.episodes[i].name, maxLines: 1, overflow: TextOverflow.ellipsis))
+                                  : OutlinedButton(
+                                      onPressed: () {
+                                        setState(() => _panelOpen = false);
+                                        _openEpisode(_line, i);
+                                      },
+                                      child: Text(_currentLine.episodes[i].name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    ),
+                            ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -445,7 +608,7 @@ class _TimeLabel extends StatelessWidget {
 
   final Player player;
 
-  static String _fmt(Duration d) {
+  static String format(Duration d) {
     final h = d.inHours;
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
@@ -458,18 +621,61 @@ class _TimeLabel extends StatelessWidget {
       stream: player.stream.position,
       initialData: player.state.position,
       builder: (context, snap) => Text(
-        '${_fmt(snap.data ?? Duration.zero)} / ${_fmt(player.state.duration)}',
+        '${format(snap.data ?? Duration.zero)} / ${format(player.state.duration)}',
         style: const TextStyle(color: Colors.white, fontFeatures: [FontFeature.tabularFigures()]),
       ),
     );
   }
 }
 
-class _SpeedButton extends StatelessWidget {
-  const _SpeedButton({required this.player});
+/// Mute button plus a volume slider (desktop).
+class _VolumeControl extends StatelessWidget {
+  const _VolumeControl({required this.player, required this.onToggleMute});
 
   final Player player;
-  static const _speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
+  final VoidCallback onToggleMute;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<double>(
+      stream: player.stream.volume,
+      initialData: player.state.volume,
+      builder: (context, snap) {
+        final v = (snap.data ?? 100).clamp(0.0, 100.0);
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: v == 0 ? '取消静音 (M)' : '静音 (M)',
+              onPressed: onToggleMute,
+              icon: Icon(v == 0 ? Icons.volume_off_rounded : (v < 50 ? Icons.volume_down_rounded : Icons.volume_up_rounded), color: Colors.white),
+            ),
+            SizedBox(
+              width: 110,
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 3,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                  activeTrackColor: Colors.white,
+                  inactiveTrackColor: Colors.white24,
+                  thumbColor: Colors.white,
+                ),
+                child: Slider(value: v, max: 100, onChanged: player.setVolume),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _SpeedButton extends StatelessWidget {
+  const _SpeedButton({required this.player, required this.speeds});
+
+  final Player player;
+  final List<double> speeds;
 
   @override
   Widget build(BuildContext context) {
@@ -478,12 +684,8 @@ class _SpeedButton extends StatelessWidget {
       initialData: player.state.rate,
       builder: (context, snap) => MenuAnchor(
         menuChildren: [
-          for (final s in _speeds)
-            MenuItemButton(
-              leadingIcon: Icon(s == snap.data ? Icons.check : null, size: 18),
-              onPressed: () => player.setRate(s),
-              child: Text('${s}x'),
-            ),
+          for (final s in speeds)
+            MenuItemButton(leadingIcon: Icon(s == snap.data ? Icons.check : null, size: 18), onPressed: () => player.setRate(s), child: Text('${s}x')),
         ],
         builder: (context, controller, _) => TextButton(
           onPressed: () => controller.isOpen ? controller.close() : controller.open(),

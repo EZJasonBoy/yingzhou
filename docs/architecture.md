@@ -136,6 +136,8 @@ tvbox-next/
 | **M3 好用** | 弹幕、字幕、Python 蜘蛛、DLNA、扫码配对与 mDNS、Docker 镜像、网盘（WebDAV / AList）、自动换线换源。 |
 | **M4 全平台** | macOS、Linux、iOS / iPadOS 客户端；加固 jar 的 unidbg 支持。 |
 
+**优先级（2026-11 起）：桌面优先。** Android 上已有原版 TVBox / 影视仓，本项目主要补桌面端：先 Windows，再 macOS。Android 构建保持可用，但不再单独为它做功能。macOS 的工程、签名配置和打包脚本已就绪（`tools/package-desktop.sh` 在 Mac 上出 DMG，或用 `.github/workflows/desktop.yml` 在 CI 上出 Apple Silicon / Intel 两个包），尚未在真机上验证。
+
 ## 7. 参考资料（不在本仓库内）
 
 - `../TVBoxOS`（q215613905，AGPL-3.0）：协议行为的主要参照。

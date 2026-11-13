@@ -21,6 +21,9 @@ class AppState extends ChangeNotifier {
 
   final EngineClientFactory clientFactory;
   final SettingsStore _settings;
+
+  /// Local preferences of this client (window, player volume...).
+  SettingsStore get settings => _settings;
   final LocalEngine? _localEngine;
   final Duration waitStep;
   String engineUrl;
@@ -92,7 +95,10 @@ class AppState extends ChangeNotifier {
   bool get hasConfig => summary != null;
 
   /// Sites the connected engine can actually run.
-  List<SiteInfo> get browsableSites => [for (final s in sites) if (supports(s.runtime)) s];
+  List<SiteInfo> get browsableSites => [
+    for (final s in sites)
+      if (supports(s.runtime)) s,
+  ];
 
   SiteInfo? get currentSite {
     for (final s in sites) {
@@ -102,12 +108,12 @@ class AppState extends ChangeNotifier {
   }
 
   bool supports(SiteRuntime runtime) => switch (runtime) {
-        SiteRuntime.cms || SiteRuntime.remote => true,
-        SiteRuntime.js => info?.capabilities['js'] ?? false,
-        SiteRuntime.jar => info?.capabilities['jar'] ?? false,
-        SiteRuntime.py => info?.capabilities['py'] ?? false,
-        SiteRuntime.unknown => false,
-      };
+    SiteRuntime.cms || SiteRuntime.remote => true,
+    SiteRuntime.js => info?.capabilities['js'] ?? false,
+    SiteRuntime.jar => info?.capabilities['jar'] ?? false,
+    SiteRuntime.py => info?.capabilities['py'] ?? false,
+    SiteRuntime.unknown => false,
+  };
 
   String siteName(String key) {
     for (final s in sites) {
@@ -117,9 +123,9 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> connect([String? url]) => _run(() async {
-        if (url != null) engineUrl = url.trim();
-        await _connectOnce();
-      });
+    if (url != null) engineUrl = url.trim();
+    await _connectOnce();
+  });
 
   Future<void> _connectOnce() async {
     _client?.close();
@@ -141,15 +147,15 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> importSubscription(String url) => _run(() async {
-        final sub = await client.addSubscription(url.trim());
-        summary = await client.activate(sub.id);
-        await _loadSites();
-      });
+    final sub = await client.addSubscription(url.trim());
+    summary = await client.activate(sub.id);
+    await _loadSites();
+  });
 
   Future<void> switchRepo(String repoUrl) => _run(() async {
-        summary = await client.activate(summary!.subscriptionId, repo: repoUrl);
-        await _loadSites();
-      });
+    summary = await client.activate(summary!.subscriptionId, repo: repoUrl);
+    await _loadSites();
+  });
 
   void selectSite(String key) {
     if (key == currentSiteKey) return;

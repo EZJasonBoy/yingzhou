@@ -4,9 +4,12 @@ import FlutterMacOS
 class MainFlutterWindow: NSWindow {
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
-    let windowFrame = self.frame
     self.contentViewController = flutterViewController
-    self.setFrame(windowFrame, display: true)
+    // First launch: same size as on Windows. Afterwards the app restores where the user left the window.
+    self.setContentSize(NSSize(width: 1360, height: 860))
+    self.center()
+    self.title = "TVBox Next"
+    self.collectionBehavior.insert(.fullScreenPrimary)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 

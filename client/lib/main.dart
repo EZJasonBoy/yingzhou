@@ -1,7 +1,10 @@
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'app_state.dart';
+import 'desktop/desktop_window.dart';
 import 'engine/engine_client.dart';
 import 'engine/local_engine.dart';
 import 'settings.dart';
@@ -14,14 +17,12 @@ Future<void> main() async {
   // During development, point the client at another engine with --dart-define=ENGINE_URL=http://127.0.0.1:19978
   const engineUrl = String.fromEnvironment('ENGINE_URL', defaultValue: defaultEngineUrl);
   final settings = await SharedPreferencesSettings.load();
-  runApp(TvboxApp(
-    state: AppState(
-      clientFactory: (url) => EngineClient(url),
-      engineUrl: engineUrl,
-      settings: settings,
-      localEngine: createLocalEngine(),
+  DesktopWindow.instance.restoreAndTrack(settings);
+  runApp(
+    TvboxApp(
+      state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings, localEngine: createLocalEngine()),
     ),
-  ));
+  );
 }
 
 class TvboxApp extends StatefulWidget {
@@ -34,6 +35,9 @@ class TvboxApp extends StatefulWidget {
 }
 
 class _TvboxAppState extends State<TvboxApp> {
+  final _navigator = GlobalKey<NavigatorState>();
+
+  void _back() => _navigator.currentState?.maybePop();
   @override
   void initState() {
     super.initState();
@@ -50,6 +54,14 @@ class _TvboxAppState extends State<TvboxApp> {
         themeMode: ThemeMode.dark,
         theme: buildLightTheme(),
         darkTheme: buildDarkTheme(),
+        navigatorKey: _navigator,
+        // Desktop habits: the mouse's back button and Alt+Left go back a page.
+        builder: (context, child) => Listener(
+          onPointerDown: (e) {
+            if (e.kind == PointerDeviceKind.mouse && e.buttons & kBackMouseButton != 0) _back();
+          },
+          child: CallbackShortcuts(bindings: {const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): _back}, child: child ?? const SizedBox.shrink()),
+        ),
         home: const AppShell(),
       ),
     );

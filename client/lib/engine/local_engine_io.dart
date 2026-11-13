@@ -72,8 +72,11 @@ class DesktopEngine implements LocalEngine {
 
   Directory? _findEngineDir() {
     final exeDir = File(Platform.resolvedExecutable).parent;
-    final packaged = Directory('${exeDir.path}${Platform.pathSeparator}engine');
-    if (Directory('${packaged.path}${Platform.pathSeparator}lib').existsSync()) return packaged;
+    final s = Platform.pathSeparator;
+    // Windows: next to the exe. macOS: TVBox Next.app/Contents/Resources/engine (the exe is in Contents/MacOS).
+    for (final packaged in [Directory('${exeDir.path}${s}engine'), Directory('${exeDir.parent.path}${s}Resources${s}engine')]) {
+      if (Directory('${packaged.path}${s}lib').existsSync()) return packaged;
+    }
     // Development: walk up to the repo and use the Gradle distribution.
     var dir = exeDir;
     for (var i = 0; i < 10; i++) {

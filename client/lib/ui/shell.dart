@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../pages/browse_page.dart';
@@ -15,6 +16,18 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   int _index = 0;
+  final _searchFocus = FocusNode();
+
+  @override
+  void dispose() {
+    _searchFocus.dispose();
+    super.dispose();
+  }
+
+  void _openSearch() {
+    _go(1);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _searchFocus.requestFocus());
+  }
 
   static const _destinations = [
     (icon: Icons.home_outlined, selected: Icons.home_rounded, label: '首页'),
@@ -27,12 +40,18 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
-    final children = [
-      BrowsePage(onOpenSources: () => _go(3)),
-      const SearchPage(),
-      LibraryPage(visible: _index == 2),
-      const SourcesPage(),
-    ];
+    // Ctrl+F (Cmd+F on macOS) jumps to search from anywhere in the main window.
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyF, control: true): _openSearch,
+        const SingleActivator(LogicalKeyboardKey.keyF, meta: true): _openSearch,
+      },
+      child: Focus(autofocus: true, child: _layout(context)),
+    );
+  }
+
+  Widget _layout(BuildContext context) {
+    final children = [BrowsePage(onOpenSources: () => _go(3)), SearchPage(focusNode: _searchFocus), LibraryPage(visible: _index == 2), const SourcesPage()];
     // Hidden pages keep their state but stop animating.
     final pages = IndexedStack(
       index: _index,
@@ -53,8 +72,7 @@ class _AppShellState extends State<AppShell> {
                 child: Icon(Icons.live_tv_rounded, size: 30, color: Theme.of(context).colorScheme.primary),
               ),
               destinations: [
-                for (final d in _destinations)
-                  NavigationRailDestination(icon: Icon(d.icon), selectedIcon: Icon(d.selected), label: Text(d.label)),
+                for (final d in _destinations) NavigationRailDestination(icon: Icon(d.icon), selectedIcon: Icon(d.selected), label: Text(d.label)),
               ],
             ),
             Expanded(child: pages),
@@ -67,9 +85,7 @@ class _AppShellState extends State<AppShell> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: _go,
-        destinations: [
-          for (final d in _destinations) NavigationDestination(icon: Icon(d.icon), selectedIcon: Icon(d.selected), label: d.label),
-        ],
+        destinations: [for (final d in _destinations) NavigationDestination(icon: Icon(d.icon), selectedIcon: Icon(d.selected), label: d.label)],
       ),
     );
   }
