@@ -23,6 +23,7 @@ import tvbox.engine.core.net.SiteHttp
 import tvbox.engine.core.net.SiteHttpException
 import tvbox.engine.core.play.PlayResolveException
 import tvbox.engine.core.play.PlayResolver
+import tvbox.engine.core.play.Sniffer
 import tvbox.engine.core.search.SearchAggregator
 import tvbox.engine.core.search.SearchEvent
 import tvbox.engine.core.site.CmsSource
@@ -65,6 +66,8 @@ class Engine(
     private val store: EngineStore = MemoryStore(),
     /** Spider runtimes available on this platform (js, jar, py). */
     private val runtimes: List<SpiderRuntime> = emptyList(),
+    /** Web page sniffing (headless browser / WebView), when the platform has one. */
+    sniffer: Sniffer? = null,
 ) {
     /** Capabilities are derived from the runtimes actually present. */
     val info: EngineInfo = info.copy(
@@ -72,6 +75,7 @@ class Engine(
             js = runtimes.any { it.kind == "js" },
             jar = runtimes.any { it.kind == "jar" },
             py = runtimes.any { it.kind == "py" },
+            sniff = sniffer != null,
         ),
     )
     val library = Library(store)
@@ -86,7 +90,7 @@ class Engine(
     private val lock = Mutex()
     private val subscriptions = LinkedHashMap<String, Subscription>()
     private val ext = ExtResolver(http)
-    private val playResolver = PlayResolver(http, proxyBase)
+    private val playResolver = PlayResolver(http, proxyBase, sniffer)
     private val searchAggregator = SearchAggregator()
 
     @Volatile

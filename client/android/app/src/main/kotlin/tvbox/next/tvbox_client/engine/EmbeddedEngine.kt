@@ -41,16 +41,18 @@ object EmbeddedEngine {
         val app = context.applicationContext
         HostBridge.context = app
         HostBridge.port = PORT
+        // Created on the main thread, before any activity resumes, so it knows which activity can host its WebView.
+        val sniffer = WebViewSniffer(app as android.app.Application)
         thread(name = "embedded-engine", isDaemon = true) {
             try {
-                run(app)
+                run(app, sniffer)
             } catch (e: Throwable) {
                 Log.e(TAG, "engine failed to start", e)
             }
         }
     }
 
-    private fun run(app: Context) {
+    private fun run(app: Context, sniffer: WebViewSniffer) {
         val local = "http://127.0.0.1:$PORT"
         val data = File(app.filesDir, "engine")
         val client = OkHttpClient.Builder()
@@ -80,6 +82,7 @@ object EmbeddedEngine {
             proxyBase = "$local/proxy?",
             store = JsonFileStore(data),
             runtimes = listOf(jar, js),
+            sniffer = sniffer,
         )
         server = embeddedServer(CIO, port = PORT, host = "127.0.0.1") { engineModule(engine) }.start(wait = false)
         Log.i(TAG, "listening on $local")

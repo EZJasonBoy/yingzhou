@@ -135,7 +135,7 @@ class _PlayerPageState extends State<PlayerPage> {
       if (!info.isDirect) {
         setState(() {
           _status = null;
-          _error = '这条线路需要网页嗅探，嗅探功能还在开发中，请换一条线路试试';
+          _error = '这条线路需要网页嗅探，但引擎没有可用的浏览器内核（桌面需安装 Edge 或 Chrome），请换一条线路试试';
         });
         return;
       }
@@ -155,6 +155,13 @@ class _PlayerPageState extends State<PlayerPage> {
       if (seq == _requestSeq) _opening = false;
     }
   }
+
+  /// The engine names parsers it made up from a site's `playUrl` "sniff" / "json".
+  static String _parserLabel(String parsedBy) => switch (parsedBy) {
+        'sniff' => '网页嗅探',
+        'json' => '经站点解析',
+        _ => '经 $parsedBy 解析',
+      };
 
   void _pokeControls() {
     _hideTimer?.cancel();
@@ -285,7 +292,7 @@ class _PlayerPageState extends State<PlayerPage> {
                     child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600)),
                   ),
                   Text(
-                    _parsedBy.isEmpty ? _currentLine.name : '${_currentLine.name} · 经 $_parsedBy 解析',
+                    _parsedBy.isEmpty ? _currentLine.name : '${_currentLine.name} · ${_parserLabel(_parsedBy)}',
                     style: const TextStyle(color: Colors.white60, fontSize: 13),
                   ),
                 ],

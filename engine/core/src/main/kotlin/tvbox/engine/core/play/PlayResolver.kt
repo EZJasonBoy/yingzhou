@@ -23,7 +23,8 @@ class PlayResolveException(message: String) : Exception(message)
  * - `parse == 0 && jx == 0`: play the url directly.
  * - otherwise pick a parser: the site's `playUrl` (`json:` prefix = JSON parser, `parse:Name` = named parser,
  *   anything else = sniff with that prefix), or the config's default parser when `jx == 1` / no `playUrl`.
- * - type 1 (JSON) parsers are called here; type 0 (sniff) is handed to the client as a [SniffRequest];
+ * - type 1 (JSON) parsers are called here; type 0 (sniff) pages are sniffed here when the engine has a [Sniffer]
+ *   (headless browser / WebView), otherwise handed to the client as a [SniffRequest];
  *   type 4 (super parse) races all JSON parsers.
  *
  * Types 2/3 (JSON ext / mix) need jar spiders and arrive with the jar runtime.
@@ -32,14 +33,28 @@ class PlayResolver(
     private val http: SiteHttp,
     /** Replacement for `proxy://`, e.g. `http://127.0.0.1:9978/proxy?`. */
     private val proxyBase: String,
+    /** Sniffs web pages on the engine; without one, `kind=sniff` is left to the client. */
+    private val sniffer: Sniffer? = null,
 ) {
+    @Volatile private var rules: Pair<String, SniffRules> = "" to SniffRules.NONE
 
     suspend fun resolve(raw: RawPlay, config: TvboxConfig): PlayInfo {
         val url = replaceProxy(raw.url)
         if (raw.parse == 0 && raw.jx == 0) return PlayInfo(kind = "direct", url = url, headers = raw.headers)
 
         val parser = chooseParser(raw, config) ?: throw PlayResolveException("this video needs a parser, but the config has none")
-        return runParser(parser, url, config, raw.headers)
+        return sniffIfNeeded(runParser(parser, url, config, raw.headers), config)
+    }
+
+    /** Resolves `kind=sniff` here when the engine can sniff; otherwise the client gets the page to sniff itself. */
+    private suspend fun sniffIfNeeded(info: PlayInfo, config: TvboxConfig): PlayInfo {
+        val request = info.sniff ?: return info
+        val sniffer = sniffer ?: return info
+        val sniffRules = rules.takeIf { it.first == config.rulesJson }?.second
+            ?: SniffRules.parse(config.rulesJson).also { rules = config.rulesJson to it }
+        val found = sniffer.sniff(request) { sniffRules.isMedia(request.pageUrl, it) }
+            ?: throw PlayResolveException("sniffing found no video on the page")
+        return PlayInfo(kind = "direct", url = found.url, headers = request.headers + found.headers, parsedBy = info.parsedBy)
     }
 
     private fun chooseParser(raw: RawPlay, config: TvboxConfig): ParseBean? {

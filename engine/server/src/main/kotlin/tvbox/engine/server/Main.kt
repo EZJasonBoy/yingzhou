@@ -17,6 +17,8 @@ import tvbox.engine.core.store.JsonFileStore
 import tvbox.engine.core.spider.JarRepository
 import tvbox.engine.core.store.MemoryStore
 import tvbox.engine.jar.DesktopJarRuntime
+import tvbox.engine.server.sniff.ChildProcesses
+import tvbox.engine.server.sniff.CdpSniffer
 import tvbox.engine.js.FileJsLocalStore
 import tvbox.engine.js.JsEnvironment
 import tvbox.engine.js.JsHttp
@@ -43,6 +45,7 @@ fun main(args: Array<String>) {
     if ("--exit-with-stdin" in args) {
         Thread({
             runCatching { while (System.`in`.read() >= 0) Unit }
+            ChildProcesses.killAll()
             Runtime.getRuntime().halt(0)
         }, "stdin-watch").apply { isDaemon = true }.start()
     }
@@ -68,13 +71,15 @@ fun main(args: Array<String>) {
         ),
     )
     // Jar spiders keep their app data and the converted jars on disk even in --demo mode.
-    val work = dataDir ?: File(System.getProperty("java.io.tmpdir"), "tvbox-next-engine")
+    val work = dataDir ?: File(System.getProperty("java.io.tmpdir"), "tvbox-next-engine-$port")
     val jarRuntime = DesktopJarRuntime(
         dataDir = File(work, "spider"),
         jars = JarRepository(client, locator, File(work, "cache/jar")),
         port = { port },
         cacheDir = File(work, "cache/d2j"),
     )
+    // Web page sniffing in a headless Edge/Chrome, when one is installed.
+    val sniffer = CdpSniffer.findBrowser()?.let { CdpSniffer(it, File(work, "sniff-profile"), client) }
     val engine = Engine(
         info = EngineInfo(
             name = "tvbox-engine",
@@ -87,6 +92,7 @@ fun main(args: Array<String>) {
         proxyBase = "$local/proxy?",
         store = store,
         runtimes = listOf(jarRuntime, jsRuntime),
+        sniffer = sniffer,
     )
     val demo = if ("--demo" in args) DemoSite() else null
 
@@ -95,6 +101,7 @@ fun main(args: Array<String>) {
         if (demo != null) routing { demoRoutes(demo) }
     }.start(wait = false)
     println("tvbox-engine listening on http://$host:$port" + (dataDir?.let { ", data in ${it.absolutePath}" } ?: ", data in memory"))
+    println(if (sniffer != null) "sniffing with " + CdpSniffer.findBrowser() else "sniffing unavailable: no Edge/Chrome/Chromium found (set TVBOX_BROWSER)")
 
     val subscribe = argValue(args, "--subscribe") ?: demo?.let { "$local/demo/config.json" }
     runBlocking {
@@ -109,7 +116,10 @@ fun main(args: Array<String>) {
             ?.onFailure { println("failed to load the subscription: ${it.message}") }
     }
 
-    Runtime.getRuntime().addShutdownHook(Thread { server.stop(500, 2000) })
+    Runtime.getRuntime().addShutdownHook(Thread {
+        ChildProcesses.killAll()
+        server.stop(500, 2000)
+    })
     Thread.currentThread().join()
 }
 

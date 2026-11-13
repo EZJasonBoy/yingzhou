@@ -2,6 +2,7 @@ package tvbox.engine.server
 
 import io.ktor.http.ContentType
 import io.ktor.server.response.respondBytes
+import io.ktor.server.response.respondRedirect
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
@@ -68,12 +69,26 @@ class DemoSite {
                 put("searchable", 1)
                 put("ext", buildJsonObject { put("api", "$base/demo/api.php/provide/vod/") })
             })
+            // Plays through a web page that has to be sniffed (playUrl = a type-0 parser).
+            add(buildJsonObject {
+                put("key", "demo_sniff")
+                put("name", "演示嗅探站")
+                put("type", 1)
+                put("api", "$base/demo/api.php/provide/vod/")
+                put("searchable", 0)
+                put("playUrl", "$base/demo/sniff?url=")
+            })
         })
         put("parses", buildJsonArray {
             add(buildJsonObject {
                 put("name", "演示解析")
                 put("type", 1)
                 put("url", "$base/demo/jx?url=")
+            })
+            add(buildJsonObject {
+                put("name", "演示嗅探")
+                put("type", 0)
+                put("url", "$base/demo/sniff?url=")
             })
         })
     }.toString()
@@ -216,6 +231,18 @@ fun Route.demoRoutes(site: DemoSite) {
         call.respondText(site.api(params, call.base()), ContentType.Application.Json)
     }
     get("/demo/jx") { call.respondText(site.parse(call.request.queryParameters["url"].orEmpty()), ContentType.Application.Json) }
+    // A "parser page" whose player requests the stream from script, like hls.js does: only a browser finds it.
+    get("/demo/sniff") {
+        val id = call.request.queryParameters["url"].orEmpty().hashCode().toUInt().toString(16)
+        call.respondText(
+            """<!doctype html><html><head><meta charset="utf-8"><title>sniff demo</title></head><body>
+            |<video id="v" muted autoplay></video>
+            |<script>setTimeout(function () { fetch("/demo/stream/$id.m3u8").catch(function () {}); }, 300);</script>
+            |</body></html>""".trimMargin(),
+            ContentType.Text.Html,
+        )
+    }
+    get("/demo/stream/{name}") { call.respondRedirect(DemoSite.TEST_STREAM, permanent = false) }
     get("/demo/poster/{id}.png") {
         val id = call.parameters["id"]?.toIntOrNull() ?: 0
         call.respondBytes(site.poster(id), ContentType.Image.PNG)

@@ -74,7 +74,7 @@ event: end       data: {"sites":40,"ms":9120}
 }
 ```
 
-引擎尽量自己走完解析链（直链 / JSON 解析接口 / `jx`）；只有必须网页嗅探且引擎没有无头浏览器时，才返回 `kind: "sniff"`，由客户端用 WebView 嗅探后直接播放。
+引擎尽量自己走完解析链（直链 / JSON 解析接口 / `jx` / 网页嗅探）。网页嗅探：桌面与 NAS 引擎用无头 Edge/Chrome（CDP，浏览器装在非标准位置时设 `TVBOX_BROWSER`），Android 内置引擎用 WebView；判定规则同 TVBox（配置 `rules` 的 `host`/`rule`/`filter`，再加内置视频地址正则），返回的 `headers` 带上页面实际使用的 Referer / User-Agent / Cookie。`/info` 的 `capabilities.sniff` 表示引擎能否嗅探；不能时才返回 `kind: "sniff"`，由客户端自行嗅探（或提示换线路）。
 
 ## 历史、收藏、进度
 
