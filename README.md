@@ -2,18 +2,38 @@
 
 > 工作名。一个兼容 TVBox 配置与蜘蛛协议的全平台影视客户端：一个 Kotlin 引擎 + 一个 Flutter 客户端 + 一套 HTTP 协议。
 
-- 架构设计：[docs/architecture.md](docs/architecture.md)
-- 引擎协议：[docs/protocol.md](docs/protocol.md)
+**现状**：Windows 桌面版可用（点播、搜索、jar / js 蜘蛛、解析、嗅探、去广告、直播 + 节目单），macOS 的工程与打包已就绪但未在真机验证。桌面优先，Android 只保证能编译。详见 [docs/status.md](docs/status.md)。
+
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [docs/requirements.md](docs/requirements.md) | 需求：目标、平台优先级、功能清单与状态 |
+| [docs/status.md](docs/status.md) | 进度：里程碑、已验证 / 未验证、已知缺口、下一步 |
+| [docs/architecture.md](docs/architecture.md) | 架构：引擎 / 客户端 / 协议的分工，各子系统的实现 |
+| [docs/protocol.md](docs/protocol.md) | 引擎协议：客户端与引擎之间的 HTTP 接口 |
+| [docs/development.md](docs/development.md) | 开发指南：环境、命令、演示引擎、集成测试、打包、排错 |
+
+## 使用（Windows）
+
+1. 运行 `tools/package-desktop.sh` 得到 `dist/tvbox-next-windows-x64.zip`（或直接用 `client/build/windows/x64/runner/Release` 目录）。
+2. 解压，运行 `tvbox_client.exe`。不需要安装 Java，引擎和运行时都在包里。
+3. 在左侧「源」页填入订阅地址。订阅、历史、收藏保存在 `~/.tvbox-next/engine`。
+
+网页嗅探用系统里的 Edge 或 Chrome（Windows 10/11 自带 Edge）。
 
 ## 目录
 
 | 目录 | 内容 |
 |---|---|
-| `engine/` | Kotlin/JVM 引擎（Gradle）：`core` 协议逻辑、`api` HTTP 路由、`server` 独立进程入口 |
+| `engine/` | Kotlin/JVM 引擎（Gradle）：`core` 协议逻辑、`api` HTTP 路由、`server` 独立进程入口、`runtime-js` / `runtime-jar` 蜘蛛运行时 |
 | `client/` | Flutter 客户端（Windows / macOS / Linux / Android / iOS） |
-| `docs/` | 设计文档 |
+| `tools/` | 打包脚本 |
+| `docs/` | 文档 |
 
 ## 开发
+
+完整说明见 [docs/development.md](docs/development.md)。
 
 需要 JDK 21、Flutter 3.50+；Android 需要 Android SDK；Windows 桌面需要 Visual Studio 的"使用 C++ 的桌面开发"工作负载。
 
@@ -60,6 +80,7 @@ AGPL-3.0，见 [LICENSE](LICENSE)。
 
 - 部分实现移植自 [TVBoxOS](https://github.com/q215613905/TVBoxOS) 与 [takagen99/Box](https://github.com/takagen99/Box)（AGPL-3.0）。
 - `engine/core/.../util/UriUtil.kt` 移植自 ExoPlayer（Apache-2.0），保留原版权声明。
-- 参考了 [Win-box](https://github.com/yagami-hue/Win-box)（MIT）的设计与踩坑记录。
+- 桌面 jar 运行时的安卓桩类与 dex2jar 修复源自 [Win-box](https://github.com/yagami-hue/Win-box)（MIT）。
+- 完整的来源与许可证声明见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
 
 本项目只是播放器外壳，不内置、不提供任何影视内容或订阅源。

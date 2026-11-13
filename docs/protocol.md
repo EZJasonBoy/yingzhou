@@ -2,12 +2,14 @@
 
 客户端与引擎之间的唯一接口。本机内置引擎和远程引擎使用同一套协议。
 
+> 标了 **（未实现）** 的是已定下形状但还没写的接口：鉴权与 `/pair`、mDNS、`/config/reload`、`/events`、`/danmaku`。其余都已实现并有测试。
+
 ## 约定
 
 - 基础路径：`/api/v1`。JSON 使用 UTF-8，字段名 camelCase。
-- 鉴权：`Authorization: Bearer <token>`。本机回环地址上的内置客户端可免令牌。
+- 鉴权 **（未实现）**：`Authorization: Bearer <token>`。本机回环地址上的内置客户端可免令牌。目前引擎不校验令牌，默认只监听 `127.0.0.1`。
 - 错误：HTTP 状态码 + `{"error": {"code": "SITE_TIMEOUT", "message": "…"}}`。
-- 流式结果用 **SSE**（`text/event-stream`）；引擎主动推送的事件用 **WebSocket** `/api/v1/events`。
+- 流式结果用 **SSE**（`text/event-stream`）；引擎主动推送的事件用 **WebSocket** `/api/v1/events` **（未实现）**。
 - 版本：`GET /api/v1/info` 返回 `protocol` 版本号，不兼容的改动升主版本。
 
 ## 引擎信息与配对
@@ -15,9 +17,9 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/info` | `{name, version, protocol, platform, capabilities: {jar, js, py, sniff}}`，无需令牌 |
-| POST | `/pair` | `{code}` → `{token}`；配对码由引擎界面或日志显示 |
+| POST | `/pair` | **（未实现）** `{code}` → `{token}`；配对码由引擎界面或日志显示 |
 
-局域网发现：mDNS 服务类型 `_tvbox-engine._tcp`，TXT 记录含 `protocol` 与 `name`。
+局域网发现 **（未实现）**：mDNS 服务类型 `_tvbox-engine._tcp`，TXT 记录含 `protocol` 与 `name`。
 
 ## 订阅与配置
 
@@ -27,7 +29,7 @@
 | POST | `/subscriptions` | `{name?, url}`，`url` 支持 http(s)、`clan://`、`file://`、`;pk;` 密钥后缀 |
 | DELETE | `/subscriptions/{id}` | 删除 |
 | POST | `/subscriptions/{id}/activate` | 切换当前订阅；多仓订阅可带 `{repo}` 选择子仓 |
-| POST | `/config/reload` | 重新拉取（忽略缓存） |
+| POST | `/config/reload` | **（未实现）** 重新拉取（忽略缓存）；目前重新 `activate` 即可 |
 | GET | `/config` | 当前配置摘要：站点数、解析数、直播数、spider、壁纸 |
 
 ## 站点与点播
@@ -58,7 +60,7 @@ event: end       data: {"sites":40,"ms":9120}
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/play/resolve` | `{site, line, episodeId}` → `PlayInfo` |
-| GET | `/danmaku?site=&vodId=&title=&episode=` | （M3）规整弹幕 |
+| GET | `/danmaku?site=&vodId=&title=&episode=` | **（未实现，M3）** 规整弹幕 |
 
 `PlayInfo`：
 

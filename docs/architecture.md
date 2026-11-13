@@ -2,6 +2,8 @@
 
 > 工作名，正式名称以后再定。许可证：AGPL-3.0（会移植 TVBoxOS / Box 的 Java 实现，同为 AGPL-3.0；参考 Win-box 的部分为 MIT，保留其版权声明）。
 
+> 相关文档：[需求](requirements.md) · [进度](status.md) · [协议](protocol.md) · [开发指南](development.md)。本文描述的是目标架构；标了"已实现"的小节与代码一致，其余是计划。
+
 ## 1. 目标
 
 - **完全兼容 TVBox 配置与蜘蛛协议**：订阅链接、加密配置、多仓、type 0/1/3/4 站点、jar / js / py 蜘蛛、解析接口、直播源。目标是"安卓能播的，这里也能播"。
@@ -30,7 +32,7 @@
 | 平台 | 客户端 | 引擎 | jar 蜘蛛 |
 |---|---|---|---|
 | Android 手机/TV | Flutter | **同进程内置**（Kotlin 直接打进 APK，Ktor 监听 127.0.0.1） | `DexClassLoader` 原生加载，含带 `.so` 的加固 jar |
-| Windows / macOS / Linux | Flutter | 内置引擎（精简 JRE 子进程，可关闭）或连 NAS | dex 转换 + 安卓桩类，加固 jar 走 unidbg |
+| Windows / macOS / Linux | Flutter | 内置引擎（精简 JRE 子进程，可关闭）或连 NAS | dex 转换 + 安卓桩类；加固 jar 计划走 unidbg（未实现） |
 | NAS / 服务器 | — | Docker 镜像（amd64 / arm64） | 同桌面 |
 | iOS / iPadOS | Flutter | **无**，连局域网引擎；外出用 Tailscale 等连回家 | 由远程引擎负责 |
 
@@ -85,9 +87,10 @@ tvbox-next/
 │  ├─ runtime-js/           QuickJS 宿主：移植 TVBox 的 Global/Req/Crypto/HtmlParser 等宿主函数
 │  ├─ jar-host/            TVBox 宿主类与 jar 运行时，Android 与桌面共用（源码目录，被两边编译）
 │  ├─ runtime-jar/         桌面/服务器 jar 运行时：dex2jar 转换与修复、安卓桩类
-│  └─ runtime-py/           （M3）Python 蜘蛛
-└─ client/                  Flutter 客户端
-   └─ android/              Android 宿主工程，以 Gradle 复合构建引入 engine/core + runtime-*
+│  └─ runtime-py/           （M3，未创建）Python 蜘蛛
+├─ client/                  Flutter 客户端
+│  └─ android/              Android 宿主工程，以 Gradle 复合构建引入 engine/core + runtime-*
+└─ tools/                   打包脚本
 ```
 
 ### 3.1 引擎技术选型
@@ -101,7 +104,7 @@ tvbox-next/
 | TVBox JSON | Gson（宽松模式） | 与安卓版解析行为一致（配置里常见不规范 JSON） |
 | 我们自己的 API | kotlinx.serialization | 类型安全 |
 | JS | QuickJS（JNI），全平台同一个引擎 | 与安卓版一致；可缓存字节码 |
-| 存储 | `Storage` 接口；JVM 用 SQLite JDBC，Android 用系统 SQLite | 历史、收藏、进度、订阅 |
+| 存储 | `EngineStore` 接口；目前是 JSON 文件（`JsonFileStore`），数据量大了再换 SQLite | 历史、收藏、进度、订阅 |
 
 ### 3.2 引擎核心模块（engine/core）
 
@@ -112,10 +115,13 @@ tvbox-next/
   - `RemoteSpiderSource`（type 4）：HTTP 远程蜘蛛。
 - `model`：规整后的影片、分类、筛选、线路、剧集；`TvboxCompat` 负责与 TVBox JSON 互转。
 - `search`：聚合搜索调度（并发上限、每源超时、按片名+年份合并）。
+- `live`：直播源与节目单（见 2.6）。
 - `play`：播放解析链（直链 / 解析接口 type 0–4 / `jx` / VIP flags）；需要嗅探的页面交给平台的 `Sniffer`（见 2.4），没有时转交客户端。
 - HTTP 路由在独立的 `engine/api` 模块，见 protocol.md。
 
 ## 4. 客户端（Flutter）
+
+> 现状：单窗口外壳（首页、直播、搜索、我的、源）+ 详情页 + 播放页，桌面用 media_kit（libmpv），触控 / 鼠标模式。下面列的迷你播放器、画中画、遥控器焦点模式、`PlayerKernel` 抽象、弹幕都还是计划。
 
 - **单窗口 + 路由**：首页、分类、搜索、详情、播放、直播、历史、收藏、设置。支持迷你播放器与画中画。
 - **两种交互模式**：触控/鼠标模式；遥控器焦点模式（电视）。组件共用，布局与焦点逻辑分开。
@@ -129,11 +135,15 @@ tvbox-next/
 
 ## 5. 安全
 
+> 现状：只实现了"默认只监听本机"。`--lan` 打开后没有鉴权，配对与令牌未实现。
+
 - 引擎默认只监听本机；开启"局域网共享"后监听局域网，客户端扫码配对拿到令牌。
 - `/proxy` 与 API 都要求令牌（本机回环且来自内置客户端时可免）。
 - 网盘 Cookie 等凭据只存在引擎所在设备。
 
 ## 6. 里程碑
+
+当前状态见 [status.md](status.md)：M1 完成，M2 大部分完成。
 
 | 阶段 | 内容 |
 |---|---|
@@ -149,3 +159,5 @@ tvbox-next/
 - `../TVBoxOS`（q215613905，AGPL-3.0）：协议行为的主要参照。
 - `../Box`（takagen99，AGPL-3.0）：网盘、播放器等扩展。
 - `../Win-box`（yagami-hue，MIT）：桌面 jar 运行的踩坑记录、安卓桩类、测试用例。
+- `../MisaTV`（GPL-3.0）：Win-box 作者的 Flutter 重写，只参考思路，不搬代码。
+- `../tvbox-ysc-config`：聚合的公开配置，用来统计真实配置里各种写法的占比（约 8 成站点是 jar 蜘蛛，`rules` 多为 m3u8 去广告）。
