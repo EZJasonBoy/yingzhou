@@ -19,7 +19,9 @@ class BrowsePage extends StatelessWidget {
     final site = state.currentSite;
     final Widget body;
     if (!state.connected) {
-      body = StatusView(icon: Icons.link_off, message: state.error ?? '还没有连接引擎', actionLabel: '去设置', onAction: onOpenSources);
+      body = state.startingEngine
+          ? const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [CircularProgressIndicator(), SizedBox(height: 16), Text('正在启动内置引擎…')]))
+          : StatusView(icon: Icons.link_off, message: state.error ?? '还没有连接引擎', actionLabel: '去设置', onAction: onOpenSources);
     } else if (!state.hasConfig) {
       body = StatusView(icon: Icons.playlist_add, message: '还没有导入订阅', actionLabel: '导入订阅', onAction: onOpenSources);
     } else if (site == null) {

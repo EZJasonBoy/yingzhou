@@ -27,8 +27,10 @@ import java.util.concurrent.TimeUnit
 /**
  * Standalone engine (desktop sidecar / Docker).
  *
- *   tvbox-engine [--port 9978] [--lan] [--data <dir>] [--subscribe <url>] [--demo] [--dev-cors]
+ *   tvbox-engine [--port 9978] [--lan] [--data <dir>] [--subscribe <url>] [--demo] [--dev-cors] [--exit-with-stdin]
  *
+ * - --exit-with-stdin: exit when stdin closes. The desktop client starts the engine with a pipe on stdin, so the
+ *   engine goes away with the client even when the client crashes.
  * - Port 9978 is the TVBox default; jar spiders look for their host on 9978..9999.
  * - Without --lan the engine only listens on 127.0.0.1.
  * - --data is where subscriptions, history and favorites are kept (default ~/.tvbox-next/engine).
@@ -36,6 +38,12 @@ import java.util.concurrent.TimeUnit
  * - --dev-cors lets pages on http://localhost:* call the engine (Flutter web during development).
  */
 fun main(args: Array<String>) {
+    if ("--exit-with-stdin" in args) {
+        Thread({
+            runCatching { while (System.`in`.read() >= 0) Unit }
+            Runtime.getRuntime().halt(0)
+        }, "stdin-watch").apply { isDaemon = true }.start()
+    }
     val port = argValue(args, "--port")?.toIntOrNull() ?: 9978
     val host = if ("--lan" in args) "0.0.0.0" else "127.0.0.1"
     val local = "http://127.0.0.1:$port"

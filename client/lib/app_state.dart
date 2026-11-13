@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'engine/engine_client.dart';
+import 'engine/local_engine.dart';
 import 'engine/models.dart';
 import 'settings.dart';
 
@@ -10,21 +11,72 @@ const defaultEngineUrl = 'http://127.0.0.1:9978';
 
 /// App-wide state: which engine we talk to, its active config, and the site being browsed.
 class AppState extends ChangeNotifier {
-  AppState({required this.clientFactory, this.engineUrl = defaultEngineUrl, SettingsStore? settings})
-      : _settings = settings ?? MemorySettings();
+  AppState({
+    required this.clientFactory,
+    this.engineUrl = defaultEngineUrl,
+    SettingsStore? settings,
+    this._localEngine,
+    this.waitStep = const Duration(milliseconds: 500),
+  }) : _settings = settings ?? MemorySettings();
 
   final EngineClientFactory clientFactory;
   final SettingsStore _settings;
+  final LocalEngine? _localEngine;
+  final Duration waitStep;
   String engineUrl;
+
+  /// True while the bundled engine (desktop) or the embedded one (Android) is coming up.
+  bool startingEngine = false;
 
   static const _engineUrlKey = 'engineUrl';
   static const _siteKey = 'siteKey';
 
-  /// Restores the last engine and site, then connects.
-  Future<void> start() {
+  /// Restores the last engine and site, then connects. When nothing answers on the local address, starts the
+  /// bundled engine (desktop) or waits for the embedded one (Android) to come up.
+  Future<void> start() async {
     engineUrl = _settings.getString(_engineUrlKey) ?? engineUrl;
     currentSiteKey = _settings.getString(_siteKey);
-    return connect();
+    await connect();
+    if (connected || !_isLocal(engineUrl)) return;
+
+    startingEngine = true;
+    error = null;
+    notifyListeners();
+    final local = _localEngine;
+    if (local != null && !await local.start(Uri.parse(engineUrl).port)) {
+      startingEngine = false;
+      error = '无法启动内置引擎：${local.recentOutput.isEmpty ? '未知原因' : local.recentOutput.last}';
+      notifyListeners();
+      return;
+    }
+    // The JVM needs a moment; the Android engine starts with the process and is usually there already.
+    final attempts = local != null ? 60 : 16;
+    for (var i = 0; i < attempts && !connected; i++) {
+      await Future<void>.delayed(waitStep);
+      try {
+        await _connectOnce();
+      } on EngineException {
+        // not up yet
+      }
+    }
+    startingEngine = false;
+    if (!connected) {
+      final tail = local?.recentOutput.reversed.take(3).toList().reversed.join('\n') ?? '';
+      error = '内置引擎没有响应${tail.isEmpty ? '' : '\n$tail'}';
+    }
+    notifyListeners();
+  }
+
+  static bool _isLocal(String url) {
+    final host = Uri.tryParse(url)?.host ?? '';
+    return host == '127.0.0.1' || host == 'localhost';
+  }
+
+  @override
+  void dispose() {
+    _localEngine?.stop();
+    _client?.close();
+    super.dispose();
   }
 
   EngineClient? _client;
@@ -66,21 +118,27 @@ class AppState extends ChangeNotifier {
 
   Future<void> connect([String? url]) => _run(() async {
         if (url != null) engineUrl = url.trim();
-        _client?.close();
-        final client = clientFactory(Uri.parse(engineUrl));
-        _client = client;
-        info = null;
-        summary = null;
-        sites = const [];
-        info = await client.info();
-        await _settings.setString(_engineUrlKey, engineUrl);
-        try {
-          summary = await client.config();
-          await _loadSites();
-        } on EngineException catch (e) {
-          if (e.code != 'NO_CONFIG') rethrow;
-        }
+        await _connectOnce();
       });
+
+  Future<void> _connectOnce() async {
+    _client?.close();
+    final client = clientFactory(Uri.parse(engineUrl));
+    _client = client;
+    info = null;
+    summary = null;
+    sites = const [];
+    info = await client.info();
+    error = null;
+    await _settings.setString(_engineUrlKey, engineUrl);
+    try {
+      summary = await client.config();
+      await _loadSites();
+    } on EngineException catch (e) {
+      if (e.code != 'NO_CONFIG') rethrow;
+    }
+    notifyListeners();
+  }
 
   Future<void> importSubscription(String url) => _run(() async {
         final sub = await client.addSubscription(url.trim());
@@ -120,12 +178,6 @@ class AppState extends ChangeNotifier {
       busy = false;
       notifyListeners();
     }
-  }
-
-  @override
-  void dispose() {
-    _client?.close();
-    super.dispose();
   }
 }
 

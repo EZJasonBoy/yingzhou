@@ -16,3 +16,6 @@ Thumbs.db
 # Local secrets and test subscriptions
 local.properties
 *.local.json
+
+# Packaged builds
+dist/

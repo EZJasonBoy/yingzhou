@@ -29,6 +29,14 @@ flutter test
 flutter run -d windows
 ```
 
+桌面客户端启动时，如果 127.0.0.1:9978 上没有引擎，会自动在后台启动内置引擎（开发时用 `engine/server/build/install/tvbox-engine`，打包后用 `engine/` 目录和自带的精简 JRE），客户端退出时引擎随之退出。
+
+打包 Windows 版（客户端 + 引擎 + jlink 精简 JRE，输出 `dist/tvbox-next-windows-x64.zip`）：
+
+```bash
+tools/package-desktop.sh
+```
+
 ## 许可
 
 AGPL-3.0，见 [LICENSE](LICENSE)。

@@ -3,6 +3,7 @@ import 'package:media_kit/media_kit.dart';
 
 import 'app_state.dart';
 import 'engine/engine_client.dart';
+import 'engine/local_engine.dart';
 import 'settings.dart';
 import 'ui/shell.dart';
 import 'ui/theme.dart';
@@ -13,7 +14,14 @@ Future<void> main() async {
   // During development, point the client at another engine with --dart-define=ENGINE_URL=http://127.0.0.1:19978
   const engineUrl = String.fromEnvironment('ENGINE_URL', defaultValue: defaultEngineUrl);
   final settings = await SharedPreferencesSettings.load();
-  runApp(TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings)));
+  runApp(TvboxApp(
+    state: AppState(
+      clientFactory: (url) => EngineClient(url),
+      engineUrl: engineUrl,
+      settings: settings,
+      localEngine: createLocalEngine(),
+    ),
+  ));
 }
 
 class TvboxApp extends StatefulWidget {
