@@ -103,7 +103,7 @@ class _SearchPageState extends State<SearchPage> {
                 textInputAction: TextInputAction.search,
                 onSubmitted: (_) => _search(),
                 decoration: InputDecoration(
-                  hintText: state.hasConfig ? '搜索片名，所有站点同时搜' : '先在"源"里导入订阅',
+                  hintText: state.hasConfig ? '搜索片名，所有站点同时搜' : (state.loadingConfig ? '正在加载订阅…' : '先在"源"里导入订阅'),
                   prefixIcon: const Icon(Icons.search),
                   suffixIcon: _searching
                       ? IconButton(

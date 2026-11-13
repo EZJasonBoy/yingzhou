@@ -20,8 +20,16 @@ class BrowsePage extends StatelessWidget {
     final Widget body;
     if (!state.connected) {
       body = state.startingEngine
-          ? const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [CircularProgressIndicator(), SizedBox(height: 16), Text('正在启动内置引擎…')]))
+          ? const Center(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [CircularProgressIndicator(), SizedBox(height: 16), Text('正在启动内置引擎…')]),
+            )
           : StatusView(icon: Icons.link_off, message: state.error ?? '还没有连接引擎', actionLabel: '去设置', onAction: onOpenSources);
+    } else if (!state.hasConfig && state.loadingConfig) {
+      body = const Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [CircularProgressIndicator(), SizedBox(height: 16), Text('正在加载订阅…')]),
+      );
+    } else if (!state.hasConfig && state.configError != null) {
+      body = StatusView(icon: Icons.cloud_off, message: '订阅加载失败\n${state.configError}', actionLabel: '重试', onAction: state.reloadConfig);
     } else if (!state.hasConfig) {
       body = StatusView(icon: Icons.playlist_add, message: '还没有导入订阅', actionLabel: '导入订阅', onAction: onOpenSources);
     } else if (site == null) {
@@ -62,26 +70,40 @@ class _SiteBrowserState extends State<_SiteBrowser> {
       builder: (context, snap) {
         final header = _Header(site: widget.site);
         if (snap.connectionState != ConnectionState.done) {
-          return Column(children: [header, const Expanded(child: LoadingView())]);
+          return Column(
+            children: [
+              header,
+              const Expanded(child: LoadingView()),
+            ],
+          );
         }
         if (snap.hasError) {
-          return Column(children: [
-            header,
-            Expanded(
-              child: StatusView(
-                icon: Icons.cloud_off,
-                message: '${widget.site.name} 加载失败\n${errorText(snap.error)}',
-                actionLabel: '重试',
-                onAction: () => setState(_load),
+          return Column(
+            children: [
+              header,
+              Expanded(
+                child: StatusView(
+                  icon: Icons.cloud_off,
+                  message: '${widget.site.name} 加载失败\n${errorText(snap.error)}',
+                  actionLabel: '重试',
+                  onAction: () => setState(_load),
+                ),
               ),
-            ),
-          ]);
+            ],
+          );
         }
         final home = snap.data!;
         final hasRecommend = home.list.isNotEmpty;
         final tabs = [if (hasRecommend) '推荐', for (final c in home.classes) c.name];
         if (tabs.isEmpty) {
-          return Column(children: [header, const Expanded(child: StatusView(icon: Icons.inbox, message: '这个站点没有返回分类'))]);
+          return Column(
+            children: [
+              header,
+              const Expanded(
+                child: StatusView(icon: Icons.inbox, message: '这个站点没有返回分类'),
+              ),
+            ],
+          );
         }
         return DefaultTabController(
           length: tabs.length,
@@ -96,8 +118,7 @@ class _SiteBrowserState extends State<_SiteBrowser> {
                 child: TabBarView(
                   children: [
                     if (hasRecommend) _VodGrid.fixed(items: home.list),
-                    for (final c in home.classes)
-                      _CategoryView(site: widget.site.key, classId: c.id, filters: home.filters[c.id] ?? const []),
+                    for (final c in home.classes) _CategoryView(site: widget.site.key, classId: c.id, filters: home.filters[c.id] ?? const []),
                   ],
                 ),
               ),
@@ -185,11 +206,14 @@ class _CategoryViewState extends State<_CategoryView> with AutomaticKeepAliveCli
     });
     try {
       final page = await AppScope.read(context).client.category(
-            widget.site,
-            widget.classId,
-            page: _page + 1,
-            filters: {for (final e in _selected.entries) if (e.value.isNotEmpty) e.key: e.value},
-          );
+        widget.site,
+        widget.classId,
+        page: _page + 1,
+        filters: {
+          for (final e in _selected.entries)
+            if (e.value.isNotEmpty) e.key: e.value,
+        },
+      );
       if (!mounted || generation != _generation) return;
       setState(() {
         _page += 1;
@@ -247,13 +271,7 @@ class _CategoryViewState extends State<_CategoryView> with AutomaticKeepAliveCli
           child: _showFilters ? _FilterBar(filters: widget.filters, selected: _selected, onSelect: _setFilter) : const SizedBox(width: double.infinity),
         ),
         Expanded(
-          child: _VodGrid(
-            items: _items,
-            loading: _loading,
-            error: _error,
-            hasMore: _hasMore,
-            onLoadMore: _loadMore,
-          ),
+          child: _VodGrid(items: _items, loading: _loading, error: _error, hasMore: _hasMore, onLoadMore: _loadMore),
         ),
       ],
     );
@@ -264,7 +282,14 @@ class _CategoryViewState extends State<_CategoryView> with AutomaticKeepAliveCli
     for (final f in widget.filters) {
       final v = _selected[f.key];
       if (v == null || v.isEmpty) continue;
-      parts.add(f.values.firstWhere((x) => x.value == v, orElse: () => FilterValue(name: v, value: v)).name);
+      parts.add(
+        f.values
+            .firstWhere(
+              (x) => x.value == v,
+              orElse: () => FilterValue(name: v, value: v),
+            )
+            .name,
+      );
     }
     return parts.join(' · ');
   }
@@ -290,7 +315,10 @@ class _FilterBar extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 3),
               child: Row(
                 children: [
-                  SizedBox(width: 48, child: Text(f.name, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13))),
+                  SizedBox(
+                    width: 48,
+                    child: Text(f.name, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+                  ),
                   Expanded(
                     child: SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
@@ -393,10 +421,10 @@ class _VodGridState extends State<_VodGrid> {
               child: widget.loading
                   ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
                   : widget.error != null
-                      ? TextButton(onPressed: widget.onLoadMore, child: const Text('加载失败，点此重试'))
-                      : widget.onLoadMore != null && !widget.hasMore
-                          ? Text('没有更多了', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12))
-                          : const SizedBox.shrink(),
+                  ? TextButton(onPressed: widget.onLoadMore, child: const Text('加载失败，点此重试'))
+                  : widget.onLoadMore != null && !widget.hasMore
+                  ? Text('没有更多了', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12))
+                  : const SizedBox.shrink(),
             ),
           ),
         ),

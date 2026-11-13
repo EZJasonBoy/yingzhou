@@ -150,10 +150,41 @@ class Engine(
         }
     }
 
-    /** Re-activates the subscription that was active when the engine last ran. Null when there is none. */
+    private val restoreLock = Mutex()
+
+    @Volatile private var restoreRuns = 0
+
+    @Volatile private var lastRestore: Result<ConfigSummary>? = null
+
+    /**
+     * Re-activates the subscription that was active when the engine last ran. Null when there is none.
+     * A call made while another restore runs waits for it and shares its result instead of loading again.
+     */
     suspend fun restore(): Result<ConfigSummary>? {
-        val id = savedActiveId ?: return null
-        return runCatching { activate(id, savedActiveRepo) }
+        val seen = restoreRuns
+        return restoreLock.withLock {
+            if (restoreRuns != seen) return@withLock lastRestore
+            val id = savedActiveId
+            val result = if (id == null) null else runCatching { activate(id, savedActiveRepo) }
+            lastRestore = result
+            restoreRuns++
+            result
+        }
+    }
+
+    /**
+     * The active config for clients. The engine starts listening before the last subscription is loaded again
+     * (that takes a few seconds over the network), so this waits for that instead of answering "nothing active",
+     * reports why it failed, and tries again when asked after a failure.
+     */
+    suspend fun config(): ConfigSummary {
+        active?.let { return summary(it) }
+        val restored = restore()
+        active?.let { return summary(it) }
+        restored?.exceptionOrNull()?.let { e ->
+            throw e as? EngineException ?: EngineException.ConfigLoadFailed(e.message ?: e.toString())
+        }
+        throw EngineException.NoConfig()
     }
 
     /** Caller holds [lock]. */

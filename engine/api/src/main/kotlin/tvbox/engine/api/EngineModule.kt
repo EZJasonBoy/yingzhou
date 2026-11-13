@@ -153,7 +153,7 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
                 call.respond(engine.activate(call.parameters["id"]!!, req?.repo))
             }
 
-            get("/config") { call.respond(engine.summary()) }
+            get("/config") { call.respond(engine.config()) }
             get("/sites") { call.respond(engine.sites()) }
 
             route("/sites/{site}") {

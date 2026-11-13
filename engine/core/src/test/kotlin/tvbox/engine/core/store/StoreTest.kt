@@ -1,15 +1,21 @@
 package tvbox.engine.core.store
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import tvbox.engine.core.Engine
+import tvbox.engine.core.EngineException
+import java.util.concurrent.TimeUnit
 import tvbox.engine.core.config.ConfigLoader
 import tvbox.engine.core.config.ConfigLocator
 import tvbox.engine.core.model.Capabilities
@@ -87,6 +93,48 @@ class StoreTest {
         } finally {
             server.shutdown()
         }
+    }
+
+    @Test
+    fun `config waits for the restore after a restart, reports its failure and retries`() = runBlocking {
+        val server = MockWebServer().apply { start() }
+        try {
+            val body = """{"sites":[{"key":"a","type":1,"api":"http://x"}]}"""
+            server.enqueue(MockResponse().setBody(body))
+            val url = server.url("/tv.json").toString()
+            val first = engine(JsonFileStore(dir))
+            first.activate(first.addSubscription(url, null).id)
+
+            // Restarted engine: a client asks while the (slow) restore is still loading.
+            server.enqueue(MockResponse().setBody(body).setHeadersDelay(500, TimeUnit.MILLISECONDS))
+            val second = engine(JsonFileStore(dir))
+            val restoring = async(Dispatchers.IO) { second.restore() }
+            delay(100)
+            assertEquals(url, second.config().url)
+            assertEquals(url, restoring.await()!!.getOrThrow().url)
+            assertEquals(2, server.requestCount, "the waiting client shares the restore instead of loading again")
+
+            // The subscription is unreachable at the next start: the waiting client hears why, and asking again retries.
+            server.enqueue(MockResponse().setResponseCode(500).setHeadersDelay(500, TimeUnit.MILLISECONDS))
+            val third = engine(JsonFileStore(dir))
+            val failing = async(Dispatchers.IO) { third.restore() }
+            delay(100)
+            val e = assertThrows(EngineException::class.java) { runBlocking { third.config() } }
+            assertEquals("CONFIG_LOAD_FAILED", e.code)
+            assertTrue(failing.await()!!.isFailure)
+            assertEquals(3, server.requestCount)
+            server.enqueue(MockResponse().setBody(body))
+            assertEquals(url, third.config().url)
+            assertEquals(4, server.requestCount)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `config without any saved subscription is NO_CONFIG`() = runBlocking {
+        val e = assertThrows(EngineException::class.java) { runBlocking { engine(MemoryStore()).config() } }
+        assertEquals("NO_CONFIG", e.code)
     }
 
     private fun engine(store: EngineStore) = Engine(

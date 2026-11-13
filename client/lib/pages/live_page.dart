@@ -402,7 +402,11 @@ class _LivePageState extends State<LivePage> {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final Widget body;
-    if (!state.hasConfig) {
+    if (!state.hasConfig && state.loadingConfig) {
+      body = const Center(child: CircularProgressIndicator());
+    } else if (!state.hasConfig && state.configError != null) {
+      body = _message(Icons.cloud_off_rounded, '订阅加载失败\n${state.configError}', retry: state.reloadConfig);
+    } else if (!state.hasConfig) {
       body = _message(Icons.live_tv_rounded, '先在"源"里导入订阅');
     } else if (_loading && _list == null) {
       body = const Center(child: CircularProgressIndicator());

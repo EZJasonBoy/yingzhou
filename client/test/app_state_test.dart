@@ -16,8 +16,17 @@ class _Gate extends http.BaseClient {
   final bool Function() open;
 
   @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) =>
-      open() ? inner.send(request) : Future.error(http.ClientException('refused'));
+  Future<http.StreamedResponse> send(http.BaseRequest request) => open() ? inner.send(request) : Future.error(http.ClientException('refused'));
+}
+
+/// Sends each request to the client [pick] chooses for it.
+class _Route extends http.BaseClient {
+  _Route(this.pick);
+
+  final http.Client Function(http.BaseRequest request) pick;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) => pick(request).send(request);
 }
 
 class _FakeLocalEngine implements LocalEngine {
@@ -105,11 +114,39 @@ void main() {
     expect(state.error, contains('could not find java'));
   });
 
+  test('a subscription that fails to load keeps the engine connected, says why, and retries', () async {
+    final engine = fakeEngine(hasConfig: true);
+    var failConfig = true;
+    final failing = MockClient(
+      (_) async => http.Response(
+        '{"error":{"code":"CONFIG_LOAD_FAILED","message":"http://example.test/tv.json: timeout"}}',
+        502,
+        headers: {'content-type': 'application/json'},
+      ),
+    );
+    final client = _Route((request) => failConfig && request.url.path == '/api/v1/config' ? failing : engine);
+    final state = AppState(clientFactory: (url) => EngineClient(url, httpClient: client));
+    await state.start();
+    expect(state.connected, isTrue);
+    expect(state.hasConfig, isFalse);
+    expect(state.loadingConfig, isFalse);
+    expect(state.configError, contains('timeout'));
+
+    failConfig = false;
+    await state.reloadConfig();
+    expect(state.hasConfig, isTrue);
+    expect(state.configError, isNull);
+    expect(state.currentSiteKey, 'cms');
+  });
+
   test('a saved site that no longer exists falls back to the first browsable one', () async {
     final settings = MemorySettings();
     await settings.setString('siteKey', 'gone');
     final engine = fakeEngine(hasConfig: true);
-    final state = AppState(clientFactory: (url) => EngineClient(url, httpClient: engine), settings: settings);
+    final state = AppState(
+      clientFactory: (url) => EngineClient(url, httpClient: engine),
+      settings: settings,
+    );
     await state.start();
     expect(state.currentSiteKey, 'cms');
   });

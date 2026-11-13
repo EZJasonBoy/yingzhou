@@ -134,16 +134,35 @@ class AppState extends ChangeNotifier {
     info = null;
     summary = null;
     sites = const [];
+    configError = null;
     info = await client.info();
     error = null;
     await _settings.setString(_engineUrlKey, engineUrl);
+    await _loadConfig();
+  }
+
+  /// True while the engine loads the active subscription (right after it starts, it loads the last one again).
+  bool loadingConfig = false;
+
+  /// Why the active subscription did not load (network, bad config); the engine is connected all the same.
+  String? configError;
+
+  /// Asks the engine for its config again; after a failed load, the engine tries loading the subscription again.
+  Future<void> reloadConfig() => _loadConfig();
+
+  Future<void> _loadConfig() async {
+    loadingConfig = true;
+    configError = null;
+    notifyListeners();
     try {
       summary = await client.config();
       await _loadSites();
     } on EngineException catch (e) {
-      if (e.code != 'NO_CONFIG') rethrow;
+      if (e.code != 'NO_CONFIG') configError = e.message;
+    } finally {
+      loadingConfig = false;
+      notifyListeners();
     }
-    notifyListeners();
   }
 
   Future<void> importSubscription(String url) => _run(() async {
