@@ -7,6 +7,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import tvbox.engine.core.config.ConfigDocument
 import tvbox.engine.core.config.ConfigLoader
+import tvbox.engine.core.config.RepoEntry
 import tvbox.engine.core.config.SiteRuntime
 import tvbox.engine.core.config.TvboxConfig
 import tvbox.engine.core.model.ConfigSummary
@@ -90,7 +91,8 @@ class Engine(
     private class Active(
         val subscriptionId: String,
         val url: String,
-        val repos: List<RepoInfo>,
+        /** Top-level entries of a multi-repository subscription; empty for a plain config. */
+        val repos: List<RepoEntry>,
         val config: TvboxConfig,
         val sources: Map<String, SiteSource>,
     )
@@ -106,7 +108,22 @@ class Engine(
         playlistBase = proxyBase.substringBefore("/proxy") + "/m3u8?",
     )
     private val searchAggregator = SearchAggregator()
-    private val live = LiveService(http, proxyBase)
+    private val live = LiveService(http, proxyBase, spiderList = ::spiderLive)
+
+    /** Spiders created for `lives` entries of `type: 3`, by source name; released with the config. */
+    private val liveSpiders = java.util.concurrent.ConcurrentHashMap<String, tvbox.engine.core.spider.Spider>()
+    private val liveSpiderLock = Mutex()
+
+    /** The playlist text of a `type: 3` live source: its spider's `liveContent(url)`. */
+    private suspend fun spiderLive(spec: tvbox.engine.core.live.LiveSourceSpec): String {
+        val bean = tvbox.engine.core.config.SiteBean(key = "live_" + spec.name, name = spec.name, type = 3, api = spec.api, ext = spec.ext, jar = spec.jar)
+        val runtime = runtimes.firstOrNull { it.supports(bean) }
+            ?: throw tvbox.engine.core.live.LiveException("UNSUPPORTED", "${spec.name}: no runtime for the live spider ${spec.api}")
+        val spider = liveSpiders[bean.key] ?: liveSpiderLock.withLock {
+            liveSpiders[bean.key] ?: withTimeout(40_000) { runtime.create(bean, ext.resolve(bean.ext)) }.also { liveSpiders[bean.key] = it }
+        }
+        return withTimeout(30_000) { spider.live(spec.url) }.orEmpty()
+    }
 
     @Volatile
     private var active: Active? = null
@@ -114,12 +131,20 @@ class Engine(
     /** The subscription to restore on the next start (persisted). */
     private var savedActiveId: String? = null
     private var savedActiveRepo: String? = null
+    private var savedActiveRepoPath: List<String> = emptyList()
+
+    /**
+     * Entries of the nested repositories opened so far: subscription id -> group url -> its entries.
+     * Kept when a switch fails, so the entries stay available to choose from.
+     */
+    private val repoGroups = java.util.concurrent.ConcurrentHashMap<String, MutableMap<String, List<RepoEntry>>>()
 
     init {
         val saved = store.loadSubscriptions()
         saved.subscriptions.forEach { subscriptions[it.id] = it }
         savedActiveId = saved.activeId
         savedActiveRepo = saved.activeRepo
+        savedActiveRepoPath = saved.activeRepoPath
     }
 
     // ---- subscriptions ----
@@ -145,7 +170,9 @@ class Engine(
             if (savedActiveId == id) {
                 savedActiveId = null
                 savedActiveRepo = null
+                savedActiveRepoPath = emptyList()
             }
+            repoGroups.remove(id)
             persistSubscriptions()
         }
     }
@@ -189,27 +216,40 @@ class Engine(
 
     /** Caller holds [lock]. */
     private fun persistSubscriptions() {
-        store.saveSubscriptions(SubscriptionState(subscriptions.values.toList(), savedActiveId, savedActiveRepo))
+        store.saveSubscriptions(SubscriptionState(subscriptions.values.toList(), savedActiveId, savedActiveRepo, savedActiveRepoPath))
     }
 
     /**
      * Loads the subscription. A multi-repository subscription loads [repoUrl], or its first entry
      * (TVBox switches to the first entry automatically too).
+     *
+     * Entries can be repositories themselves. Choosing one (or meeting one as the first entry) opens it and
+     * loads the first of its entries that works; its entries then show up in [ConfigSummary.repos].
+     * When the choice was not the user's (no [repoUrl], or a group), a dead entry is skipped for the next one.
      */
     suspend fun activate(id: String, repoUrl: String? = null): ConfigSummary {
         val sub = lock.withLock { subscriptions[id] } ?: throw EngineException.NotFound("subscription $id")
         val first = load(sub.url)
         val (url, repos, config) = when (val doc = first.document) {
-            is ConfigDocument.Single -> Triple(sub.url, emptyList<RepoInfo>(), doc.config)
+            is ConfigDocument.Single -> Triple(sub.url, emptyList<RepoEntry>(), doc.config)
             is ConfigDocument.Repository -> {
-                val repos = doc.entries.map { RepoInfo(it.name, it.url) }
-                val chosen = repoUrl?.let { u -> repos.firstOrNull { it.url == u } ?: throw EngineException.NotFound("repo $u") }
-                    ?: repos.firstOrNull()
-                    ?: throw EngineException.ConfigLoadFailed("repository has no entries")
-                when (val inner = load(chosen.url).document) {
-                    is ConfigDocument.Single -> Triple(chosen.url, repos, inner.config)
-                    is ConfigDocument.Repository -> throw EngineException.ConfigLoadFailed("nested repository at ${chosen.url}")
+                if (doc.entries.isEmpty()) throw EngineException.ConfigLoadFailed("repository has no entries")
+                val groups = repoGroups.getOrPut(id) { java.util.concurrent.ConcurrentHashMap() }
+                // After a restart the groups around the saved repo are not known yet: open them again.
+                if (repoUrl != null && repoUrl == savedActiveRepo && id == savedActiveId) {
+                    for (group in savedActiveRepoPath) {
+                        if (group in groups) continue
+                        (runCatching { load(group).document }.getOrNull() as? ConfigDocument.Repository)?.let { groups[group] = it.entries }
+                    }
                 }
+                val known = doc.entries.any { it.url == repoUrl } || groups.values.any { list -> list.any { it.url == repoUrl } }
+                if (repoUrl != null && !known) throw EngineException.NotFound("repo $repoUrl")
+                val (leaf, leafConfig) = if (repoUrl != null) {
+                    openRepo(repoUrl, groups, HashSet(), MAX_REPO_DEPTH)
+                } else {
+                    openFirst(doc.entries, groups, HashSet(), MAX_REPO_DEPTH)
+                }
+                Triple(leaf, doc.entries, leafConfig)
             }
         }
         ext.clear()
@@ -217,11 +257,18 @@ class Engine(
         lock.withLock {
             // Spiders of the previous config are released before the new ones take over.
             active?.sources?.values?.forEach { (it as? SpiderSource)?.destroy() }
+            liveSpiders.values.forEach { runCatching { it.destroy() } }
+            liveSpiders.clear()
             runtimes.forEach { it.onConfig(config) }
             live.onConfig(config.livesJson)
             active = loaded
             savedActiveId = id
             savedActiveRepo = if (repos.isEmpty()) null else url
+            savedActiveRepoPath = repoInfos(loaded).let { all ->
+                generateSequence(all.firstOrNull { it.url == url }?.parent?.ifEmpty { null }) { p ->
+                    all.firstOrNull { it.url == p }?.parent?.ifEmpty { null }
+                }.toList().reversed()
+            }
             persistSubscriptions()
         }
         return summary(loaded)
@@ -367,6 +414,9 @@ class Engine(
             if (e is kotlinx.coroutines.CancellationException && e !is TimeoutCancellationException) throw e
             val (code, message) = describe(e)
             throw EngineException.SiteFailed(code, message)
+        } catch (e: LinkageError) {
+            // A jar spider that needs a class or method this platform does not have.
+            throw EngineException.SiteFailed("SPIDER_INCOMPATIBLE", e.javaClass.simpleName + ": " + (e.message ?: ""))
         }
     }
 
@@ -386,10 +436,68 @@ class Engine(
         throw EngineException.ConfigLoadFailed(e.message ?: "load failed")
     }
 
+    /**
+     * Loads [url]; when it is a repository, remembers its entries in [groups] and loads the first that works.
+     * [visited] stops repositories that list each other.
+     */
+    private suspend fun openRepo(
+        url: String,
+        groups: MutableMap<String, List<RepoEntry>>,
+        visited: MutableSet<String>,
+        depthLeft: Int,
+    ): Pair<String, TvboxConfig> {
+        if (!visited.add(url)) throw EngineException.ConfigLoadFailed("repository lists itself: $url")
+        return when (val doc = load(url).document) {
+            is ConfigDocument.Single -> url to doc.config
+            is ConfigDocument.Repository -> {
+                groups[url] = doc.entries
+                if (depthLeft <= 0) throw EngineException.ConfigLoadFailed("repositories nested too deep at $url")
+                if (doc.entries.isEmpty()) throw EngineException.ConfigLoadFailed("repository has no entries: $url")
+                openFirst(doc.entries, groups, visited, depthLeft - 1)
+            }
+        }
+    }
+
+    /** The first of [entries] that loads; the first failure is reported when none of the first few does. */
+    private suspend fun openFirst(
+        entries: List<RepoEntry>,
+        groups: MutableMap<String, List<RepoEntry>>,
+        visited: MutableSet<String>,
+        depthLeft: Int,
+    ): Pair<String, TvboxConfig> {
+        var failure: EngineException? = null
+        for (entry in entries.take(MAX_REPO_TRIES)) {
+            try {
+                return openRepo(entry.url, groups, visited, depthLeft)
+            } catch (e: EngineException) {
+                if (failure == null) failure = e
+            }
+        }
+        throw failure ?: EngineException.ConfigLoadFailed("repository has no entries")
+    }
+
+    /** The repository entries as a flat list for the picker: each opened group is followed by its entries. */
+    private fun repoInfos(a: Active): List<RepoInfo> {
+        if (a.repos.isEmpty()) return emptyList()
+        val groups = repoGroups[a.subscriptionId].orEmpty()
+        val out = ArrayList<RepoInfo>()
+        val seen = HashSet<String>()
+        fun emit(entries: List<RepoEntry>, parent: String, depth: Int) {
+            for (entry in entries) {
+                if (!seen.add(entry.url)) continue
+                val children = groups[entry.url]
+                out += RepoInfo(entry.name, entry.url, parent = parent, group = children != null, depth = depth)
+                if (children != null) emit(children, entry.url, depth + 1)
+            }
+        }
+        emit(a.repos, "", 0)
+        return out
+    }
+
     private fun summary(a: Active): ConfigSummary = ConfigSummary(
         subscriptionId = a.subscriptionId,
         url = a.url,
-        repos = a.repos,
+        repos = repoInfos(a),
         sites = a.config.sites.size,
         parses = a.config.parses.size,
         lives = countJsonArray(a.config.livesJson),
@@ -399,6 +507,14 @@ class Engine(
 
     private fun countJsonArray(json: String): Int =
         if (json.isBlank()) 0 else runCatching { com.google.gson.JsonParser.parseString(json).asJsonArray.size() }.getOrDefault(0)
+
+    private companion object {
+        /** How many repositories may be nested inside the subscription. */
+        const val MAX_REPO_DEPTH = 3
+
+        /** How many entries are tried when the choice of entry is the engine's. */
+        const val MAX_REPO_TRIES = 6
+    }
 }
 
 /** Placeholder for js/jar/py sites until their runtimes land. */

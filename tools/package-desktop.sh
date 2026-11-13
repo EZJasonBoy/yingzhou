@@ -17,8 +17,11 @@ case "$(uname -s)" in
 esac
 [ "$os" = linux ] && { echo "Linux packaging is not wired up yet" >&2; exit 1; }
 
-# Modules from `jdeps --print-module-deps` on the engine, plus charsets (GBK sites), EC crypto (TLS) and logging.
-modules=java.base,java.compiler,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.sql,java.xml,jdk.charsets,jdk.crypto.ec,jdk.unsupported
+# The whole of Java SE rather than what `jdeps` finds in the engine: spider jars are other people's code and use
+# what they like. On top of it: jdk.zipfs (dex conversion opens jars through it, by name, so jdeps does not see it —
+# without it every jar spider fails with "cant find zipfs support"), charsets (GBK sites), EC and PKCS11 crypto (TLS),
+# sun.misc.Unsafe, the JDK http server and DNS lookups.
+modules=java.se,jdk.unsupported,jdk.zipfs,jdk.charsets,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.httpserver,jdk.naming.dns,jdk.net,jdk.xml.dom,jdk.management
 
 echo "== engine"
 (cd "$root/engine" && ./gradlew :server:installDist --console=plain -q)
@@ -28,6 +31,14 @@ jre="$root/engine/server/build/jre"
 rm -rf "$jre"
 "$JAVA_HOME/bin/jlink" --add-modules "$modules" --strip-debug --no-header-files --no-man-pages \
   --compress zip-6 --output "$jre"
+
+echo "== self-test (demo sites on the packaged runtime)"
+# The package is only good if the trimmed runtime runs every kind of site: CMS, JS spider, jar spider, sniffing, live.
+cp="$root/engine/server/build/install/tvbox-engine/lib/*"
+[ "$os" = windows ] && cp="$(cygpath -w "$root/engine/server/build/install/tvbox-engine/lib")\\*"
+"$jre/bin/java" -Xss1m -XX:+UnlockDiagnosticVMOptions -XX:-BytecodeVerificationRemote -Dstdout.encoding=UTF-8 \
+  -cp "$cp" tvbox.engine.server.MainKt --demo --check --play --strict \
+  || { echo "the packaged runtime failed the self-test; not packaging" >&2; exit 1; }
 
 mkdir -p "$root/dist"
 

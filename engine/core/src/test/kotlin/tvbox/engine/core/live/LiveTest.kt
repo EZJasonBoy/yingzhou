@@ -53,7 +53,7 @@ class LiveTest {
             http://a.test/x.m3u8
         """.trimIndent()
         val p = LivePlaylistParser.parse(text)
-        assertEquals("https://epg.test/e.xml.gz", p.tvgUrl)
+        assertEquals("https://epg.test/e.xml.gz,https://epg.test/other.xml", p.tvgUrl, "every guide the header names, in order")
         assertEquals(listOf("央视", "未分组"), p.groups.map { it.name })
         val c = p.groups[0].channels.single()
         assertEquals("https://logo.test/cctv1.png", c.logo)
@@ -71,15 +71,90 @@ class LiveTest {
               {"name":"肥猫","type":0,"url":"http://f.test/tv.txt","epg":"https://epg.test/?ch={name}&date={date}","logo":"https://epg.test/logo/{name}.png","ua":"okhttp/3.15"},
               {"group":"redirect","channels":[{"name":"live","urls":["proxy://do=live&type=txt&ext=$hidden"]}]},
               {"group":"内置","channels":[{"name":"测试台","urls":["http://i.test/1.m3u8${'$'}一号"]}]},
-              {"name":"蜘蛛直播","type":3,"api":"csp_Live","ext":""}
+              {"name":"蜘蛛直播","type":3,"api":"csp_Live","url":"yqk","ext":{"sp":"Huya"},"jar":"http://j.test/live.jar"},
+              {"name":"没有蜘蛛","type":3,"url":"https://x.test/list"},
+              {"name":"本机代理","type":0,"url":"http://127.0.0.1:9978/proxy?do=live&type=txt&ext=$hidden"},
+              {"name":"蜘蛛代理","type":"0","url":"http://127.0.0.1:9978/proxy?do=live&url=https://x.test/huya.m3u"}
             ]""",
         )
-        assertEquals(listOf("直播", "肥猫", "redirect", "蜘蛛直播"), specs.map { it.name }, "channels written in the config come first")
+        assertEquals(
+            listOf("直播", "肥猫", "redirect", "蜘蛛直播", "没有蜘蛛", "本机代理", "蜘蛛代理"),
+            specs.map { it.name },
+            "channels written in the config come first",
+        )
         assertEquals("测试台", specs[0].inline.single().channels.single().name)
         assertEquals("一号", specs[0].inline.single().channels.single().urls.single().label)
         assertEquals("okhttp/3.15", specs[1].headers["User-Agent"])
         assertEquals("http://h.test/live.txt", specs[2].url, "the playlist hidden in proxy://do=live")
-        assertFalse(specs[3].supported)
+        assertEquals(listOf("csp_Live", "yqk", """{"sp":"Huya"}""", "http://j.test/live.jar"), specs[3].let { listOf(it.api, it.url, it.ext, it.jar) })
+        assertTrue(specs[3].supported, "a spider serves the list")
+        assertFalse(specs[4].supported, "type 3 without a spider")
+        assertEquals("http://h.test/live.txt", specs[5].url, "TVBox's playlist proxy written as a url")
+        assertEquals("http://127.0.0.1:9978/proxy?do=live&url=https://x.test/huya.m3u", specs[6].url, "a spider's proxy is asked as it is")
+    }
+
+    @Test
+    fun `json playlists and m3u entries that name their user agent`() {
+        val json = """[
+          {"group":"央视","channels":[{"name":"CCTV1","logo":"https://l.test/1.png","urls":["http://a.test/1.m3u8${'$'}主线","http://b.test/1.m3u8"]}]},
+          {"name":"卫视","channel":[{"name":"湖南卫视","url":"http://a.test/hn.m3u8#http://b.test/hn.m3u8"},{"name":"没地址"}]}
+        ]"""
+        assertTrue(LivePlaylistParser.looksLikePlaylist(json))
+        val p = LivePlaylistParser.parse(json)
+        assertEquals(listOf("央视", "卫视"), p.groups.map { it.name })
+        assertEquals(listOf("主线", ""), p.groups[0].channels.single().urls.map { it.label })
+        assertEquals("https://l.test/1.png", p.groups[0].channels.single().logo)
+        assertEquals(2, p.groups[1].channels.single().urls.size)
+
+        val m3u = "#EXTM3U\n#EXTINF:-1 http-user-agent=\"AptvPlayer-UA\" http-referrer=\"https://r.test/\" group-title=\"央视\",CCTV1\nhttp://a.test/1.m3u8"
+        val url = LivePlaylistParser.parse(m3u).groups.single().channels.single().urls.single()
+        assertEquals(mapOf("User-Agent" to "AptvPlayer-UA", "Referer" to "https://r.test/"), url.headers)
+    }
+
+    @Test
+    fun `spider lives, the engine's own proxy, and the second guide when the first is empty`() = runBlocking {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.requestUrl!!.encodedPath) {
+                "/huya.m3u" -> MockResponse().setBody(
+                    "#EXTM3U x-tvg-url=\"${server.url("/blocked.xml")},${server.url("/guide.xml")}\"\n" +
+                        "#EXTINF:-1 group-title=\"一起看\",CCTV1\nhttp://127.0.0.1:9978/proxy?do=huya&id=1\n",
+                )
+                "/blocked.xml" -> MockResponse().setResponseCode(403)
+                "/guide.xml" -> MockResponse().setBody(
+                    """<tv><channel id="1"><display-name>CCTV1</display-name></channel>
+                       <programme start="20261113080000 +0800" stop="20261113090000 +0800" channel="1"><title>朝闻天下</title></programme></tv>""",
+                )
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        server.start()
+        try {
+            // The engine listens on another port than TVBox's 9978; nothing answers on the proxy path here.
+            val proxyBase = server.url("/proxy").toString() + "?"
+            val asked = ArrayList<String>()
+            val service = LiveService(SiteHttp(OkHttpClient()), proxyBase, spiderList = { spec ->
+                asked += spec.api + " " + spec.url
+                "一起看,#genre#\n房间一,http://s.test/1.flv"
+            })
+            service.onConfig(
+                """[{"name":"蜘蛛","type":3,"api":"csp_Live","url":"yqk"},
+                   {"name":"代理","type":0,"url":"http://127.0.0.1:9978/proxy?do=live&url=${server.url("/huya.m3u")}"}]""",
+            )
+            assertTrue(service.sources().all { it.supported })
+            assertEquals("房间一", service.list(0).groups.single().channels.single().name)
+            assertEquals(listOf("csp_Live yqk"), asked)
+
+            val channel = service.list(1).groups.single().channels.single()
+            assertEquals(proxyBase + "do=huya&id=1", channel.urls.single().url, "TVBox's proxy address means this engine's proxy")
+            assertEquals(listOf("朝闻天下"), service.epg(1, "CCTV1", "2026-11-13").programs.map { it.title }, "the first guide is refused, the second answers")
+
+            val without = LiveService(SiteHttp(OkHttpClient()), proxyBase)
+            without.onConfig("""[{"name":"蜘蛛","type":3,"api":"csp_Live","url":"yqk"}]""")
+            assertFalse(without.sources().single().supported, "no runtime to ask")
+        } finally {
+            server.shutdown()
+        }
     }
 
     @Test

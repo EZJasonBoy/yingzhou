@@ -41,14 +41,22 @@ class Subscription {
       );
 }
 
+/// An entry of a multi-repository subscription. An entry can be such a list itself: once the engine has opened
+/// it, it is a [group] and its entries follow it with a larger [depth].
 class RepoInfo {
-  const RepoInfo({required this.name, required this.url});
+  const RepoInfo({required this.name, required this.url, this.group = false, this.depth = 0});
 
   final String name;
   final String url;
+  final bool group;
+  final int depth;
 
-  factory RepoInfo.fromJson(Map<String, dynamic> json) =>
-      RepoInfo(name: json['name'] as String, url: json['url'] as String);
+  factory RepoInfo.fromJson(Map<String, dynamic> json) => RepoInfo(
+    name: json['name'] as String,
+    url: json['url'] as String,
+    group: json['group'] as bool? ?? false,
+    depth: (json['depth'] as num?)?.toInt() ?? 0,
+  );
 }
 
 class ConfigSummary {

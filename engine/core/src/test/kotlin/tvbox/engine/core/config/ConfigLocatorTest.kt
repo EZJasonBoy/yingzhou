@@ -31,6 +31,15 @@ class ConfigLocatorTest {
     }
 
     @Test
+    fun `a path on the engine's machine is a local file`() {
+        assertEquals("http://127.0.0.1:9978/file/C:/tv/多仓.json", locator.locate("""C:\tv\多仓.json""").fetchUrl)
+        assertEquals("http://127.0.0.1:9978/file/C:/tv/a.json", locator.locate("C:/tv/a.json;pk;k").fetchUrl)
+        assertEquals("http://127.0.0.1:9978/file/home/me/a.json", locator.locate("/home/me/a.json").fetchUrl)
+        assertTrue(locator.locate("/home/me/a.json").isClan)
+        assertEquals("http://127.0.0.1:9978/file//C:/tv/a.json", locator.locate("file:///C:/tv/a.json").fetchUrl)
+    }
+
+    @Test
     fun `clan localhost maps to local file base`() {
         val loc = locator.locate("clan://localhost/tv/a.json")
         assertEquals("http://127.0.0.1:9978/file/tv/a.json", loc.fetchUrl)

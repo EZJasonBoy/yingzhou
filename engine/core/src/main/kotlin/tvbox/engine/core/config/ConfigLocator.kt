@@ -27,7 +27,13 @@ data class ConfigLocation(
 class ConfigLocator(private val localFileBase: String) {
 
     fun locate(input: String): ConfigLocation {
-        val normalized = input.trim().replace("file://", CLAN_LOCAL)
+        val trimmed = input.trim()
+        // A path on the engine's machine (a Windows drive path, /home/me/a.json) is a local file too.
+        val normalized = if (LOCAL_PATH.containsMatchIn(trimmed)) {
+            CLAN_LOCAL + trimmed.replace('\\', '/').trimStart('/')
+        } else {
+            trimmed.replace("file://", CLAN_LOCAL)
+        }
         val pkIndex = normalized.indexOf(PK)
         val address = if (pkIndex >= 0) normalized.substring(0, pkIndex) else normalized
         // Unlike the original (which crashes), a trailing ";pk;" with no key just means "no key".
@@ -68,5 +74,6 @@ class ConfigLocator(private val localFileBase: String) {
     private companion object {
         const val PK = ";pk;"
         const val CLAN_LOCAL = "clan://localhost/"
+        val LOCAL_PATH = Regex("""^([A-Za-z]:[\\/]|/[^/])""")
     }
 }

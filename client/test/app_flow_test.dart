@@ -32,7 +32,7 @@ void main() {
     await tester.tap(find.text('导入'));
     await tester.pumpAndSettle();
     expect(find.text('2 个站点 · 0 个解析 · 0 组直播'), findsOneWidget);
-    expect(find.text('js1 · 运行时开发中'), findsOneWidget);
+    expect(find.text('js1 · 这台引擎还不支持这类站点'), findsOneWidget);
 
     await tester.tap(find.text('首页'));
     await tester.pumpAndSettle();

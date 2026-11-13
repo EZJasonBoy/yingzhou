@@ -94,7 +94,20 @@ tools/package-desktop.sh
 
 包里有：Flutter 应用、`engine/lib`（引擎 jar）、`engine/jre`（jlink 裁出的运行时）。用户不用装 Java。
 
-## 7. 排查问题
+包在生成前会自检：用裁剪好的运行时跑一遍演示配置里的采集站、JS 蜘蛛、jar 蜘蛛、嗅探和直播（`--demo --check --play --strict`），任何一项失败就中止。精简运行时用的是整个 Java SE 加几个 JDK 模块（见脚本里的 `modules`），因为蜘蛛 jar 是别人的代码，用到什么模块没法靠 `jdeps` 预知。
+
+## 7. 拿真实订阅体检
+
+```bash
+tools/check-configs.sh                              # ../tvbox-ysc-config/output 里的配置
+tools/check-configs.sh <订阅地址 | 文件 | 目录>...
+ONLY=cms,remote,live tools/check-configs.sh         # 只查不需要蜘蛛的部分
+PLAY=1 MAX_SITES=20 tools/check-configs.sh          # 加上播放解析；每个配置最多 20 个站点
+```
+
+报告在 `dist/check-report.md`（同名 `.json` 给程序读），每查完一个配置就更新一次，中途停掉也有结果。相同站点的镜像配置只查一次。引擎用一个空闲端口、内存数据，不会碰你平时用的订阅和历史。分类规则和注意事项见 [compatibility.md](compatibility.md) 第 8 节。
+
+## 8. 排查问题
 
 - **内置引擎没起来**：启动失败时界面上的错误提示带着引擎最后几行输出。也可以手动跑 `engine/jre/bin/java -cp "engine/lib/*" tvbox.engine.server.MainKt` 看报错。
 - **9978 被占**：已有引擎在跑时客户端直接用它，不会再启动一个。
@@ -102,7 +115,9 @@ tools/package-desktop.sh
 - **jar 蜘蛛报缺类**：转换时会列出 jar 用到但桩类里没有的安卓类，在 `engine/runtime-jar/src/main/java/android/**` 补。
 - **数据位置**：订阅、历史、收藏在 `~/.tvbox-next/engine`；窗口大小、音量等客户端偏好在系统的应用设置里。
 
-## 8. 踩过的坑
+## 9. 踩过的坑
+
+- jlink 裁出的运行时要包含 `jdk.zipfs`：dex2jar 通过名字找 zip 文件系统，`jdeps` 查不出这个依赖，漏掉时所有 jar 蜘蛛报 "cant find zipfs support"。开发时用完整 JDK 不会暴露，所以打包脚本里有自检。
 
 - dex2jar 用 `Dex2jar.from(bytes).to(path)`；写到 `ByteArrayOutputStream` 的那个接口产不出类。
 - 转换出来的类不一定过 JVM 校验器，JDK 21 上要 `-XX:+UnlockDiagnosticVMOptions -XX:-BytecodeVerificationRemote`。
@@ -113,7 +128,7 @@ tools/package-desktop.sh
 - 用 shell 一行命令改 Kotlin / Dart 源码时，`\n`、`$` 容易被 shell 吃掉，改用编辑器或脚本文件。
 - `dart format` 的行宽在 `analysis_options.yaml` 里定为 160，别用默认值重排整个目录。
 
-## 9. 约定
+## 10. 约定
 
 - 提交信息用英文，一句话说清做了什么；每个迭代一次提交。
 - 移植自其他项目的代码，在 [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) 里登记来源和许可证。

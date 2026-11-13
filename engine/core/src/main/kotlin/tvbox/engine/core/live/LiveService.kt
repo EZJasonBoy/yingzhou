@@ -22,6 +22,8 @@ class LiveService(
     /** Replacement for `proxy://` in channel urls, e.g. `http://127.0.0.1:9978/proxy?`. */
     private val proxyBase: String,
     private val locator: ConfigLocator? = null,
+    /** Asks the spider of a `type: 3` source for its playlist text (`liveContent`); null when no runtime can. */
+    private val spiderList: (suspend (LiveSourceSpec) -> String)? = null,
 ) {
     private class Loaded(val list: LiveList, val tvgUrl: String, val at: Long)
 
@@ -38,12 +40,29 @@ class LiveService(
     }
 
     fun sources(): List<LiveSourceInfo> = specs.mapIndexed { i, s ->
-        LiveSourceInfo(index = i, name = s.name, hasEpg = s.epg.isNotBlank() || lists[i]?.tvgUrl?.isNotBlank() == true, supported = s.supported)
+        LiveSourceInfo(
+            index = i,
+            name = s.name,
+            hasEpg = s.epg.isNotBlank() || lists[i]?.tvgUrl?.isNotBlank() == true,
+            supported = supported(s),
+            spider = spiderKind(s),
+        )
     }
+
+    /** Same rule as for sites (TVBox `getCSP`): the api's suffix says which runtime runs the spider. */
+    private fun spiderKind(spec: LiveSourceSpec): String = when {
+        spec.api.isEmpty() -> ""
+        spec.api.endsWith(".js") || spec.api.contains(".js?") -> "js"
+        spec.api.contains(".py") -> "py"
+        else -> "jar"
+    }
+
+    /** Only jar spiders have `liveContent`. */
+    private fun supported(spec: LiveSourceSpec) = spec.supported && (spec.api.isEmpty() || (spiderList != null && spiderKind(spec) == "jar"))
 
     suspend fun list(index: Int, refresh: Boolean = false): LiveList {
         val spec = spec(index)
-        if (!spec.supported) throw LiveException("UNSUPPORTED", "${spec.name}: this kind of live source is not supported yet")
+        if (!supported(spec)) throw LiveException("UNSUPPORTED", "${spec.name}: this kind of live source is not supported yet")
         fresh(index, refresh)?.let { return it.list }
         return listLocks.getOrPut(index) { Mutex() }.withLock {
             fresh(index, refresh)?.list ?: load(index, spec).list
@@ -53,24 +72,43 @@ class LiveService(
     private fun fresh(index: Int, refresh: Boolean) = lists[index]?.takeIf { !refresh && System.currentTimeMillis() - it.at < LIST_TTL }
 
     private suspend fun load(index: Int, spec: LiveSourceSpec): Loaded {
-        val playlist = if (spec.inline.isNotEmpty()) {
-            LivePlaylist(spec.inline)
-        } else {
-            var text = http.get(spec.url, headers = spec.headers, timeoutMs = 20_000)
-            // Some playlists are wrapped like configs (base64 in an image, AES).
-            if (!LivePlaylistParser.looksLikePlaylist(text)) text = ConfigDecoder.decode(text)
-            LivePlaylistParser.parse(text, spec.headers)
+        val playlist = when {
+            spec.inline.isNotEmpty() -> LivePlaylist(spec.inline)
+            spec.api.isNotEmpty() -> LivePlaylistParser.parse(spiderList!!.invoke(spec), spec.headers)
+            else -> {
+                var text = fetchList(spec)
+                // Some playlists are wrapped like configs (base64 in an image, AES).
+                if (!LivePlaylistParser.looksLikePlaylist(text)) text = ConfigDecoder.decode(text)
+                LivePlaylistParser.parse(text, spec.headers)
+            }
         }
         if (playlist.groups.isEmpty()) throw LiveException("EMPTY", "${spec.name}: the playlist has no channels")
         val groups = playlist.groups.map { g ->
             g.copy(channels = g.channels.map { c ->
-                c.copy(
-                    logo = c.logo.ifEmpty { logoFor(spec, c.name) },
-                    urls = c.urls.map { u -> u.copy(url = if (u.url.startsWith("proxy://")) u.url.replaceFirst("proxy://", proxyBase) else u.url) },
-                )
+                c.copy(logo = c.logo.ifEmpty { logoFor(spec, c.name) }, urls = c.urls.map { u -> u.copy(url = own(u.url)) })
             })
         }
         return Loaded(LiveList(index, spec.name, groups), playlist.tvgUrl, System.currentTimeMillis()).also { lists[index] = it }
+    }
+
+    /** `proxy://` and urls of TVBox's built-in server (`http://127.0.0.1:9978/proxy?`) mean this engine's proxy. */
+    private fun own(url: String): String = when {
+        url.startsWith("proxy://") -> url.replaceFirst("proxy://", proxyBase)
+        else -> LiveSourceSpec.LOCAL_PROXY.find(url)?.let { proxyBase + url.substring(it.range.last + 1) } ?: url
+    }
+
+    private suspend fun fetchList(spec: LiveSourceSpec): String {
+        val url = own(spec.url)
+        if (url == spec.url) return http.get(url, headers = spec.headers, timeoutMs = 20_000)
+        // A playlist served through a spider's proxy (`...proxy?do=live&url=<playlist>`): when no loaded spider
+        // answers for it, the playlist it wraps is the next best thing.
+        return try {
+            http.get(url, headers = spec.headers, timeoutMs = 20_000)
+        } catch (e: Exception) {
+            val wrapped = url.substringAfter('?').split('&').firstOrNull { it.startsWith("url=") }?.removePrefix("url=")
+                ?.let { java.net.URLDecoder.decode(it, "UTF-8") }?.takeIf { it.startsWith("http") } ?: throw e
+            http.get(wrapped, headers = spec.headers, timeoutMs = 20_000)
+        }
     }
 
     /** The programmes of [channel] on [date] (`yyyy-MM-dd`, China time; today when blank). */
@@ -78,14 +116,16 @@ class LiveService(
         val spec = spec(index)
         val day = date.ifBlank { Epg.dayFormat().format(java.util.Date()) }
         if (!Regex("\\d{4}-\\d{2}-\\d{2}").matches(day)) throw LiveException("BAD_REQUEST", "date must be yyyy-MM-dd")
-        var url = spec.epg.trim()
-        if (url.isEmpty() && spec.supported) url = runCatching { list(index); lists[index]?.tvgUrl.orEmpty() }.getOrDefault("")
-        if (url.isEmpty()) return EpgDay(channel, day, emptyList())
-        val programs = if (Epg.isXmltv(url)) {
-            val guide = xmltv(url, spec.headers)
-            Epg.forDay(guide[Epg.normalize(channel)] ?: emptyList(), day)
-        } else {
-            templateEpg(url, channel, day)
+        val url = spec.epg.trim()
+        val programs = when {
+            url.isEmpty() -> {
+                // The guides the playlist itself names (always XMLTV); the first that has anything is used.
+                val named = if (supported(spec)) runCatching { list(index); lists[index]?.tvgUrl.orEmpty() }.getOrDefault("") else ""
+                val guide = named.split(',').filter { it.isNotBlank() }.firstNotNullOfOrNull { u -> xmltv(u, spec.headers).takeIf { it.isNotEmpty() } }
+                Epg.forDay(guide?.get(Epg.normalize(channel)) ?: emptyList(), day)
+            }
+            Epg.isXmltv(url) -> Epg.forDay(xmltv(url, spec.headers)[Epg.normalize(channel)] ?: emptyList(), day)
+            else -> templateEpg(url, channel, day)
         }
         return EpgDay(channel, day, programs)
     }

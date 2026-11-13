@@ -46,6 +46,12 @@ data class ActivateRequest(
 data class RepoInfo(
     val name: String,
     val url: String,
+    /** Url of the entry this one was listed by; empty at the top level. */
+    val parent: String = "",
+    /** True once the entry turned out to be a list of configs itself (its entries follow it). */
+    val group: Boolean = false,
+    /** 0 at the top level; for indenting. */
+    val depth: Int = 0,
 )
 
 @Serializable
@@ -53,7 +59,11 @@ data class ConfigSummary(
     val subscriptionId: String,
     /** The config actually loaded (for a repository, the chosen entry's url). */
     val url: String,
-    /** Entries of a multi-repository subscription; empty for a plain config. */
+    /**
+     * Entries of a multi-repository subscription; empty for a plain config. An entry can be a list itself
+     * ("多仓" inside "多仓"): activating it marks it as a group, lists its entries after it and loads the first
+     * of them that works.
+     */
     val repos: List<RepoInfo> = emptyList(),
     val sites: Int,
     val parses: Int,

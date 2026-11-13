@@ -150,6 +150,8 @@ abstract class JarSpiderRuntime(
         params["siteKey"]?.let { siteSpiders[it] }?.let { sp ->
             runCatching { sp.proxy(HashMap(params)) }.getOrNull()?.let { toProxyResponse(it) }?.let { return@withContext it }
         }
+        // A proxy url can arrive before any site was opened (a live playlist served by the jar): load the config's jar.
+        if (loaded.isEmpty() && globalSpider.isNotEmpty()) runCatching { load(globalSpider, null) }
         val ordered = listOfNotNull(params["siteKey"]?.let { siteJars[it] }, recent) + loaded.values
         for (jar in ordered.distinct()) {
             val method = jar.proxy ?: continue
@@ -176,6 +178,8 @@ class CatSpiderAdapter(private val spider: CatSpider, private val onUse: () -> U
     override suspend fun detail(id: String): String? = io { spider.detailContent(listOf(id)) }
     override suspend fun search(key: String, quick: Boolean, pg: String): String? = io { spider.searchContent(key, quick, pg) }
     override suspend fun play(flag: String, id: String, vipFlags: List<String>): String? = io { spider.playerContent(flag, id, vipFlags) }
+    override suspend fun live(url: String): String? = io { spider.liveContent(url) }
+
     override suspend fun proxy(params: Map<String, String>): ProxyResponse? =
         io { spider.proxy(HashMap(params)) }?.let { toProxyResponse(it) }
 

@@ -17,6 +17,9 @@ interface Spider {
     suspend fun search(key: String, quick: Boolean, pg: String): String?
     suspend fun play(flag: String, id: String, vipFlags: List<String>): String?
 
+    /** A live playlist (TXT / M3U / JSON text) for a `lives` entry of `type: 3` (`liveContent`); null when the spider has none. */
+    suspend fun live(url: String): String? = null
+
     /** Spider-side proxy (`/proxy?do=...`), used by some sites to serve media or rewrite playlists. */
     suspend fun proxy(params: Map<String, String>): ProxyResponse? = null
 

@@ -55,10 +55,11 @@ object EmbeddedEngine {
     private fun run(app: Context, sniffer: WebViewSniffer) {
         val local = "http://127.0.0.1:$PORT"
         val data = File(app.filesDir, "engine")
-        val client = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .build()
+        val client = tvbox.engine.core.net.LenientTls.apply(
+            OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS),
+        ).build()
         val locator = ConfigLocator("$local/file/")
         val js = JsRuntime(
             JsEnvironment(

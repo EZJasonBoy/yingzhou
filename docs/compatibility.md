@@ -9,14 +9,21 @@
 | 写法 | 支持 | 说明 |
 |---|---|---|
 | `http(s)://…` | ✅ | |
-| `clan://localhost/…`、`clan://…` | ✅ | 指向引擎所在机器上的文件 |
-| `file://…` | ✅ | |
+| `clan://localhost/…`、`file://…` | ✅ | 引擎所在机器上的文件（桌面引擎）。相对路径从用户目录找 |
+| 直接填本机路径（`C:\tv\a.json`、`/home/me/a.json`） | ✅ | 同上；文件里的 `./` 引用按文件所在目录解析 |
+| `clan://<别的地址>/…` | ✅ | 另一台设备上的 TVBox 文件服务 |
 | `地址;pk;密钥` | ✅ | AES-ECB |
 | 图片里藏配置（`…**base64`） | ✅ | |
 | `2423…` 开头的 AES-CBC | ✅ | |
 | 不规范 JSON（注释、首尾有多余字符） | ✅ | 与安卓版同样用 Gson 宽松模式，只取第一个 `{` 到最后一个 `}` |
 | 多仓 `{"urls": [{name, url}]}` | ✅ | 在「源」页选择子仓 |
+| 多仓里套多仓 | ✅ | 选中的条目本身是多仓时，展开它并加载其中第一个能用的；它的条目随后出现在下拉里（缩进显示），最多套 3 层 |
+| 多仓的第一个条目失效 | ✅ | 自动往后找能用的（只在不是用户亲手选的时候；用户选中的条目失效会直接报错） |
 | 配置里引用的相对路径（`./xxx.js`） | ✅ | 相对订阅地址解析 |
+
+### HTTPS 证书
+
+与 TVBox 一样，引擎访问订阅里的地址时**不校验 HTTPS 证书**（过期、自签、域名不符都接受）。真实配置里大量站点、直播列表、节目单的证书是坏的，TVBox 能打开正是因为它不校验。代价是这些请求可能被网络中间人看到或篡改——与配置里大量使用的明文 http 相当。桌面引擎加 `--strict-tls` 可以恢复校验。
 
 ## 2. 顶层字段
 
@@ -108,7 +115,10 @@ jar 蜘蛛在桌面上依赖的安卓类是桩类，覆盖了常见用法（`Con
 | 写法 | 支持 | 说明 |
 |---|---|---|
 | `{type: 0, url}`：TXT 列表 | ✅ | `分组,#genre#`、`频道,地址`、`地址#地址2`、`地址$线路名` |
-| `{type: 0, url}`：M3U 列表 | ✅ | `group-title`、`tvg-logo`、`tvg-name`、`x-tvg-url`、`#EXTVLCOPT` 的 UA / Referer |
+| `{type: 0, url}`：M3U 列表 | ✅ | `group-title`、`tvg-logo`、`tvg-name`、`x-tvg-url`（多个地址依次尝试）、`#EXTVLCOPT` 与 `http-user-agent` / `http-referrer` 属性里的 UA / Referer |
+| `{type: 0, url}`：JSON 列表 | ✅ | `[{"group"｜"name", "channels"｜"channel": [{"name", "urls"｜"url", "logo"}]}]` |
+| `url` 写成 `http://127.0.0.1:9978/proxy?do=live&type=txt&ext=…` | ✅ | 等同 `proxy://do=live`，直接取它指向的列表 |
+| `url` 或频道地址指向 `http://127.0.0.1:9978/proxy?…` | ✅ | 改指本引擎的 `/proxy`（由 jar 的代理处理）；没有蜘蛛应答时退而取 `url=` 参数里的列表 |
 | `{group, channels: [{name, urls}]}` 内联 | ✅ | |
 | `channels[].urls` 里是 `proxy://do=live&type=txt&ext=…` | ✅ | `ext` 是地址或其 base64 |
 | 列表本身被包成配置格式（图片 base64、AES） | ✅ | |
@@ -117,7 +127,8 @@ jar 蜘蛛在桌面上依赖的安卓类是桩类，覆盖了常见用法（`Con
 | `epg`：XMLTV（`.xml` / `.xml.gz`） | ✅ | 也认 M3U 头里的 `x-tvg-url` |
 | `logo`：带 `{name}` 的模板 | ✅ | |
 | `ua`、`referer`、`header` | ✅ | 随线路下发给播放器 |
-| `{type: 3, api, jar}` 蜘蛛直播 | ⬜ | 「直播」页标"暂不支持" |
+| `{type: 3, api, ext, jar}` 蜘蛛直播 | 🟡 | jar 蜘蛛的 `liveContent(url)` 返回的列表按上面的格式解析；JS / Python 蜘蛛直播不支持 |
+| `{type: 3}` 但没有 `api` | ⬜ | 「直播」页标"暂不支持" |
 | `catchup` 回看 | ⬜ | |
 | `playerType`、`timeout`、`boot`、`pass` | ⬜ | 忽略 |
 
@@ -138,7 +149,21 @@ jar 蜘蛛在桌面上依赖的安卓类是桩类，覆盖了常见用法（`Con
 | `danmaku` | ⬜ | |
 | `format` | 🟡 | 引擎按地址和响应判断格式，不看这个字段 |
 
-## 8. 调研数据
+## 8. 拿真实订阅体检
+
+`tools/check-configs.sh` 会像客户端一样加载订阅，逐个仓库、逐个站点走「首页 → 第一个分类 → 第一部影片的详情」（`PLAY=1` 时再解析第一集的播放地址），逐个直播源拉频道列表和节目单，把结果写到 `dist/check-report.md`：
+
+```bash
+tools/check-configs.sh                      # ../tvbox-ysc-config/output 里的配置
+tools/check-configs.sh <订阅地址 | 文件 | 目录>
+ONLY=cms,live tools/check-configs.sh        # 只查采集站和直播（不运行任何蜘蛛代码）
+```
+
+报告把失败分成四类：**引擎兼容**（引擎要修）、**不支持**（还没做的类型）、**网络**、**站点报错**（后两类多半是站点自己失效，在安卓 TVBox 上同样打不开）。它用打包后的精简 Java 运行时跑，所以运行时缺模块之类的问题也会在这里暴露。
+
+> 体检会在本机运行订阅里的蜘蛛代码（jar / js），和你在应用里点开这些站点时做的事一样。只对你信得过的订阅运行。
+
+## 9. 调研数据
 
 对 `tvbox-ysc-config` 聚合的公开配置做过一次统计（2026-11），用来决定先做什么：
 

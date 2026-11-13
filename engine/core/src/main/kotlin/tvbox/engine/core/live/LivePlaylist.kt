@@ -26,6 +26,10 @@ data class LiveSourceSpec(
     val logo: String = "",
     val headers: Map<String, String> = emptyMap(),
     val supported: Boolean = true,
+    /** `type: 3`: the spider that serves the list (`api` as for a site, with its `ext` and `jar`). */
+    val api: String = "",
+    val ext: String = "",
+    val jar: String = "",
 ) {
     companion object {
         fun parseAll(livesJson: String, locator: ConfigLocator? = null): List<LiveSourceSpec> {
@@ -60,12 +64,24 @@ data class LiveSourceSpec(
                 }
                 val type = o.get("type")?.takeIf { it.isJsonPrimitive }?.asString?.toIntOrNull() ?: 0
                 val name = o.str("name").ifBlank { "直播 ${specs.size + 1}" }
+                if (type == 3 && o.str("api").isNotBlank()) {
+                    // The list comes from a spider's liveContent(url).
+                    val ext = o.get("ext")?.let { if (it.isJsonPrimitive) it.asString else it.toString() }.orEmpty()
+                    specs += LiveSourceSpec(
+                        name = name, url = o.str("url").trim(), epg = o.str("epg"), logo = o.str("logo"), headers = headers(o),
+                        api = o.str("api").trim(), ext = ext, jar = o.str("jar").trim(),
+                    )
+                    continue
+                }
                 if (type != 0) {
                     specs += LiveSourceSpec(name = name, supported = false)
                     continue
                 }
                 var url = o.str("url").trim()
-                if (url.startsWith("proxy://")) url = proxyPlaylistUrl(url, locator) ?: url
+                // TVBox's own playlist proxy, written as a url or as proxy://: the playlist is what it points at.
+                if (url.startsWith("proxy://") || (LOCAL_PROXY.containsMatchIn(url) && url.contains("do=live") && url.contains("ext="))) {
+                    url = proxyPlaylistUrl(url, locator) ?: url
+                }
                 if (locator != null && (url.startsWith("clan://") || url.startsWith("file://"))) {
                     url = locator.clanToAddress(url.replace("file://", "clan://localhost/"))
                 }
@@ -97,10 +113,13 @@ data class LiveSourceSpec(
         }
 
         private fun JsonObject.str(key: String): String = get(key)?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
+
+        /** A url of TVBox's built-in server (`http://127.0.0.1:9978/proxy?...`), which here is the engine itself. */
+        val LOCAL_PROXY = Regex("^https?://(127\\.0\\.0\\.1|localhost):\\d+/proxy\\?")
     }
 }
 
-/** A parsed playlist: groups, and the XMLTV url an M3U header may name. */
+/** A parsed playlist: groups, and the XMLTV urls an M3U header may name (comma separated, tried in order). */
 data class LivePlaylist(val groups: List<LiveGroup>, val tvgUrl: String = "")
 
 /**
@@ -114,13 +133,53 @@ object LivePlaylistParser {
 
     fun parse(raw: String, headers: Map<String, String> = emptyMap()): LivePlaylist {
         val text = raw.removePrefix("﻿").replace("\r\n", "\n").replace('\r', '\n').trim()
-        return if (text.startsWith("#EXTM3U")) parseM3u(text, headers) else LivePlaylist(parseTxt(text, headers))
+        return when {
+            text.startsWith("#EXTM3U") -> parseM3u(text, headers)
+            text.startsWith("[") || text.startsWith("{") -> LivePlaylist(parseJson(text, headers))
+            else -> LivePlaylist(parseTxt(text, headers))
+        }
     }
 
     /** Whether text looks like a playlist (otherwise it may be wrapped like a config). */
     fun looksLikePlaylist(text: String): Boolean {
         val t = text.removePrefix("﻿").trimStart()
-        return t.startsWith("#EXTM3U") || t.contains("#genre#") || SCHEMES.any { t.contains(",$it") }
+        return t.startsWith("#EXTM3U") || t.contains("#genre#") || SCHEMES.any { t.contains(",$it") } ||
+            ((t.startsWith("[") || t.startsWith("{")) && (t.contains("\"channels\"") || t.contains("\"channel\"")))
+    }
+
+    /**
+     * JSON lists: `[{"group" | "name": "...", "channels" | "channel": [{"name", "urls": [...] | "url", "logo"}]}]`
+     * (the shape of channels written into a config, and of FongMi's JSON lives), or one such object.
+     */
+    private fun parseJson(text: String, headers: Map<String, String>): List<LiveGroup> {
+        val root = runCatching { JsonParser.parseString(text) }.getOrNull() ?: return emptyList()
+        val groups = when {
+            root.isJsonArray -> root.asJsonArray.toList()
+            root.isJsonObject -> listOf(root)
+            else -> emptyList()
+        }
+        fun JsonObject.text(vararg keys: String): String =
+            keys.firstNotNullOfOrNull { k -> get(k)?.takeIf { it.isJsonPrimitive }?.asString?.takeIf { it.isNotBlank() } }.orEmpty()
+        val b = Builder()
+        for (g in groups) {
+            val go = g as? JsonObject ?: continue
+            val channels = (go.get("channels") ?: go.get("channel")) as? JsonArray ?: continue
+            val group = go.text("group", "name")
+            for (c in channels) {
+                val co = c as? JsonObject ?: continue
+                val name = co.text("name").ifEmpty { continue }
+                val urls = when (val u = co.get("urls") ?: co.get("url")) {
+                    is JsonArray -> u.mapNotNull { it.takeIf { e -> e.isJsonPrimitive }?.asString }
+                    null -> emptyList()
+                    else -> if (u.isJsonPrimitive) u.asString.split('#') else emptyList()
+                }
+                for (item in urls) {
+                    if (SCHEMES.none { item.trim().startsWith(it) }) continue
+                    b.add(group, name, co.text("logo"), liveUrl(item.trim(), headers))
+                }
+            }
+        }
+        return b.build()
     }
 
     private class Builder {
@@ -164,8 +223,9 @@ object LivePlaylistParser {
         val b = Builder()
         val lines = text.lines()
         val header = lines.first()
+        // Several guides may be listed; all are kept, the first that answers is used.
         val tvg = ATTR.findAll(header).firstOrNull { it.groupValues[1] in setOf("x-tvg-url", "url-tvg", "tvg-url") }?.groupValues?.get(2)
-            ?.split(',')?.firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+            ?.split(',')?.map { it.trim() }?.filter { it.startsWith("http") }?.joinToString(",").orEmpty()
         var i = 1
         while (i < lines.size) {
             val line = lines[i].trim()
@@ -174,6 +234,8 @@ object LivePlaylistParser {
             val attrs = ATTR.findAll(line).associate { it.groupValues[1].lowercase() to it.groupValues[2] }
             val name = line.substringAfterLast(',').trim().ifEmpty { attrs["tvg-name"].orEmpty() }.ifEmpty { "未命名" }
             val headers = LinkedHashMap(base)
+            attrs["http-user-agent"]?.takeIf { it.isNotBlank() }?.let { headers["User-Agent"] = it }
+            (attrs["http-referrer"] ?: attrs["http-referer"])?.takeIf { it.isNotBlank() }?.let { headers["Referer"] = it }
             var url = ""
             while (i < lines.size) {
                 val next = lines[i].trim()

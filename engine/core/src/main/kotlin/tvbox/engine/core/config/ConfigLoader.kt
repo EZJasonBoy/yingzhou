@@ -26,7 +26,10 @@ class ConfigLoader(
         val document = try {
             ConfigParser.parse(text)
         } catch (e: ConfigParser.InvalidConfigException) {
-            throw LoadException("${location.fetchUrl}: ${e.message}", e)
+            // A parked domain or an error page answers 200 with HTML; say so instead of quoting a JSON parser.
+            val head = body.trimStart().take(200).lowercase()
+            val what = if (head.startsWith("<!doctype html") || head.startsWith("<html")) "the address returned a web page, not a config" else e.message
+            throw LoadException("${location.fetchUrl}: $what", e)
         }
         Result(location, text, document)
     }

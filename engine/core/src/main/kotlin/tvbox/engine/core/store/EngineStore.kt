@@ -15,6 +15,8 @@ data class SubscriptionState(
     val subscriptions: List<Subscription> = emptyList(),
     val activeId: String? = null,
     val activeRepo: String? = null,
+    /** The groups the active repo is nested in, outermost first; empty for a top-level entry. */
+    val activeRepoPath: List<String> = emptyList(),
 )
 
 /** Persistence for engine data. Implementations must be safe to call from any thread. */

@@ -11,8 +11,10 @@ data class LiveSourceInfo(
     val name: String,
     /** Whether the source has an EPG (from the config or the playlist's `x-tvg-url`). */
     val hasEpg: Boolean,
-    /** False for kinds the engine cannot load yet (spider-based lives). */
+    /** False for kinds the engine cannot load yet (lives served by a JS or Python spider, `type: 3` without a spider). */
     val supported: Boolean = true,
+    /** The runtime of the spider that serves the list ("jar", "js", "py"); empty for a plain playlist. */
+    val spider: String = "",
 )
 
 @Serializable

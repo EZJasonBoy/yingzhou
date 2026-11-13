@@ -172,7 +172,13 @@ class AppState extends ChangeNotifier {
   });
 
   Future<void> switchRepo(String repoUrl) => _run(() async {
-    summary = await client.activate(summary!.subscriptionId, repo: repoUrl);
+    try {
+      summary = await client.activate(summary!.subscriptionId, repo: repoUrl);
+    } catch (_) {
+      // The current config stays; a list that was opened on the way now shows its entries.
+      summary = await client.config().catchError((_) => summary!);
+      rethrow;
+    }
     await _loadSites();
   });
 

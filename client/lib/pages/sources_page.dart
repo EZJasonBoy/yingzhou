@@ -118,7 +118,16 @@ class _SourcesPageState extends State<SourcesPage> {
                             value: summary.repos.any((r) => r.url == summary.url) ? summary.url : null,
                             isExpanded: true,
                             hint: const Text('选择仓库'),
-                            items: [for (final r in summary.repos) DropdownMenuItem(value: r.url, child: Text(r.name))],
+                            items: [
+                              for (final r in summary.repos)
+                                DropdownMenuItem(
+                                  value: r.url,
+                                  child: Padding(
+                                    padding: EdgeInsets.only(left: 16.0 * r.depth),
+                                    child: Text(r.group ? '${r.name}（多仓）' : r.name, overflow: TextOverflow.ellipsis),
+                                  ),
+                                ),
+                            ],
                             onChanged: state.busy ? null : (url) => url == null ? null : state.switchRepo(url),
                           ),
                         ],
@@ -179,7 +188,7 @@ class _SiteList extends StatelessWidget {
               selected: site.key == state.currentSiteKey,
               onTap: state.supports(site.runtime) ? () => state.selectSite(site.key) : null,
               title: Text(site.name),
-              subtitle: Text(state.supports(site.runtime) ? site.key : '${site.key} · 运行时开发中'),
+              subtitle: Text(state.supports(site.runtime) ? site.key : '${site.key} · 这台引擎还不支持这类站点'),
               leading: Container(
                 width: 44,
                 padding: const EdgeInsets.symmetric(vertical: 2),

@@ -2,7 +2,14 @@ package tvbox.engine.server
 
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
+import io.ktor.http.HttpStatusCode
+import io.ktor.server.response.respond
+import io.ktor.server.response.respondFile
+import io.ktor.server.routing.Route
+import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
+import java.net.InetAddress
+import java.net.ServerSocket
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import tvbox.engine.api.EngineModuleOptions
@@ -12,6 +19,7 @@ import tvbox.engine.core.config.ConfigLoader
 import tvbox.engine.core.config.ConfigLocator
 import tvbox.engine.core.model.Capabilities
 import tvbox.engine.core.model.EngineInfo
+import tvbox.engine.core.net.LenientTls
 import tvbox.engine.core.net.SiteHttp
 import tvbox.engine.core.store.JsonFileStore
 import tvbox.engine.core.spider.JarRepository
@@ -32,6 +40,8 @@ import java.util.concurrent.TimeUnit
  * Standalone engine (desktop sidecar / Docker).
  *
  *   tvbox-engine [--port 9978] [--lan] [--data <dir>] [--subscribe <url>] [--demo] [--dev-cors] [--exit-with-stdin]
+ *   tvbox-engine --check [<subscription or file or folder>...] [--only cms,js,jar,live] [--play] [--max-sites N] [--max-configs N]
+ *                [--report <file.md>] [--strict]
  *
  * - --exit-with-stdin: exit when stdin closes. The desktop client starts the engine with a pipe on stdin, so the
  *   engine goes away with the client even when the client crashes.
@@ -40,6 +50,11 @@ import java.util.concurrent.TimeUnit
  * - --data is where subscriptions, history and favorites are kept (default ~/.tvbox-next/engine).
  * - --demo serves a fake site under /demo and subscribes to it; it keeps data in memory unless --data is given.
  * - --dev-cors lets pages on http://localhost:* call the engine (Flutter web during development).
+ * - --strict-tls checks HTTPS certificates. By default they are not checked, as in TVBox: the sites in real
+ *   configs are full of expired and mismatched certificates.
+ * - --check walks every site and live source of the subscriptions and reports what works (see [Checker]); nothing
+ *   is saved, the port is a free one, and the exit code is 1 when something is the engine's to fix (with --strict,
+ *   when anything at all failed). With --demo and no subscription it checks the built-in demo: a self-test.
  */
 fun main(args: Array<String>) {
     if ("--exit-with-stdin" in args) {
@@ -49,16 +64,19 @@ fun main(args: Array<String>) {
             Runtime.getRuntime().halt(0)
         }, "stdin-watch").apply { isDaemon = true }.start()
     }
-    val port = argValue(args, "--port")?.toIntOrNull() ?: 9978
+    val check = "--check" in args
+    val port = argValue(args, "--port")?.toIntOrNull() ?: if (check) freePort() else 9978
     val host = if ("--lan" in args) "0.0.0.0" else "127.0.0.1"
     val local = "http://127.0.0.1:$port"
     val dataDir = argValue(args, "--data")?.let(::File)
-        ?: if ("--demo" in args) null else File(System.getProperty("user.home"), ".tvbox-next/engine")
+        ?: if ("--demo" in args || check) null else File(System.getProperty("user.home"), ".tvbox-next/engine")
     val store = dataDir?.let { JsonFileStore(it) } ?: MemoryStore()
 
     val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        // Like TVBox, certificates are not checked (see LenientTls) unless asked for.
+        .let { if ("--strict-tls" in args) it else LenientTls.apply(it) }
         .build()
     val locator = ConfigLocator("$local/file/")
     val jsRuntime = JsRuntime(
@@ -71,7 +89,7 @@ fun main(args: Array<String>) {
         ),
     )
     // Jar spiders keep their app data and the converted jars on disk even in --demo mode.
-    val work = dataDir ?: File(System.getProperty("java.io.tmpdir"), "tvbox-next-engine-$port")
+    val work = dataDir ?: File(System.getProperty("java.io.tmpdir"), if (check) "tvbox-next-check" else "tvbox-next-engine-$port")
     val jarRuntime = DesktopJarRuntime(
         dataDir = File(work, "spider"),
         jars = JarRepository(client, locator, File(work, "cache/jar")),
@@ -98,12 +116,52 @@ fun main(args: Array<String>) {
 
     val server = embeddedServer(CIO, port = port, host = host) {
         engineModule(engine, EngineModuleOptions(allowLocalhostCors = "--dev-cors" in args))
-        if (demo != null) routing { demoRoutes(demo) }
+        routing {
+            localFileRoutes()
+            if (demo != null) demoRoutes(demo)
+        }
     }.start(wait = false)
     println("tvbox-engine listening on http://$host:$port" + (dataDir?.let { ", data in ${it.absolutePath}" } ?: ", data in memory"))
     println(if (sniffer != null) "sniffing with " + CdpSniffer.findBrowser() else "sniffing unavailable: no Edge/Chrome/Chromium found (set TVBOX_BROWSER)")
 
-    val subscribe = argValue(args, "--subscribe") ?: demo?.let { "$local/demo/config.json" }
+    if (check) {
+        val inputs = checkInputs(args).ifEmpty { listOfNotNull(demo?.let { "$local/demo/config.json" }) }
+        if (inputs.isEmpty()) {
+            System.err.println("--check needs a subscription address, a config file or a folder of config files")
+            Runtime.getRuntime().halt(2)
+        }
+        val options = Checker.Options(
+            only = argValue(args, "--only")?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet() ?: Checker.Options().only,
+            play = "--play" in args,
+            maxSites = argValue(args, "--max-sites")?.toIntOrNull() ?: 0,
+            maxConfigs = argValue(args, "--max-configs")?.toIntOrNull() ?: Checker.Options().maxConfigs,
+        )
+        val header = listOf(
+            "引擎：${engine.info.name} ${engine.info.version}（${engine.info.platform}），Java ${System.getProperty("java.version")}",
+            "范围：${options.only.joinToString(", ")}" + (if (options.play) "，含播放解析" else "") +
+                (if (options.maxSites > 0) "，每个配置最多 ${options.maxSites} 个站点" else ""),
+        )
+        val report = argValue(args, "--report")?.let { File(it).absoluteFile }
+        report?.parentFile?.mkdirs()
+        // Written after every config: a run that is stopped half way still leaves its report.
+        fun write(results: List<Checker.ConfigCheck>) {
+            report ?: return
+            report.writeText(Checker.markdown(results, header))
+            File(report.path.substringBeforeLast('.') + ".json").writeText(Checker.json(results).toString())
+        }
+        val results = runBlocking { Checker(engine, options, ::println).run(inputs, ::write) }
+        report?.let { println("报告：${it.path}") }
+        val sites = results.flatMap { it.sites }.filter { it.verdict != "skipped" }
+        println(
+            "合计 ${results.size} 个配置，${sites.size} 个站点：通过 ${sites.count { it.verdict == "pass" }}，空 ${sites.count { it.verdict == "empty" }}，" +
+                "引擎兼容 ${sites.count { it.cause == "compat" }}，不支持 ${sites.count { it.cause == "unsupported" }}，" +
+                "网络 ${sites.count { it.cause == "network" }}，站点报错 ${sites.count { it.cause == "site" }}",
+        )
+        ChildProcesses.killAll()
+        Runtime.getRuntime().halt(if (Checker.ok(results, strict = "--strict" in args)) 0 else 1)
+    }
+
+    val subscribe = argValue(args, "--subscribe")?.let(::localInput) ?: demo?.let { "$local/demo/config.json" }
     runBlocking {
         val result = if (subscribe != null) {
             val sub = engine.addSubscription(subscribe, if (demo != null && subscribe.endsWith("/demo/config.json")) "演示订阅" else null)
@@ -121,6 +179,49 @@ fun main(args: Array<String>) {
         server.stop(500, 2000)
     })
     Thread.currentThread().join()
+}
+
+/** A free port in the range jar spiders look for their host in (9978..9999), or any free one. */
+private fun freePort(): Int {
+    for (port in 9979..9999) {
+        if (runCatching { ServerSocket(port, 1, InetAddress.getLoopbackAddress()).close() }.isSuccess) return port
+    }
+    return ServerSocket(0).use { it.localPort }
+}
+
+/** An existing file becomes its absolute path (which the config loader reads through /file/); anything else is kept. */
+private fun localInput(input: String): String = File(input).takeIf { it.isFile }?.absolutePath ?: input
+
+/** The arguments after --check up to the next option; a folder stands for the config files in it. */
+private fun checkInputs(args: Array<String>): List<String> =
+    args.drop(args.indexOf("--check") + 1).takeWhile { !it.startsWith("--") }.flatMap { input ->
+        val file = File(input)
+        when {
+            file.isDirectory -> file.listFiles { f -> f.isFile && f.name.endsWith(".json") }.orEmpty().sortedBy { it.name }
+                // Folders of configs often carry status files next to them.
+                .filter { f -> f.readText().let { "\"sites\"" in it || "\"urls\"" in it } }
+                .map { it.absolutePath }
+            else -> listOf(localInput(input))
+        }
+    }
+
+/**
+ * /file/<path>: files of this machine, for subscriptions kept on disk (clan://localhost/..., file://..., a plain
+ * path) and what they refer to with ./ and ../. TVBox serves its storage folder the same way. Only for the engine
+ * itself and other programs on this machine: requests from elsewhere, or for another host name, are refused.
+ */
+private fun Route.localFileRoutes() {
+    get("/file/{path...}") {
+        val loopback = runCatching { InetAddress.getByName(call.request.local.remoteAddress).isLoopbackAddress }.getOrDefault(false)
+        val host = call.request.local.serverHost
+        if (!loopback || (host != "127.0.0.1" && host != "localhost" && host != "[::1]")) {
+            call.respond(HttpStatusCode.Forbidden)
+            return@get
+        }
+        val rest = call.parameters.getAll("path").orEmpty().joinToString("/").trimStart('/')
+        val file = listOf(File(rest), File("/$rest"), File(System.getProperty("user.home"), rest)).firstOrNull { it.isAbsolute && it.isFile }
+        if (file == null) call.respond(HttpStatusCode.NotFound) else call.respondFile(file)
+    }
 }
 
 private fun argValue(args: Array<String>, name: String): String? {
