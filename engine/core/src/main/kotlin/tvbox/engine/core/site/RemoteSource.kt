@@ -8,7 +8,7 @@ import tvbox.engine.core.model.VodPage
 import tvbox.engine.core.net.SiteHttp
 import tvbox.engine.core.vod.TvboxResult
 import java.net.URLEncoder
-import java.util.Base64
+import tvbox.engine.core.util.Base64Compat
 
 /**
  * Type 4: a spider running behind an HTTP endpoint (TVBox "remote" sites). Parameters follow `SourceViewModel`:
@@ -39,7 +39,7 @@ class RemoteSource(
             "filter" to "true",
             "t" to classId,
             "pg" to page.toString(),
-            "ext" to Base64.getEncoder().encodeToString(selected.toByteArray()),
+            "ext" to Base64Compat.encode(selected.toByteArray()),
         )
         return TvboxResult.parseList(bean.key, call(params))
     }

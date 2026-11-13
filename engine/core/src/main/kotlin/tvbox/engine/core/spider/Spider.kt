@@ -1,6 +1,7 @@
 package tvbox.engine.core.spider
 
 import tvbox.engine.core.config.SiteBean
+import tvbox.engine.core.config.TvboxConfig
 
 /**
  * The TVBox spider contract (`com.github.catvod.crawler.Spider`), independent of how the spider runs
@@ -22,10 +23,11 @@ interface Spider {
     fun destroy()
 }
 
+/** What a spider proxy answers. [body] is streamed to the client (it may be a video), then closed. */
 class ProxyResponse(
     val status: Int,
     val contentType: String,
-    val body: ByteArray,
+    val body: java.io.InputStream?,
     val headers: Map<String, String> = emptyMap(),
 )
 
@@ -39,8 +41,14 @@ interface SpiderRuntime {
     /** Creates and initialises the spider for [site] with its resolved [ext]. May be slow (downloads, compilation). */
     suspend fun create(site: SiteBean, ext: String): Spider
 
-    /** Called when the active config changes. */
-    fun reset() {}
+    /** Called when a config becomes active (and before its spiders are created), e.g. to pick up the global `spider` jar. */
+    fun onConfig(config: TvboxConfig) {}
+
+    /**
+     * Handles a `/proxy?do=...` request (TVBox `ApiConfig.proxyLocal`). [params] holds the query parameters plus the
+     * request headers (lower-case names). Null when this runtime has nothing for it.
+     */
+    suspend fun proxy(params: Map<String, String>): ProxyResponse? = null
 }
 
 class SpiderLoadException(message: String, cause: Throwable? = null) : Exception(message, cause)

@@ -2,7 +2,9 @@ package tvbox.engine.js.legacy;
 
 import java.nio.charset.StandardCharsets;
 
-/** Stand-in for android.util.Base64 with the behaviour the copied TVBox code relies on. */
+import tvbox.engine.core.util.Base64Compat;
+
+/** Stand-in for android.util.Base64 with the behaviour the copied TVBox code relies on (works on Android 7). */
 public final class Base64 {
     public static final int DEFAULT = 0;
     public static final int NO_PADDING = 1;
@@ -14,8 +16,7 @@ public final class Base64 {
 
     /** Like Android: characters outside the alphabet (line breaks, spaces) are ignored. */
     public static byte[] decode(String str, int flags) {
-        String s = (flags & URL_SAFE) != 0 ? str.replace('-', '+').replace('_', '/') : str;
-        return java.util.Base64.getMimeDecoder().decode(s);
+        return Base64Compat.INSTANCE.decode(str);
     }
 
     public static byte[] decode(byte[] input, int flags) {
@@ -23,9 +24,7 @@ public final class Base64 {
     }
 
     public static String encodeToString(byte[] input, int flags) {
-        java.util.Base64.Encoder encoder = (flags & URL_SAFE) != 0 ? java.util.Base64.getUrlEncoder() : java.util.Base64.getEncoder();
-        if ((flags & NO_PADDING) != 0) encoder = encoder.withoutPadding();
-        String out = encoder.encodeToString(input);
+        String out = Base64Compat.INSTANCE.encode(input, (flags & URL_SAFE) != 0, (flags & NO_PADDING) == 0);
         if ((flags & NO_WRAP) != 0) return out;
         // Android's default wraps at 76 characters and ends with a newline.
         StringBuilder sb = new StringBuilder();

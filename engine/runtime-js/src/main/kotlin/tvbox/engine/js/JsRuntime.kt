@@ -2,6 +2,7 @@ package tvbox.engine.js
 
 import tvbox.engine.core.config.SiteBean
 import tvbox.engine.core.config.SiteRuntime
+import tvbox.engine.core.config.TvboxConfig
 import tvbox.engine.core.spider.Spider
 import tvbox.engine.core.spider.SpiderRuntime
 
@@ -14,5 +15,7 @@ class JsRuntime(private val env: JsEnvironment) : SpiderRuntime {
     override suspend fun create(site: SiteBean, ext: String): Spider = JsSpider.load(site, ext, env)
 
     /** A new config may point at updated scripts; drop the in-memory module cache (the 7-day disk cache stays). */
-    override fun reset() = env.modules.clearMemory().let { }
+    override fun onConfig(config: TvboxConfig) {
+        env.modules.clearMemory()
+    }
 }

@@ -9,7 +9,7 @@
 
     <application
         android:label="TVBox Next"
-        android:name="${applicationName}"
+        android:name=".TvboxApplication"
         android:icon="@mipmap/ic_launcher"
         android:banner="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">

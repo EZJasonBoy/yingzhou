@@ -14,6 +14,7 @@ import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.receive
 import io.ktor.server.response.cacheControl
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondOutputStream
 import io.ktor.server.response.respondText
 import io.ktor.server.response.respondTextWriter
 import io.ktor.server.routing.RoutingCall
@@ -87,12 +88,29 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
     }
 
     routing {
-        // TVBox 9978 compatibility: jar spiders probe 9978..9999 with /proxy?do=ck to find the host.
+        // TVBox 9978 compatibility. Jar spiders probe 9978..9999 with /proxy?do=ck to find the host, and serve media,
+        // playlists and keys through /proxy?do=<spider>&... Like TVBox, request headers are passed along with the query.
         get("/proxy") {
             if (call.parameters["do"] == "ck") {
                 call.respondText("ok")
-            } else {
-                call.respond(HttpStatusCode.NotImplemented, ErrorBody(ApiError("NOT_IMPLEMENTED", "spider proxy arrives with the jar runtime")))
+                return@get
+            }
+            val params = LinkedHashMap<String, String>()
+            call.request.headers.forEach { name, values -> values.firstOrNull()?.let { params[name.lowercase()] = it } }
+            call.request.queryParameters.forEach { name, values -> values.firstOrNull()?.let { params[name] = it } }
+            val response = engine.proxy(params)
+            if (response == null) {
+                call.respond(HttpStatusCode.NotFound, ErrorBody(ApiError("NOT_FOUND", "no spider handled this proxy request")))
+                return@get
+            }
+            response.headers.forEach { (k, v) ->
+                if (!k.equals(HttpHeaders.ContentType, true) && !k.equals(HttpHeaders.ContentLength, true) && !k.equals(HttpHeaders.TransferEncoding, true)) {
+                    call.response.headers.append(k, v, safeOnly = false)
+                }
+            }
+            val contentType = runCatching { ContentType.parse(response.contentType) }.getOrDefault(ContentType.Application.OctetStream)
+            call.respondOutputStream(contentType, HttpStatusCode.fromValue(response.status)) {
+                response.body?.use { it.copyTo(this, 64 * 1024) }
             }
         }
 

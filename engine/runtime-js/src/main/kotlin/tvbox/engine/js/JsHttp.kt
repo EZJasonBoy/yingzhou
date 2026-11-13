@@ -15,7 +15,7 @@ import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.nio.charset.Charset
-import java.util.Base64
+import tvbox.engine.core.util.Base64Compat
 import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
@@ -93,7 +93,7 @@ class JsHttp(private val client: OkHttpClient) {
         val bytes = res.body?.bytes() ?: ByteArray(0)
         when (options.int("buffer") ?: 0) {
             1 -> out.add("content", JsonArray().apply { bytes.forEach { add(it.toInt()) } })
-            2 -> out.addProperty("content", Base64.getEncoder().encodeToString(bytes))
+            2 -> out.addProperty("content", Base64Compat.encode(bytes))
             else -> out.addProperty("content", String(bytes, charset(options)))
         }
         out.addProperty("code", res.code)

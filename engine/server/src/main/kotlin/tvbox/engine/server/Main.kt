@@ -70,7 +70,7 @@ fun main(args: Array<String>) {
         store = store,
         runtimes = listOf(jsRuntime),
     )
-    val demo = if ("--demo" in args) DemoSite(local) else null
+    val demo = if ("--demo" in args) DemoSite() else null
 
     val server = embeddedServer(CIO, port = port, host = host) {
         engineModule(engine, EngineModuleOptions(allowLocalhostCors = "--dev-cors" in args))

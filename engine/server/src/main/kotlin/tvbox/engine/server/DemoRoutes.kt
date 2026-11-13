@@ -24,7 +24,7 @@ import javax.imageio.ImageIO
  * one directly playable line and one line that goes through a JSON parser. Nothing here touches third-party sites
  * except the public HLS test stream used as the video.
  */
-class DemoSite(private val base: String) {
+class DemoSite {
     private val classes = listOf("1" to "电影", "2" to "剧集", "3" to "动漫", "4" to "纪录片")
     private val first = listOf("星河", "长夜", "山海", "迷城", "归途", "风起", "浮光", "暗涌", "逆流", "长安", "雾港", "白昼")
     private val second = listOf("之约", "纪事", "往事", "来信", "奇谈", "迷踪", "长歌", "未眠", "边境", "回声")
@@ -39,7 +39,8 @@ class DemoSite(private val base: String) {
     }
     private val posterCache = ConcurrentHashMap<Int, ByteArray>()
 
-    val configJson: String = buildJsonObject {
+    /** Urls use the host the request came in on, so an emulator or a phone on the LAN gets reachable links. */
+    fun configJson(base: String): String = buildJsonObject {
         put("wallpaper", "")
         put("sites", buildJsonArray {
             add(buildJsonObject {
@@ -57,6 +58,16 @@ class DemoSite(private val base: String) {
                 put("searchable", 1)
                 put("ext", buildJsonObject { put("api", "$base/demo/api.php/provide/vod/") })
             })
+            // Runs where jar spiders can run (the Android app's embedded engine).
+            add(buildJsonObject {
+                put("key", "demo_jar")
+                put("name", "演示JAR站")
+                put("type", 3)
+                put("api", "csp_DemoJar")
+                put("jar", "$base/demo/spider.jar")
+                put("searchable", 1)
+                put("ext", buildJsonObject { put("api", "$base/demo/api.php/provide/vod/") })
+            })
         })
         put("parses", buildJsonArray {
             add(buildJsonObject {
@@ -67,15 +78,15 @@ class DemoSite(private val base: String) {
         })
     }.toString()
 
-    fun api(params: Map<String, String>): String {
+    fun api(params: Map<String, String>, base: String): String {
         val ids = params["ids"]
         val wd = params["wd"]
         val t = params["t"]
         val pg = params["pg"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
         return when {
-            ids != null -> page(ids.split(',').mapNotNull { id -> items.firstOrNull { it.id.toString() == id } }, 1, detail = true)
-            wd != null -> page(items.filter { wd in it.name }, pg, detail = false)
-            t != null -> page(items.filter { it.classId == t }, pg, detail = false)
+            ids != null -> page(ids.split(",").mapNotNull { id -> items.firstOrNull { it.id.toString() == id } }, 1, detail = true, base)
+            wd != null -> page(items.filter { wd in it.name }, pg, detail = false, base)
+            t != null -> page(items.filter { it.classId == t }, pg, detail = false, base)
             else -> buildJsonObject {
                 put("class", buildJsonArray {
                     classes.forEach { (id, name) -> add(buildJsonObject { put("type_id", id); put("type_name", name) }) }
@@ -83,7 +94,7 @@ class DemoSite(private val base: String) {
                 put("filters", buildJsonObject {
                     classes.forEach { (id, _) -> put(id, yearFilter()) }
                 })
-                put("list", JsonArray(items.takeLast(18).reversed().map { card(it, detail = false) }))
+                put("list", JsonArray(items.takeLast(18).reversed().map { card(it, detail = false, base) }))
             }.toString()
         }
     }
@@ -99,7 +110,7 @@ class DemoSite(private val base: String) {
         })
     }
 
-    private fun page(list: List<Item>, pg: Int, detail: Boolean): String {
+    private fun page(list: List<Item>, pg: Int, detail: Boolean, base: String): String {
         val size = 20
         val pageCount = maxOf(1, (list.size + size - 1) / size)
         return buildJsonObject {
@@ -107,11 +118,11 @@ class DemoSite(private val base: String) {
             put("pagecount", pageCount)
             put("limit", size.toString())
             put("total", list.size)
-            put("list", JsonArray(list.drop((pg - 1) * size).take(size).map { card(it, detail) }))
+            put("list", JsonArray(list.drop((pg - 1) * size).take(size).map { card(it, detail, base) }))
         }.toString()
     }
 
-    private fun card(item: Item, detail: Boolean): JsonObject = buildJsonObject {
+    private fun card(item: Item, detail: Boolean, base: String): JsonObject = buildJsonObject {
         put("vod_id", item.id.toString())
         put("vod_name", item.name)
         put("vod_pic", "$base/demo/poster/${item.id}.png")
@@ -189,11 +200,20 @@ class DemoSite(private val base: String) {
 }
 
 fun Route.demoRoutes(site: DemoSite) {
-    get("/demo/config.json") { call.respondText(site.configJson, ContentType.Application.Json) }
+    // Links point back at whatever host:port the caller used (127.0.0.1, 10.0.2.2 from an emulator, a LAN ip...).
+    fun io.ktor.server.application.ApplicationCall.base(): String =
+        "http://" + (request.headers[io.ktor.http.HttpHeaders.Host] ?: "127.0.0.1")
+
+    get("/demo/config.json") { call.respondText(site.configJson(call.base()), ContentType.Application.Json) }
     get("/demo/spider.js") { call.respondText(site.spiderJs, ContentType.Text.JavaScript) }
+    get("/demo/spider.jar") {
+        val jar = DemoSite::class.java.getResourceAsStream("/demo/spider.jar")?.use { it.readBytes() }
+        if (jar == null) call.respondText("demo jar not built (engine/server/demo-jar/build.sh)", status = io.ktor.http.HttpStatusCode.NotFound)
+        else call.respondBytes(jar, ContentType.Application.OctetStream)
+    }
     get("/demo/api.php/provide/vod/") {
         val params = call.request.queryParameters.entries().associate { (k, v) -> k to v.firstOrNull().orEmpty() }
-        call.respondText(site.api(params), ContentType.Application.Json)
+        call.respondText(site.api(params, call.base()), ContentType.Application.Json)
     }
     get("/demo/jx") { call.respondText(site.parse(call.request.queryParameters["url"].orEmpty()), ContentType.Application.Json) }
     get("/demo/poster/{id}.png") {

@@ -6,7 +6,7 @@ import com.google.gson.stream.JsonReader
 import com.google.gson.stream.JsonToken
 import tvbox.engine.core.util.TvboxAes
 import java.io.StringReader
-import java.util.Base64
+import tvbox.engine.core.util.Base64Compat
 
 /**
  * Turns a downloaded subscription body into config JSON text.
@@ -31,7 +31,7 @@ object ConfigDecoder {
             var content = input
             IMAGE_MARKER.find(content)?.let { match ->
                 content = content.substring(content.indexOf(match.value) + 10)
-                content = String(Base64.getMimeDecoder().decode(content))
+                content = String(Base64Compat.decode(content))
             }
             content = content.trim().trimStart(BOM)
             when {

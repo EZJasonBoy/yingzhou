@@ -36,6 +36,15 @@
 
 最兼容的引擎是一台安卓设备（盒子、旧手机）：ART 原生运行所有 jar。
 
+### 2.2 Android 内置引擎（已实现）
+
+- `client/android` 通过 Gradle 复合构建（`includeBuild("../../engine")`）直接编译引擎源码，不复制代码。
+- `TvboxApplication` 启动时在 127.0.0.1:9978 拉起引擎（Ktor CIO），数据在 `files/engine`，并恢复上次的订阅；客户端默认地址就是它。
+- jar 运行时 `DexSpiderRuntime`：`DexClassLoader` 加载 jar（全局 `spider` 或站点 `jar`，支持 `img+`、`;md5;`，缓存 7 天、文件只读以满足 Android 14），调用 `Init.init(Context)`，类名 `com.github.catvod.spider.<api 去掉 csp_>`，`/proxy` 依次交给站点 jar、最近使用的 jar、其他 jar 的 `Proxy.proxy(Map)`。
+- jar 编译时依赖的 TVBox 宿主类在 `client/android/app/src/main/java/com/github/catvod/`（`crawler.Spider`、`SpiderApi`、`SpiderDebug`、`SpiderNull`、`net.OkHttp`、`net.OkDns`、`Proxy`），包名与方法签名必须保持一致；`proguard-rules.pro` 保留它们和 OkHttp / Gson / Jsoup。
+- 引擎代码不用 `java.util.Base64`（Android 8.0 才有），统一走 `Base64Compat`，最低支持 Android 7.0（API 24）。
+- 开发用演示 jar：`engine/server/demo-jar/build.sh`（javac + d8），演示引擎在 `/demo/spider.jar` 提供，演示站的链接按请求的 Host 生成，模拟器通过 10.0.2.2 访问。
+
 ## 3. 仓库结构
 
 ```

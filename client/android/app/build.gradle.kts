@@ -6,7 +6,8 @@ plugins {
 
 android {
     namespace = "tvbox.next.tvbox_client"
-    compileSdk = flutter.compileSdkVersion
+    // quickjs-kt-android requires compiling against API 37 (does not change minSdk/targetSdk).
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -34,8 +35,30 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // Jar spiders link against host classes (OkHttp, Gson, Jsoup, com.github.catvod.*) by name.
+            proguardFiles("proguard-rules.pro")
         }
     }
+
+    packaging {
+        resources {
+            excludes += setOf("/META-INF/{AL2.0,LGPL2.1}", "META-INF/INDEX.LIST", "META-INF/io.netty.versions.properties", "META-INF/DEPENDENCIES")
+        }
+    }
+}
+
+dependencies {
+    // Embedded engine (composite build of ../../engine).
+    implementation("tvbox.engine:api:0.1.0")
+    implementation("tvbox.engine:runtime-js:0.1.0")
+    implementation("io.ktor:ktor-server-cio:3.6.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    // Host API for jar spiders: TVBox's OkHttp helper exposes androidx ArrayMap in its signatures.
+    implementation("androidx.collection:collection:1.5.0")
+    // Libraries jar spiders expect the host to provide.
+    implementation("com.google.code.gson:gson:2.13.2")
+    implementation("org.jsoup:jsoup:1.24.1")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
 
 kotlin {

@@ -30,6 +30,7 @@ import tvbox.engine.core.site.ExtResolver
 import tvbox.engine.core.site.RemoteSource
 import tvbox.engine.core.site.SiteSource
 import tvbox.engine.core.site.UnsupportedSiteException
+import tvbox.engine.core.spider.ProxyResponse
 import tvbox.engine.core.spider.SpiderLoadException
 import tvbox.engine.core.spider.SpiderRuntime
 import tvbox.engine.core.spider.SpiderSource
@@ -166,7 +167,7 @@ class Engine(
         lock.withLock {
             // Spiders of the previous config are released before the new ones take over.
             active?.sources?.values?.forEach { (it as? SpiderSource)?.destroy() }
-            runtimes.forEach { it.reset() }
+            runtimes.forEach { it.onConfig(config) }
             active = loaded
             savedActiveId = id
             savedActiveRepo = if (repos.isEmpty()) null else url
@@ -222,6 +223,25 @@ class Engine(
             val (code, message) = describe(e)
             throw EngineException.SiteFailed(code, message)
         }
+    }
+
+    /**
+     * `/proxy?do=...` (TVBox 9978 compatibility): asks each spider runtime in turn; `do=js` goes to the JS runtime
+     * first. Null when nobody handles it.
+     */
+    suspend fun proxy(params: Map<String, String>): ProxyResponse? {
+        val ordered = if (params["do"] == "js") runtimes.sortedByDescending { it.kind == "js" } else runtimes.sortedBy { it.kind == "js" }
+        for (runtime in ordered) {
+            val response = try {
+                runtime.proxy(params)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            if (response != null) return response
+        }
+        return null
     }
 
     // ---- internals ----
