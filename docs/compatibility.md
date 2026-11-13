@@ -1,0 +1,147 @@
+# TVBox 配置兼容性
+
+> 逐字段说明引擎对 TVBox 配置的支持情况，对照的是 TVBoxOS / takagen99 Box 的行为。遇到"安卓版能用、这里不行"的订阅，先来这里查是不是已知缺口。
+>
+> ✅ 支持 · 🟡 读取了但只用了一部分 · ⬜ 读取了但没用上 / 不支持
+
+## 1. 订阅地址与配置文件
+
+| 写法 | 支持 | 说明 |
+|---|---|---|
+| `http(s)://…` | ✅ | |
+| `clan://localhost/…`、`clan://…` | ✅ | 指向引擎所在机器上的文件 |
+| `file://…` | ✅ | |
+| `地址;pk;密钥` | ✅ | AES-ECB |
+| 图片里藏配置（`…**base64`） | ✅ | |
+| `2423…` 开头的 AES-CBC | ✅ | |
+| 不规范 JSON（注释、首尾有多余字符） | ✅ | 与安卓版同样用 Gson 宽松模式，只取第一个 `{` 到最后一个 `}` |
+| 多仓 `{"urls": [{name, url}]}` | ✅ | 在「源」页选择子仓 |
+| 配置里引用的相对路径（`./xxx.js`） | ✅ | 相对订阅地址解析 |
+
+## 2. 顶层字段
+
+| 字段 | 支持 | 说明 |
+|---|---|---|
+| `spider` | ✅ | 全局 jar。支持 `;md5;校验值`、`img+` 前缀、伪装成 `.png` 的 jar、`clan://`。缓存 7 天 |
+| `sites` | ✅ | 见第 3 节 |
+| `parses` | ✅ | 见第 4 节 |
+| `flags` | ✅ | 这些播放标识走解析（VIP 解析） |
+| `rules` | ✅ | 见第 5 节 |
+| `lives` | 🟡 | 见第 6 节 |
+| `wallpaper` | ⬜ | 引擎会返回地址，客户端还没用 |
+| `hosts` | ⬜ | 域名重定向，未生效 |
+| `doh` | ⬜ | 未生效，用系统 DNS |
+| `headers` | ⬜ | 按域名加请求头，未读取 |
+| `ads` | ⬜ | 嗅探时的广告域名黑名单，未生效 |
+| `danmaku` | ⬜ | 弹幕未实现 |
+| `ijk`、`logo`、`notice`、`warningText` 等 | ⬜ | 与安卓播放器内核或界面相关，忽略 |
+
+## 3. 站点 `sites[]`
+
+没有 `key`、`type` 或 `api` 的条目会被跳过（与安卓版一致）。
+
+| 字段 | 支持 | 说明 |
+|---|---|---|
+| `key`、`name` | ✅ | |
+| `type: 0` | ✅ | XML 采集站 |
+| `type: 1` | ✅ | JSON 采集站 |
+| `type: 3` | 🟡 | 蜘蛛，按 `api` 后缀分运行时，见下表 |
+| `type: 4` | ✅ | HTTP 远程蜘蛛 |
+| `api` | ✅ | |
+| `ext` | ✅ | 字符串、对象、数组都接受；指向文件的会先取回 |
+| `jar` | ✅ | 站点自己的 jar，写法同 `spider` |
+| `searchable` | ✅ | 为 0 时不参与聚合搜索 |
+| `quickSearch` | 🟡 | 会返回给客户端，客户端暂未区分 |
+| `filterable` | ✅ | |
+| `playUrl` | ✅ | 拼在播放地址前面的解析前缀 |
+| `categories` | ✅ | 只保留并按此顺序显示分类 |
+| `timeout` | ✅ | 该站请求超时（秒） |
+| `click` | ⬜ | 站点级的嗅探点击脚本，未用（`rules` 里的 `script` 是支持的） |
+| `style` | ⬜ | 海报比例等，客户端未用 |
+| `changeable` | ⬜ | 换源未实现 |
+| `playerType` | ⬜ | 桌面只有 libmpv 一个内核 |
+
+### 蜘蛛运行时（`type: 3`）
+
+| `api` 的样子 | 运行时 | Windows / macOS | Android | 说明 |
+|---|---|---|---|---|
+| `csp_Xxx` | jar | ✅ | ✅ | 桌面上把 dex 转成 JVM 字节码，配安卓桩类运行 |
+| `csp_Xxx`，jar 带 native 壳（加固） | jar | ⬜ | ✅ | 桌面计划用 unidbg |
+| `….js` | js | ✅ | ✅ | QuickJS，含 drpy 用到的宿主函数 |
+| `….py` | py | ⬜ | ⬜ | 「源」页会标"运行时开发中" |
+
+jar 蜘蛛在桌面上依赖的安卓类是桩类，覆盖了常见用法（`Context`、`SharedPreferences`、`Base64`、`Log`、`Looper`、`Bitmap` 等）。用到没有桩的类时会在引擎日志里列出来。
+
+### 蜘蛛的本地代理
+
+蜘蛛返回的 `proxy://…` 和 `http://127.0.0.1:9978/proxy?…` 都指向引擎的 `/proxy`：先交给对应站点的蜘蛛实例，再依次交给各个 jar 的静态 `Proxy.proxy`；`do=js` 交给 JS 蜘蛛。引擎端口不是 9978 时会把端口告诉 jar。
+
+## 4. 解析 `parses[]`
+
+| `type` | 支持 | 说明 |
+|---|---|---|
+| 0 嗅探 | ✅ | 引擎用无头 Edge / Chrome 打开解析页，抓视频地址 |
+| 1 JSON | ✅ | 读 `url` / `data.url`、`header(s)`、`user-agent`、`referer`、`parse` |
+| 2 JSON 扩展 | ✅ | 调 jar 里的 `parser.Json<url>` |
+| 3 JSON 聚合 | ✅ | 调 jar 里的 `parser.Mix<url>` |
+| 4 超级解析 | 🟡 | 并发尝试所有 type 1 的 JSON 解析接口，取最先成功的；不并发嗅探类解析 |
+| `ext.header` | ✅ | 请求解析接口时带上 |
+| `ext`（整体） | ✅ | JSON 解析接口带 `ext` 时，以 `cat_ext=<base64>` 拼进地址（同 TVBox） |
+
+默认解析器取列表第一个（与 TVBox 一致）；它失败后再并发尝试所有 JSON 解析接口。客户端目前不能手动选解析器。
+
+## 5. 规则 `rules[]`
+
+| 写法 | 支持 | 用途 |
+|---|---|---|
+| `host` + `rule` | ✅ | 嗅探：该域名下匹配这些正则的请求才算视频 |
+| `host` + `filter` | ✅ | 嗅探：排除 |
+| `hosts` + `regex`（`#EXT…`、时长数字） | ✅ | m3u8 去广告：删掉匹配的片段 |
+| `hosts` + `regex`（其他正则） | ✅ | 嗅探规则 |
+| `hosts` + `script` | ✅ | 嗅探页面加载后执行的点击脚本 |
+| `exclude` | ✅ | 嗅探排除 |
+
+去广告在规则之外还有一个保守的启发式（去掉夹在 `#EXT-X-DISCONTINUITY` 之间、来自少数路径的分片）；要删的内容超过一半时放弃，保留原列表。
+
+## 6. 直播 `lives[]`
+
+| 写法 | 支持 | 说明 |
+|---|---|---|
+| `{type: 0, url}`：TXT 列表 | ✅ | `分组,#genre#`、`频道,地址`、`地址#地址2`、`地址$线路名` |
+| `{type: 0, url}`：M3U 列表 | ✅ | `group-title`、`tvg-logo`、`tvg-name`、`x-tvg-url`、`#EXTVLCOPT` 的 UA / Referer |
+| `{group, channels: [{name, urls}]}` 内联 | ✅ | |
+| `channels[].urls` 里是 `proxy://do=live&type=txt&ext=…` | ✅ | `ext` 是地址或其 base64 |
+| 列表本身被包成配置格式（图片 base64、AES） | ✅ | |
+| `epg`：带 `{name}` / `{date}` 的模板 | ✅ | 返回 `epg_data` 的那种接口 |
+| `epg`：不带占位符的 DIYP 接口 | ✅ | 按 `?ch=&date=` 请求 |
+| `epg`：XMLTV（`.xml` / `.xml.gz`） | ✅ | 也认 M3U 头里的 `x-tvg-url` |
+| `logo`：带 `{name}` 的模板 | ✅ | |
+| `ua`、`referer`、`header` | ✅ | 随线路下发给播放器 |
+| `{type: 3, api, jar}` 蜘蛛直播 | ⬜ | 「直播」页标"暂不支持" |
+| `catchup` 回看 | ⬜ | |
+| `playerType`、`timeout`、`boot`、`pass` | ⬜ | 忽略 |
+
+节目单按频道名匹配，匹配前会规整名字：`CCTV-1 综合` → `CCTV1`，`CCTV-5+ 体育赛事` → `CCTV5+`，去掉"高清 / 超清 / HD / 4K / 频道"等后缀。规整后查不到再用原名。
+
+## 7. 播放结果（蜘蛛 `playerContent` 的返回）
+
+| 字段 | 支持 | 说明 |
+|---|---|---|
+| `url` | ✅ | |
+| `parse: 0` | ✅ | 直接播 |
+| `parse: 1` | ✅ | 交给嗅探 |
+| `jx: 1` | ✅ | 走解析列表 |
+| `header` / `headers` | ✅ | 对象或 JSON 字符串都行 |
+| `flag` | ✅ | |
+| `playUrl` | ✅ | |
+| `subs` / `subt` 字幕 | ⬜ | |
+| `danmaku` | ⬜ | |
+| `format` | 🟡 | 引擎按地址和响应判断格式，不看这个字段 |
+
+## 8. 调研数据
+
+对 `tvbox-ysc-config` 聚合的公开配置做过一次统计（2026-11），用来决定先做什么：
+
+- 518 个站点里 406 个是 jar 蜘蛛，其余主要是 JS 蜘蛛和采集站，Python 只有 4 个。
+- `rules` 绝大多数是 m3u8 去广告规则。
+- `lives` 以 `type: 0` 的 TXT / M3U 和 `proxy://` 为主，少量 `type: 3`。

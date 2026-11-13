@@ -10,9 +10,12 @@
 |---|---|
 | [docs/requirements.md](docs/requirements.md) | 需求：目标、平台优先级、功能清单与状态 |
 | [docs/status.md](docs/status.md) | 进度：里程碑、已验证 / 未验证、已知缺口、下一步 |
+| [docs/user-guide.md](docs/user-guide.md) | 使用说明：各页面怎么用、快捷键、常见问题 |
+| [docs/compatibility.md](docs/compatibility.md) | 兼容性：TVBox 配置逐字段的支持情况 |
 | [docs/architecture.md](docs/architecture.md) | 架构：引擎 / 客户端 / 协议的分工，各子系统的实现 |
 | [docs/protocol.md](docs/protocol.md) | 引擎协议：客户端与引擎之间的 HTTP 接口 |
 | [docs/development.md](docs/development.md) | 开发指南：环境、命令、演示引擎、集成测试、打包、排错 |
+| [CHANGELOG.md](CHANGELOG.md) | 更新记录 |
 
 ## 使用（Windows）
 
@@ -20,7 +23,7 @@
 2. 解压，运行 `tvbox_client.exe`。不需要安装 Java，引擎和运行时都在包里。
 3. 在左侧「源」页填入订阅地址。订阅、历史、收藏保存在 `~/.tvbox-next/engine`。
 
-网页嗅探用系统里的 Edge 或 Chrome（Windows 10/11 自带 Edge）。
+网页嗅探用系统里的 Edge 或 Chrome（Windows 10/11 自带 Edge）。各页面的用法和常见问题见 [docs/user-guide.md](docs/user-guide.md)。
 
 ## 目录
 

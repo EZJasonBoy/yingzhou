@@ -78,6 +78,8 @@ Windows 桌面版已经能用：加订阅、浏览、搜索、播放（含 jar /
 10. 协议文档里的 `/pair`、`/config/reload`、`/events`（WebSocket）、`/danmaku` 尚未实现。
 11. 应用名、图标仍是工作名和默认图标。
 
+遇到某个订阅不能用时，先对照 [compatibility.md](compatibility.md) 看是不是已知缺口。
+
 ## 下一步
 
 1. Windows 安装程序。

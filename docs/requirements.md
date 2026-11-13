@@ -31,7 +31,7 @@ TVBox（影视仓）是 Android 上的影视聚合壳：用户填一个订阅地
 
 ## 4. 功能需求
 
-状态列：✅ 已完成，🟡 部分完成，⬜ 未开始。细节与验证情况见 [status.md](status.md)。
+状态列：✅ 已完成，🟡 部分完成，⬜ 未开始。细节与验证情况见 [status.md](status.md)，配置逐字段的支持情况见 [compatibility.md](compatibility.md)。
 
 ### 4.1 订阅与配置
 

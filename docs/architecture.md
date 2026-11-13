@@ -2,7 +2,7 @@
 
 > 工作名，正式名称以后再定。许可证：AGPL-3.0（会移植 TVBoxOS / Box 的 Java 实现，同为 AGPL-3.0；参考 Win-box 的部分为 MIT，保留其版权声明）。
 
-> 相关文档：[需求](requirements.md) · [进度](status.md) · [协议](protocol.md) · [开发指南](development.md)。本文描述的是目标架构；标了"已实现"的小节与代码一致，其余是计划。
+> 相关文档：[需求](requirements.md) · [进度](status.md) · [协议](protocol.md) · [开发指南](development.md) · [配置兼容性](compatibility.md)。本文描述的是目标架构；标了"已实现"的小节与代码一致，其余是计划。
 
 ## 1. 目标
 
