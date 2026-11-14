@@ -13,6 +13,7 @@
 | [docs/user-guide.md](docs/user-guide.md) | 使用说明：各页面怎么用、快捷键、常见问题 |
 | [docs/compatibility.md](docs/compatibility.md) | 兼容性：TVBox 配置逐字段的支持情况 |
 | [docs/architecture.md](docs/architecture.md) | 架构：引擎 / 客户端 / 协议的分工，各子系统的实现 |
+| [docs/tech-choices.md](docs/tech-choices.md) | 技术选型对比：MisaTV 的实际实现、Compose 等方案、内存实测 |
 | [docs/protocol.md](docs/protocol.md) | 引擎协议：客户端与引擎之间的 HTTP 接口 |
 | [docs/development.md](docs/development.md) | 开发指南：环境、命令、演示引擎、集成测试、打包、排错 |
 | [CHANGELOG.md](CHANGELOG.md) | 更新记录 |

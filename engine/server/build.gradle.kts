@@ -15,5 +15,9 @@ application {
     mainClass.set("tvbox.engine.server.MainKt")
     applicationName = "tvbox-engine"
     // Spider classes converted from dex do not always pass the JVM verifier; Android does not verify them either.
-    applicationDefaultJvmArgs = listOf("-Xss1m", "-XX:+UnlockDiagnosticVMOptions", "-XX:-BytecodeVerificationRemote")
+    // The heap flags keep an idle engine small: by default the JVM commits a heap sized from the machine's RAM.
+    applicationDefaultJvmArgs = listOf(
+        "-Xss1m", "-XX:+UseSerialGC", "-Xms16m", "-Xmx1g", "-XX:MinHeapFreeRatio=10", "-XX:MaxHeapFreeRatio=30",
+        "-XX:+UnlockDiagnosticVMOptions", "-XX:-BytecodeVerificationRemote",
+    )
 }

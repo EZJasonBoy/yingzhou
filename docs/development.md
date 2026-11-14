@@ -128,6 +128,8 @@ PLAY=1 MAX_SITES=20 tools/check-configs.sh          # 加上播放解析；每�
 - 用 shell 一行命令改 Kotlin / Dart 源码时，`\n`、`$` 容易被 shell 吃掉，改用编辑器或脚本文件。
 - `dart format` 的行宽在 `analysis_options.yaml` 里定为 160，别用默认值重排整个目录。
 
+- Flutter 在 Windows 上默认用 Impeller，会多占两百多 MB 提交内存；`windows/runner/main.cpp` 里已关闭。JVM 不带 `-Xms` 时按物理内存的比例预留堆，引擎的启动参数里已限定。实测数字见 [tech-choices.md](tech-choices.md) 第 4 节。
+
 ## 10. 约定
 
 - 提交信息用英文，一句话说清做了什么；每个迭代一次提交。

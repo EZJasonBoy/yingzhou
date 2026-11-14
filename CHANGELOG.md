@@ -4,6 +4,11 @@
 
 ## 未发布
 
+### 2026-11-14
+
+- **内存**：Windows 客户端关闭 Impeller（空载提交内存 466 MB → 242 MB）；引擎 JVM 限定初始堆并在空闲时归还内存（提交 598 MB → 93 MB）。两者合计空载从约 1064 MB 降到约 335 MB。
+- 文档：技术选型对比（对照 MisaTV 的源码、Compose Multiplatform 等方案）。
+
 ### 2026-11-13
 
 - **修复：打包版里所有 jar 蜘蛛报 "cant find zipfs support"**。自带的精简 Java 运行时漏了 `jdk.zipfs` 模块。运行时改为整个 Java SE 加必要的 JDK 模块，打包脚本在出包前用它自检（演示配置的采集站、JS、jar、嗅探、直播全部要过）。

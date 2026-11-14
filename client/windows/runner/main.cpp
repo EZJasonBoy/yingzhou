@@ -19,6 +19,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   flutter::DartProject project(L"data");
 
+  // Skia instead of Impeller: on Windows, Impeller keeps several window-sized
+  // offscreen buffers alive. Measured idle on the home page: 466 MB committed
+  // with Impeller. Keep this comment ASCII-only (the runner builds with /WX).
+  project.set_impeller_switch(flutter::ImpellerSwitch::Disabled);
+
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();
 
