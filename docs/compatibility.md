@@ -156,7 +156,7 @@ jar 蜘蛛在桌面上依赖的安卓类是桩类，覆盖了常见用法（`Con
 ```bash
 tools/check-configs.sh                      # ../tvbox-ysc-config/output 里的配置
 tools/check-configs.sh <订阅地址 | 文件 | 目录>
-ONLY=cms,live tools/check-configs.sh        # 只查采集站和直播（不运行任何蜘蛛代码）
+ONLY=cms,remote,live tools/check-configs.sh # 只查采集站、远程站和直播（引擎里不装蜘蛛运行时，不会加载任何 jar / js）
 ```
 
 报告把失败分成四类：**引擎兼容**（引擎要修）、**不支持**（还没做的类型）、**网络**、**站点报错**（后两类多半是站点自己失效，在安卓 TVBox 上同样打不开）。它用打包后的精简 Java 运行时跑，所以运行时缺模块之类的问题也会在这里暴露。

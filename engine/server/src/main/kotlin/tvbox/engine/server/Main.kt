@@ -65,6 +65,8 @@ fun main(args: Array<String>) {
         }, "stdin-watch").apply { isDaemon = true }.start()
     }
     val check = "--check" in args
+    /** The kinds a check is limited to (`--only`); null when everything runs. */
+    val checkOnly = if (check) argValue(args, "--only")?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet() else null
     val port = argValue(args, "--port")?.toIntOrNull() ?: if (check) freePort() else 9978
     val host = if ("--lan" in args) "0.0.0.0" else "127.0.0.1"
     val local = "http://127.0.0.1:$port"
@@ -109,7 +111,10 @@ fun main(args: Array<String>) {
         http = SiteHttp(client),
         proxyBase = "$local/proxy?",
         store = store,
-        runtimes = listOf(jarRuntime, jsRuntime),
+        // A check limited to some kinds must not run anything else. Skipping the sites is not enough: a live list
+        // served through a spider's proxy, or a jar parser, loads the config's jar too. So without "jar" (or "js")
+        // in --only that runtime does not exist in this engine at all.
+        runtimes = listOf(jarRuntime, jsRuntime).filter { checkOnly == null || it.kind in checkOnly },
         sniffer = sniffer,
     )
     val demo = if ("--demo" in args) DemoSite() else null
@@ -131,7 +136,7 @@ fun main(args: Array<String>) {
             Runtime.getRuntime().halt(2)
         }
         val options = Checker.Options(
-            only = argValue(args, "--only")?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet() ?: Checker.Options().only,
+            only = checkOnly ?: Checker.Options().only,
             play = "--play" in args,
             maxSites = argValue(args, "--max-sites")?.toIntOrNull() ?: 0,
             maxConfigs = argValue(args, "--max-configs")?.toIntOrNull() ?: Checker.Options().maxConfigs,

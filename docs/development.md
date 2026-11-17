@@ -105,6 +105,8 @@ ONLY=cms,remote,live tools/check-configs.sh         # 只查不需要蜘蛛的�
 PLAY=1 MAX_SITES=20 tools/check-configs.sh          # 加上播放解析；每个配置最多 20 个站点
 ```
 
+`ONLY` 里没有 `jar` / `js` 时，这次体检的引擎里不注册对应的运行时，所以不只是跳过蜘蛛站点——经蜘蛛代理取的直播列表、jar 解析器也都不会加载任何 jar。
+
 报告在 `dist/check-report.md`（同名 `.json` 给程序读），每查完一个配置就更新一次，中途停掉也有结果。相同站点的镜像配置只查一次。引擎用一个空闲端口、内存数据，不会碰你平时用的订阅和历史。分类规则和注意事项见 [compatibility.md](compatibility.md) 第 8 节。
 
 ## 8. 排查问题

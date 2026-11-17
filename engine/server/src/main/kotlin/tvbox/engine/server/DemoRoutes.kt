@@ -108,6 +108,13 @@ class DemoSite {
                 put("url", "$base/demo/live.m3u")
                 put("epg", "$base/demo/epg?ch={name}&date={date}")
             })
+            // A list written the way some configs do it, through TVBox's own proxy address: the engine asks its
+            // spiders' proxies first (which loads the config's jar) and falls back to the list the url wraps.
+            add(buildJsonObject {
+                put("name", "演示代理直播")
+                put("type", 0)
+                put("url", "http://127.0.0.1:9978/proxy?do=live&url=$base/demo/live.m3u")
+            })
         })
         put("rules", buildJsonArray {
             add(buildJsonObject {
