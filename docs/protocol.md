@@ -32,6 +32,15 @@
 | POST | `/config/reload` | **（未实现）** 重新拉取（忽略缓存）；目前重新 `activate` 即可 |
 | GET | `/config` | 当前配置摘要：站点数、解析数、直播数、spider、壁纸 |
 
+设置：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/settings` | `{githubProxy, githubProxyPrefix}` |
+| PUT | `/settings` | 同样的对象；保存并立即生效，返回规整后的值。当前配置不会自动重新加载，客户端随后重新 `activate` |
+
+`githubProxy` 为 `false`（默认）时，GitHub 上的文件（`raw.githubusercontent.com`、`github.com` 等）直接向 GitHub 取，地址前面被订阅写上的代理（`https://<代理>/https://raw.githubusercontent.com/…`，带不带内层的 `https://` 都认）会被去掉；为 `true` 时改经 `githubProxyPrefix` 取，失败再直连。`/config` 的 `url` 始终是订阅里写的原样，`fetchedUrl` 是实际访问的地址。
+
 多仓：`/config` 与 `activate` 返回的 `repos` 是 `[{name, url, parent, group, depth}]`。条目本身是多仓时，`activate` 它会把它展开：它变成 `group: true`，它的条目紧跟其后（`parent` 是它的 `url`，`depth` 加一），并加载其中第一个能用的，返回的 `url` 是实际加载的那个。不带 `repo`（或选的是一个多仓）时，失效的条目会被跳过；带 `repo` 指定的具体条目失效则报错，当前配置保持不变。
 
 ## 站点与点播

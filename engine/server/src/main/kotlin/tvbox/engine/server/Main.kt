@@ -19,6 +19,7 @@ import tvbox.engine.core.config.ConfigLoader
 import tvbox.engine.core.config.ConfigLocator
 import tvbox.engine.core.model.Capabilities
 import tvbox.engine.core.model.EngineInfo
+import tvbox.engine.core.net.GithubProxy
 import tvbox.engine.core.net.LenientTls
 import tvbox.engine.core.net.SiteHttp
 import tvbox.engine.core.store.JsonFileStore
@@ -74,7 +75,10 @@ fun main(args: Array<String>) {
         ?: if ("--demo" in args || check) null else File(System.getProperty("user.home"), ".tvbox-next/engine")
     val store = dataDir?.let { JsonFileStore(it) } ?: MemoryStore()
 
+    // Whether GitHub is reached directly or through a proxy is the user's setting (see GithubProxy).
+    val githubProxy = GithubProxy()
     val client = OkHttpClient.Builder()
+        .addInterceptor(githubProxy)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         // Like TVBox, certificates are not checked (see LenientTls) unless asked for.
@@ -116,6 +120,7 @@ fun main(args: Array<String>) {
         // in --only that runtime does not exist in this engine at all.
         runtimes = listOf(jarRuntime, jsRuntime).filter { checkOnly == null || it.kind in checkOnly },
         sniffer = sniffer,
+        githubProxy = githubProxy,
     )
     val demo = if ("--demo" in args) DemoSite() else null
 

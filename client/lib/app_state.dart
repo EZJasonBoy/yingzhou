@@ -138,8 +138,32 @@ class AppState extends ChangeNotifier {
     info = await client.info();
     error = null;
     await _settings.setString(_engineUrlKey, engineUrl);
+    try {
+      engineSettings = await client.settings();
+    } on EngineException {
+      engineSettings = null;
+    }
     await _loadConfig();
   }
+
+  /// The engine's own settings; null when the engine is too old to have any.
+  EngineSettings? engineSettings;
+
+  /// Turns the GitHub proxy on or off (and names it), then loads the current subscription again the new way.
+  Future<void> setGithubProxy({required bool enabled, String? prefix}) => _run(() async {
+    final current = engineSettings ?? const EngineSettings();
+    engineSettings = await client.updateSettings(
+      EngineSettings(githubProxy: enabled, githubProxyPrefix: prefix ?? current.githubProxyPrefix),
+    );
+    final active = summary;
+    if (active == null) {
+      // Nothing loaded, perhaps because of the very address this setting changes: let the engine try again.
+      await _loadConfig();
+      return;
+    }
+    summary = await client.activate(active.subscriptionId, repo: active.repos.isEmpty ? null : active.url);
+    await _loadSites();
+  });
 
   /// True while the engine loads the active subscription (right after it starts, it loads the last one again).
   bool loadingConfig = false;

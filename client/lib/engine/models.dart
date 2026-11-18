@@ -59,10 +59,28 @@ class RepoInfo {
   );
 }
 
+/// Engine-wide settings (`/api/v1/settings`).
+class EngineSettings {
+  const EngineSettings({this.githubProxy = false, this.githubProxyPrefix = ''});
+
+  /// Off: files on GitHub come from GitHub, and a proxy a subscription put in front of them is taken off.
+  /// On: they are fetched through [githubProxyPrefix].
+  final bool githubProxy;
+  final String githubProxyPrefix;
+
+  factory EngineSettings.fromJson(Map<String, dynamic> json) => EngineSettings(
+    githubProxy: json['githubProxy'] as bool? ?? false,
+    githubProxyPrefix: json['githubProxyPrefix'] as String? ?? '',
+  );
+
+  Map<String, dynamic> toJson() => {'githubProxy': githubProxy, 'githubProxyPrefix': githubProxyPrefix};
+}
+
 class ConfigSummary {
   const ConfigSummary({
     required this.subscriptionId,
     required this.url,
+    this.fetchedUrl = '',
     required this.repos,
     required this.sites,
     required this.parses,
@@ -73,8 +91,11 @@ class ConfigSummary {
 
   final String subscriptionId;
 
-  /// The config actually loaded (for a repository, the chosen entry).
+  /// The config actually loaded (for a repository, the chosen entry), as the subscription wrote it.
   final String url;
+
+  /// Where it is really fetched from when the GitHub proxy setting changes that; empty or equal to [url] otherwise.
+  final String fetchedUrl;
   final List<RepoInfo> repos;
   final int sites;
   final int parses;
@@ -85,6 +106,7 @@ class ConfigSummary {
   factory ConfigSummary.fromJson(Map<String, dynamic> json) => ConfigSummary(
         subscriptionId: json['subscriptionId'] as String,
         url: json['url'] as String,
+        fetchedUrl: json['fetchedUrl'] as String? ?? '',
         repos: [
           for (final r in json['repos'] as List<dynamic>? ?? const [])
             RepoInfo.fromJson(r as Map<String, dynamic>),

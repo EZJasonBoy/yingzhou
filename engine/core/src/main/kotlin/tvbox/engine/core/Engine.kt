@@ -77,6 +77,8 @@ class Engine(
     private val runtimes: List<SpiderRuntime> = emptyList(),
     /** Web page sniffing (headless browser / WebView), when the platform has one. */
     sniffer: Sniffer? = null,
+    /** The interceptor on the engine's http client that the GitHub proxy setting drives; null when there is none. */
+    private val githubProxy: tvbox.engine.core.net.GithubProxy? = null,
 ) {
     /** Capabilities are derived from the runtimes actually present. */
     val info: EngineInfo = info.copy(
@@ -139,12 +141,38 @@ class Engine(
      */
     private val repoGroups = java.util.concurrent.ConcurrentHashMap<String, MutableMap<String, List<RepoEntry>>>()
 
+    // Declared before the init block that fills it: property initialisers run in order.
+    @Volatile private var currentSettings = tvbox.engine.core.model.EngineSettings()
+
     init {
         val saved = store.loadSubscriptions()
         saved.subscriptions.forEach { subscriptions[it.id] = it }
         savedActiveId = saved.activeId
         savedActiveRepo = saved.activeRepo
         savedActiveRepoPath = saved.activeRepoPath
+        applySettings(store.loadSettings())
+    }
+
+    // ---- settings ----
+
+    fun settings(): tvbox.engine.core.model.EngineSettings = currentSettings
+
+    /** Saves and applies the settings. The active config is not loaded again; the caller decides that. */
+    fun updateSettings(settings: tvbox.engine.core.model.EngineSettings): tvbox.engine.core.model.EngineSettings {
+        applySettings(settings)
+        store.saveSettings(currentSettings)
+        // What an `ext` url pointed at may have been fetched the other way.
+        ext.clear()
+        return currentSettings
+    }
+
+    private fun applySettings(settings: tvbox.engine.core.model.EngineSettings) {
+        val prefix = tvbox.engine.core.net.GithubProxy.normalize(settings.githubProxyPrefix).ifEmpty { tvbox.engine.core.net.GithubProxy.DEFAULT_PREFIX }
+        currentSettings = settings.copy(githubProxyPrefix = prefix)
+        githubProxy?.let {
+            it.prefix = prefix
+            it.enabled = settings.githubProxy
+        }
     }
 
     // ---- subscriptions ----
@@ -497,6 +525,7 @@ class Engine(
     private fun summary(a: Active): ConfigSummary = ConfigSummary(
         subscriptionId = a.subscriptionId,
         url = a.url,
+        fetchedUrl = githubProxy?.route(a.url) ?: a.url,
         repos = repoInfos(a),
         sites = a.config.sites.size,
         parses = a.config.parses.size,

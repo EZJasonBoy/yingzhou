@@ -3,6 +3,7 @@ package tvbox.engine.core.store
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import tvbox.engine.core.model.EngineSettings
 import tvbox.engine.core.model.FavoriteEntry
 import tvbox.engine.core.model.HistoryEntry
 import tvbox.engine.core.model.Subscription
@@ -27,6 +28,10 @@ interface EngineStore {
     fun saveHistory(entries: List<HistoryEntry>)
     fun loadFavorites(): List<FavoriteEntry>
     fun saveFavorites(entries: List<FavoriteEntry>)
+
+    /** Engine settings; a store that does not keep them answers the defaults. */
+    fun loadSettings(): EngineSettings = EngineSettings()
+    fun saveSettings(settings: EngineSettings) {}
 }
 
 /** Keeps everything in memory (tests, demo mode). */
@@ -41,6 +46,10 @@ class MemoryStore : EngineStore {
     override fun saveHistory(entries: List<HistoryEntry>) { history = entries }
     override fun loadFavorites() = favorites
     override fun saveFavorites(entries: List<FavoriteEntry>) { favorites = entries }
+
+    @Volatile private var settings = EngineSettings()
+    override fun loadSettings() = settings
+    override fun saveSettings(settings: EngineSettings) { this.settings = settings }
 }
 
 /**
@@ -61,6 +70,8 @@ class JsonFileStore(private val dir: File) : EngineStore {
     override fun saveHistory(entries: List<HistoryEntry>) = write("history.json", HistoryFile.serializer(), HistoryFile(entries))
     override fun loadFavorites() = read("favorites.json", FavoritesFile.serializer())?.entries ?: emptyList()
     override fun saveFavorites(entries: List<FavoriteEntry>) = write("favorites.json", FavoritesFile.serializer(), FavoritesFile(entries))
+    override fun loadSettings() = read("settings.json", EngineSettings.serializer()) ?: EngineSettings()
+    override fun saveSettings(settings: EngineSettings) = write("settings.json", EngineSettings.serializer(), settings)
 
     private fun <T> read(name: String, serializer: KSerializer<T>): T? = synchronized(lock) {
         val file = File(dir, name)

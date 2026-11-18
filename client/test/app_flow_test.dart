@@ -121,6 +121,35 @@ void main() {
     expect(find.text('继续播放 第3集  00:05'), findsOneWidget);
   });
 
+  testWidgets('the GitHub proxy is a switch, off by default, and reloads the subscription', (tester) async {
+    await pumpApp(tester, hasConfig: true);
+    await tester.tap(find.text('源'));
+    await tester.pumpAndSettle();
+
+    final toggle = find.byKey(const Key('github-proxy-switch'));
+    expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+    expect(find.textContaining('已关闭：直连 GitHub'), findsOneWidget);
+    expect(find.widgetWithText(TextField, '代理地址'), findsNothing);
+    expect(find.textContaining('实际访问'), findsNothing);
+
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+    expect(find.textContaining('代理失败时再直连'), findsOneWidget);
+    expect(tester.widget<TextField>(find.widgetWithText(TextField, '代理地址')).controller!.text, 'https://ghfast.top/');
+    expect(find.text('实际访问：https://ghfast.top/http://example.test/tv.json'), findsOneWidget, reason: 'loaded again through the proxy');
+
+    // Another proxy, then off again.
+    await tester.enterText(find.widgetWithText(TextField, '代理地址'), 'https://my.proxy.test/');
+    await tester.tap(find.text('应用'));
+    await tester.pumpAndSettle();
+    expect(find.text('实际访问：https://my.proxy.test/http://example.test/tv.json'), findsOneWidget);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('实际访问'), findsNothing);
+    expect(find.text('2 个站点 · 0 个解析 · 0 组直播'), findsOneWidget);
+  });
+
   testWidgets('phone layout uses a bottom navigation bar', (tester) async {
     await pumpApp(tester, hasConfig: true, size: const Size(400, 800));
     expect(find.byType(NavigationBar), findsOneWidget);

@@ -39,11 +39,11 @@ Windows 桌面版已经能用：加订阅、浏览、搜索、播放（含 jar /
 
 | 范围 | 数量 | 命令 |
 |---|---|---|
-| 引擎 core | 65 | `cd engine && ./gradlew test` |
+| 引擎 core | 69 | `cd engine && ./gradlew test` |
 | 引擎 api | 6 | 同上 |
 | 引擎 runtime-js | 6 | 同上 |
 | 引擎 runtime-jar | 5 | 同上 |
-| 客户端单元 / 组件测试 | 16 | `cd client && flutter test` |
+| 客户端单元 / 组件测试 | 17 | `cd client && flutter test` |
 | 客户端集成测试（真实 Windows 应用 + 演示引擎） | 2 个流程 | 见 [development.md](development.md) |
 
 ### 在真实环境里确认过的

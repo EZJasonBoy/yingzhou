@@ -54,11 +54,25 @@ data class RepoInfo(
     val depth: Int = 0,
 )
 
+/** Engine-wide settings a client can change (`/api/v1/settings`). Kept with the engine's data. */
+@Serializable
+data class EngineSettings(
+    /**
+     * False (default): files on GitHub are fetched from GitHub, and a proxy a subscription put in front of such
+     * an address is taken off. True: they are fetched through [githubProxyPrefix], falling back to GitHub.
+     */
+    val githubProxy: Boolean = false,
+    /** E.g. `https://ghfast.top/`; the GitHub address is appended to it. */
+    val githubProxyPrefix: String = tvbox.engine.core.net.GithubProxy.DEFAULT_PREFIX,
+)
+
 @Serializable
 data class ConfigSummary(
     val subscriptionId: String,
-    /** The config actually loaded (for a repository, the chosen entry's url). */
+    /** The config actually loaded (for a repository, the chosen entry's url), as the subscription wrote it. */
     val url: String,
+    /** Where [url] is really fetched from, when the GitHub proxy setting changes that; otherwise equal to [url]. */
+    val fetchedUrl: String = "",
     /**
      * Entries of a multi-repository subscription; empty for a plain config. An entry can be a list itself
      * ("多仓" inside "多仓"): activating it marks it as a group, lists its entries after it and loads the first

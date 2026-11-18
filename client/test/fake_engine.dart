@@ -29,6 +29,13 @@ MockClient fakeEngine({bool hasConfig = false, List<Map<String, Object>> history
     {'key': 'cms', 'name': '采集站', 'type': 1, 'searchable': true, 'quickSearch': true, 'filterable': true, 'runtime': 'cms'},
     {'key': 'js1', 'name': '脚本站', 'type': 3, 'searchable': false, 'quickSearch': true, 'filterable': true, 'runtime': 'js'},
   ];
+  // What the engine would fetch: with the GitHub proxy off, a proxy in front of a GitHub address is taken off.
+  var settings = <String, dynamic>{'githubProxy': false, 'githubProxyPrefix': 'https://ghfast.top/'};
+  // The summary as the engine would give it: with the proxy on, the config is fetched through it.
+  Map<String, Object?> summarised() => {
+    ...summary,
+    'fetchedUrl': settings['githubProxy'] == true ? '${settings['githubProxyPrefix']}${summary['url']}' : summary['url'],
+  };
   final noConfig = {
     'error': {'code': 'NO_CONFIG', 'message': 'no subscription is active'},
   };
@@ -72,8 +79,13 @@ MockClient fakeEngine({bool hasConfig = false, List<Map<String, Object>> history
           'platform': 'test',
           'capabilities': {'jar': false, 'js': false, 'py': false, 'sniff': false},
         });
+      case ('GET', '/api/v1/settings'):
+        return json(settings);
+      case ('PUT', '/api/v1/settings'):
+        settings = jsonDecode(request.body) as Map<String, dynamic>;
+        return json(settings);
       case ('GET', '/api/v1/config'):
-        return configured ? json(summary) : json(noConfig, 409);
+        return configured ? json(summarised()) : json(noConfig, 409);
       case ('GET', '/api/v1/sites'):
         return json(sites);
       case ('POST', '/api/v1/subscriptions'):
@@ -81,7 +93,7 @@ MockClient fakeEngine({bool hasConfig = false, List<Map<String, Object>> history
         return json({'id': 's1', 'name': url, 'url': url}, 201);
       case ('POST', '/api/v1/subscriptions/s1/activate'):
         configured = true;
-        return json(summary);
+        return json(summarised());
       case ('GET', '/api/v1/sites/cms/home'):
         return json({
           'classes': [

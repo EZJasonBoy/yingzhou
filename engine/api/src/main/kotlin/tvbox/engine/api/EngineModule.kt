@@ -154,6 +154,9 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
             }
 
             get("/config") { call.respond(engine.config()) }
+
+            get("/settings") { call.respond(engine.settings()) }
+            put("/settings") { call.respond(engine.updateSettings(call.receive<tvbox.engine.core.model.EngineSettings>())) }
             get("/sites") { call.respond(engine.sites()) }
 
             route("/sites/{site}") {

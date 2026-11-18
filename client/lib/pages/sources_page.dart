@@ -14,11 +14,16 @@ class SourcesPage extends StatefulWidget {
 class _SourcesPageState extends State<SourcesPage> {
   late final _engineField = TextEditingController(text: AppScope.read(context).engineUrl);
   final _subscriptionField = TextEditingController();
+  final _proxyField = TextEditingController();
+
+  /// The prefix last seen from the engine, to refill the field when it changes there.
+  String? _shownPrefix;
 
   @override
   void dispose() {
     _engineField.dispose();
     _subscriptionField.dispose();
+    _proxyField.dispose();
     super.dispose();
   }
 
@@ -28,6 +33,11 @@ class _SourcesPageState extends State<SourcesPage> {
     final scheme = Theme.of(context).colorScheme;
     final info = state.info;
     final summary = state.summary;
+    final engineSettings = state.engineSettings;
+    if (engineSettings != null && engineSettings.githubProxyPrefix != _shownPrefix) {
+      _shownPrefix = engineSettings.githubProxyPrefix;
+      _proxyField.text = engineSettings.githubProxyPrefix;
+    }
 
     return Scaffold(
       body: SafeArea(
@@ -94,6 +104,48 @@ class _SourcesPageState extends State<SourcesPage> {
                     ],
                   ),
                 ),
+                if (engineSettings != null) ...[
+                  const SizedBox(height: 12),
+                  _section(
+                    context,
+                    title: '网络',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SwitchListTile(
+                          key: const Key('github-proxy-switch'),
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('GitHub 加速代理'),
+                          subtitle: Text(
+                            engineSettings.githubProxy
+                                ? 'GitHub 上的文件经下面的代理获取，代理失败时再直连'
+                                : '已关闭：直连 GitHub，订阅里写的代理前缀（gh-proxy 等）会被去掉',
+                          ),
+                          value: engineSettings.githubProxy,
+                          onChanged: state.busy ? null : (on) => state.setGithubProxy(enabled: on, prefix: _proxyField.text),
+                        ),
+                        if (engineSettings.githubProxy)
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _proxyField,
+                                  enabled: !state.busy,
+                                  decoration: const InputDecoration(labelText: '代理地址', hintText: '如 https://ghfast.top/'),
+                                  onSubmitted: (v) => state.setGithubProxy(enabled: true, prefix: v),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              FilledButton.tonal(
+                                onPressed: state.busy ? null : () => state.setGithubProxy(enabled: true, prefix: _proxyField.text),
+                                child: const Text('应用'),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
                 if (state.busy) const Padding(padding: EdgeInsets.only(top: 12), child: LinearProgressIndicator()),
                 if (state.error != null)
                   Padding(
@@ -112,6 +164,13 @@ class _SourcesPageState extends State<SourcesPage> {
                             style: Theme.of(context).textTheme.titleMedium),
                         const SizedBox(height: 4),
                         Text(summary.url, style: Theme.of(context).textTheme.bodySmall, maxLines: 2, overflow: TextOverflow.ellipsis),
+                        if (summary.fetchedUrl.isNotEmpty && summary.fetchedUrl != summary.url)
+                          Text(
+                            '实际访问：${summary.fetchedUrl}',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         if (summary.repos.isNotEmpty) ...[
                           const SizedBox(height: 12),
                           DropdownButton<String>(

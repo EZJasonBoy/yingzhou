@@ -37,6 +37,11 @@ class EngineClient {
 
   Future<ConfigSummary> config() async => ConfigSummary.fromJson(await _send('GET', 'config'));
 
+  Future<EngineSettings> settings() async => EngineSettings.fromJson(await _send('GET', 'settings'));
+
+  Future<EngineSettings> updateSettings(EngineSettings settings) async =>
+      EngineSettings.fromJson(await _send('PUT', 'settings', body: settings.toJson()));
+
   Future<List<SiteInfo>> sites() async => [for (final s in await _send('GET', 'sites') as List<dynamic>) SiteInfo.fromJson(s as Map<String, dynamic>)];
 
   // ---- browsing ----

@@ -55,8 +55,10 @@ object EmbeddedEngine {
     private fun run(app: Context, sniffer: WebViewSniffer) {
         val local = "http://127.0.0.1:$PORT"
         val data = File(app.filesDir, "engine")
+        val githubProxy = tvbox.engine.core.net.GithubProxy()
         val client = tvbox.engine.core.net.LenientTls.apply(
             OkHttpClient.Builder()
+                .addInterceptor(githubProxy)
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS),
         ).build()
@@ -84,6 +86,7 @@ object EmbeddedEngine {
             store = JsonFileStore(data),
             runtimes = listOf(jar, js),
             sniffer = sniffer,
+            githubProxy = githubProxy,
         )
         server = embeddedServer(CIO, port = PORT, host = "127.0.0.1") { engineModule(engine) }.start(wait = false)
         Log.i(TAG, "listening on $local")
