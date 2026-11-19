@@ -138,6 +138,20 @@ HTTPS 与 TVBox 一致，不校验证书（`LenientTls`），`--strict-tls` 恢�
 
 `DataCache` 是"一条一个文件 + 内存里留最近用过的"，没有索引文件，崩溃不会留下不一致的状态；每个区有大小上限和最长保存时间，`config` 区除外（一个订阅一个小文件，启动要靠它）。演示模式（没有数据目录）只在内存里；`--check` 完全不带缓存。
 
+### 2.10 网盘（已实现）
+
+用户自己的视频，三种来源，代码在 `engine/core/.../drive/`：
+
+- `DriveService`：网盘列表（`EngineStore.loadDrives/saveDrives`，JSON 存储里是 `drives.json`），增删改、测试连接、列目录、AList 文件夹密码、播放。对客户端只给 `DriveInfo`（有没有密码 / 令牌，不给值）。安卓内置引擎也有它，只是 `localFolders = false`。
+- 三个 `DriveBackend`：`AListBackend`（AList v3 / OpenList 的 `/api/fs/list`、`/api/fs/get`，令牌或登录换来的令牌放在 `Authorization`，登录过期自动重登；文件夹密码按最近的上级文件夹取；播放地址是 AList 的 `/d/<路径>?sign=`）、`WebDavBackend`（`PROPFIND Depth: 1`，按本地名匹配元素，解析思路移植自 MisaTV；Basic 认证）、`LocalBackend`（只用于桌面 / 服务器）。
+- 本机文件夹的路径安全：路径先规整，含 `..`、反斜杠、冒号的段直接拒绝；再逐段拼到文件夹的真实路径下，`toRealPath()`（跟随符号链接、联接点）之后必须仍在文件夹的真实路径里，否则 403；列目录时指向外面的链接不列出。添加本机文件夹只认本机的调用方，否则配对过的设备就能借此打开这台机器的任何目录。
+- **文件夹即"片"**：站点键 `drive:<网盘 id>`、片 id 是文件夹路径、剧集是其中的视频（按名称、数字按大小排）。`EngineModule` 里 `/sites/{site}/detail` 和 `/play/resolve` 先问 `DriveService`（`driveDetail` / `drivePlay`，不是 `drive:` 站点时返回 null），其余照旧。于是播放页、选集、上下集、观看历史、续播、"我的"里的详情页不用为网盘改一行。
+- **播放地址**：播放器能自己取的就给网盘的地址（AList 的 `/d/`、无账号 WebDAV 的文件地址）；要账号的、本机文件夹、设了"经引擎转发"的，以及网盘在回环地址而播放器在别的设备上时，给引擎的 `/drive/<id>/<路径>`。这条路由按单段 `Range` 读本机文件（`RandomAccessFile`），或把 `Range` 转给网盘并原样转回 `206`/`Content-Range`。它和别的引擎地址一样受鉴权拦截器保护，交给局域网设备时由 `forClient` 改写主机、由发送管道签名（`PlayInfo.subtitles` 的地址也在其中）。
+- **字幕**：播放时列出视频所在的文件夹，同名（可再带语言标记，如 `第1集.zh.ass`）的 `srt/ass/ssa/vtt` 放进 `PlayInfo.subtitles`，地址的给法和视频相同。
+- **演示**：`--demo` 时 `DemoDrive` 用 `DemoVideo` 现做几段几秒长的 TS 视频（每集从不同的分片开始，画面能看出是哪一集）加字幕，挂成一个演示 WebDAV（引擎自己的 `/demo/dav/`，账号 `demo` / `demo`）和一个写在临时目录里的演示本机文件夹。
+
+没做的：网盘里的 m3u8 文件（相对地址的分片不会被签名，局域网设备会被拒）；搜索网盘；上传、删除等写操作；TVBox 配置里 `csp_AList` 站点 `ext` 的 `drives` 列表（那是 jar 蜘蛛自己的配置，由蜘蛛处理，见 compatibility.md）；不经 AList 直接登录阿里云盘、夸克、115 等。
+
 ## 3. 仓库结构
 
 ```
@@ -179,6 +193,7 @@ tvbox-next/
 - `model`：规整后的影片、分类、筛选、线路、剧集；`TvboxCompat` 负责与 TVBox JSON 互转。
 - `search`：聚合搜索调度（并发上限、每源超时、按片名+年份合并）。
 - `live`：直播源与节目单（见 2.6）。
+- `drive`：网盘（AList / OpenList、WebDAV、本机文件夹，见 2.10）。
 - `play`：播放解析链（直链 / 解析接口 type 0–4 / `jx` / VIP flags）；需要嗅探的页面交给平台的 `Sniffer`（见 2.4），没有时转交客户端。
 - HTTP 路由在独立的 `engine/api` 模块，见 protocol.md。
 
@@ -207,7 +222,7 @@ tvbox-next/
 - **播放器带不上请求头**：引擎把交给客户端的引擎地址（`/m3u8`、`/proxy`，HLS 主列表里的子列表）加上 HMAC 签名参数 `tvsig`，绑定路径、全部参数、设备和过期时间；撤销设备或关闭共享即失效。令牌从不进播放器的请求头（播放器会把请求头发给 CDN）。
 - **发现**：引擎用 JmDNS 在每个局域网地址上通告 `_tvbox-engine._tcp`；客户端用 bonsoir（调用系统自带的 mDNS 服务：Windows DNS-SD、macOS Bonjour、安卓 NSD）。
 - 客户端按引擎地址（scheme://host:port）在本地偏好里保存令牌，每个 API 请求带上；图片加载器只对来自该引擎的图片带令牌。收到 401 就回到配对窗口。
-- 网盘 Cookie 等凭据只存在引擎所在设备。
+- 网盘 Cookie 等凭据只存在引擎所在设备。网盘（2.10）的账号、密码、令牌、文件夹密码存在引擎的 `drives.json` 里，API 只回答"有没有"；需要账号才能取的文件由引擎带上账号代取，账号不进播放器的地址和请求头，也不写进日志。本机文件夹只能由本机的调用方添加或改路径。
 - 已知局限：请求经反向代理且代理把 `Host` 改成 127.0.0.1 时会被当成本机；Docker 桥接网络里所有请求都来自网关地址（不是本机），mDNS 也过不了桥接（用 host 网络或手填地址）；配对锁定可以被同网段的人故意触发（拒绝服务，不会泄露）。
 
 ## 6. 里程碑

@@ -104,6 +104,10 @@ jar 蜘蛛在桌面上依赖的安卓类是桩类，覆盖了常见用法（`Con
 
 蜘蛛返回的 `proxy://…` 和 `http://127.0.0.1:9978/proxy?…` 都指向引擎的 `/proxy`：先交给对应站点的蜘蛛实例，再依次交给各个 jar 的静态 `Proxy.proxy`；`do=js` 交给 JS 蜘蛛。引擎端口不是 9978 时会把端口告诉 jar。
 
+### 配置里的网盘
+
+TVBox 的配置格式本身没有"网盘"字段。真实配置里出现的 `drives`（`[{"name", "server", "password"?}]`，多是公开的 AList 站）写在 `csp_AList` 之类 jar 蜘蛛站点的 `ext` 里，是那个蜘蛛自己的配置：它们作为普通的蜘蛛站点在「首页」里浏览，由 jar 运行时处理，和「网盘」页无关，也不会被自动加成网盘。Box 的"存储"（本地目录、WebDAV、AList 网页）是 App 里由用户自己添加的，映舟的「网盘」对应的就是它（见 [protocol.md](protocol.md)"网盘"）：AList 只支持 v3 的 API（`/api/fs/list`，OpenList 相同），Box 还认的 v2 接口（`/api/public/path`）已经没有在维护的 AList 用了，不支持。网盘文件的播放地址是 `drive:<id>` 站点的剧集，`drive:` 开头的站点键保留给网盘。
+
 ## 4. 解析 `parses[]`
 
 | `type` | 支持 | 说明 |
