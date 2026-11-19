@@ -20,9 +20,19 @@
 | [docs/development.md](docs/development.md) | 开发指南：环境、命令、演示引擎、集成测试、打包、排错 |
 | [CHANGELOG.md](CHANGELOG.md) | 更新记录 |
 
+## 下载
+
+在 [Releases](https://github.com/Sa1koro/yingzhou/releases) 下载，由 GitHub Actions 自动构建（目前都是预发布版）：
+
+- Windows：`yingzhou-windows-x64-setup.exe`（安装程序）或 `yingzhou-windows-x64.zip`（绿色包）。没有数字签名，第一次运行时 SmartScreen 可能拦一下，点「更多信息 → 仍要运行」。
+- macOS（Apple Silicon）：`yingzhou-macos-arm64.dmg`，临时签名，第一次需右键 → 打开。还没有在真机上运行过。
+- 引擎的 Docker 镜像：`ghcr.io/sa1koro/yingzhou-engine`，见 [docs/user-guide.md](docs/user-guide.md)。
+
+打一个 `v*` 标签就会触发 `.github/workflows/desktop.yml` 出包并发布 Release。
+
 ## 使用（Windows）
 
-1. 运行 `tools/package-desktop.sh` 得到安装程序 `dist/yingzhou-windows-x64-setup.exe`（需要 Inno Setup）和绿色包 `dist/yingzhou-windows-x64.zip`。
+1. 从 Releases 下载，或运行 `tools/package-desktop.sh` 得到安装程序 `dist/yingzhou-windows-x64-setup.exe`（需要 Inno Setup）和绿色包 `dist/yingzhou-windows-x64.zip`。
 2. 运行安装程序，或解压绿色包后运行 `yingzhou.exe`。不需要安装 Java，引擎和运行时都在包里。
 3. 在左侧「源」页填入订阅地址。订阅、历史、收藏保存在 `~/.tvbox-next/engine`。
 

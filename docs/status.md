@@ -72,8 +72,8 @@ Windows 桌面版已经能用：加订阅、浏览、搜索、播放（含 jar /
 ### 还没确认的
 
 - **真实订阅里的 jar / JS 蜘蛛站点**：只在演示 jar 上验证过运行时，真实 jar 的兼容情况要看体检报告。
-- **macOS**：没有 Mac，工程、签名配置、DMG 脚本都没跑过。
-- **CI**（`.github/workflows/desktop.yml`）：仓库没有远端，没跑过。
+- **macOS**：GitHub Actions 能编译并打出 Apple Silicon 的 DMG（v0.1.0），但没有在真机上运行过。
+- **CI**：仓库在 https://github.com/Sa1koro/yingzhou（公开）。`desktop.yml` 在 Windows 上跑引擎和客户端测试、出 zip 和安装程序，在 macOS 上出 DMG，打 `v*` 标签时发布预发布 Release；v0.1.0（2026-11-19）三个包都出来了。`engine-image.yml` 构建 Docker 镜像并在镜像里跑演示自检，通过。
 - Android 模拟器上出现过一次原因不明的 JS 模块下载失败（当时模拟器网络不稳，随后崩溃），已加日志，未复现。
 
 ## 已知缺口
@@ -89,7 +89,7 @@ Windows 桌面版已经能用：加订阅、浏览、搜索、播放（含 jar /
 7. **站点 `style`**：海报比例等没按配置来。
 8. **局域网共享只在一台机器上测过**：配对、令牌、签名地址都有测试，但没有在真正的第二台设备上播放过；没有扫码配对，也没有 TLS。演示站的海报地址指向本机，在第二台设备上不显示。
 9. 协议文档里的 `/events`（WebSocket）、`/danmaku` 尚未实现。
-10. **Docker 镜像没有构建过**：Dockerfile、compose 和 CI 已写，镜像里用的 Java 参数和模块已在本机验证，但镜像本身没有在 Docker 里构建或运行。
+10. **Docker 镜像只在 CI 里验证过**（构建、启动、配对码、演示自检都通过），没有在 NAS 上实际跑过。原先的说明：Dockerfile、compose 和 CI 已写，镜像里用的 Java 参数和模块已在本机验证，但镜像本身没有在 Docker 里构建或运行。
 11. **安装程序没有数字签名**，下载后第一次运行会被 SmartScreen 拦一下；也没有自动更新，升级要手动下载新安装包。
 
 遇到某个订阅不能用时，先对照 [compatibility.md](compatibility.md) 看是不是已知缺口。
@@ -99,4 +99,4 @@ Windows 桌面版已经能用：加订阅、浏览、搜索、播放（含 jar /
 1. 按体检报告修真实 jar / JS 蜘蛛的兼容问题（缺的安卓桩类、缺的宿主方法等）。
 2. 第二批并行任务：字幕 → 弹幕、Python 蜘蛛（含 Python 蜘蛛直播）、网盘（AList / WebDAV / 本地文件夹）、离线下载（复用播放缓存的分片存储）。
 3. 点播自动换源（线路全失效时搜其他站点的同名片）。
-4. 有 Mac 或 GitHub 远端后验证 macOS 包和 Docker 镜像。
+4. 在真实的 Mac 上验证 DMG，在 NAS 上验证 Docker 镜像。
