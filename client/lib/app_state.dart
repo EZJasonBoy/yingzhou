@@ -125,6 +125,7 @@ class AppState extends ChangeNotifier {
   };
 
   String siteName(String key) {
+    if (key.startsWith('drive:')) return '网盘';
     for (final s in sites) {
       if (s.key == key) return s.name;
     }

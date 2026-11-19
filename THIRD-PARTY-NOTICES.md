@@ -21,6 +21,16 @@ Yingzhou (映舟) is licensed under AGPL-3.0 (see `LICENSE`). It includes code a
   matching and the Bilibili XML reading (raw deflate, lenient `<d>` parsing) follow TVBoxOS (`DanmakuApi`, `Danmu`,
   `player/danmu/Parser`). The JSON forms (`comments[].p` with the colour third) follow MisaTV's `danmaku_xml.dart`
   (GPL-3.0), described from its behaviour; no code of it is included.
+- `engine/core/.../drive/AListBackend.kt`, `DriveFiles.kt`: reading AList through `/api/fs/list` and playing from its
+  `/d/` route, the drive's start folder, sorting by name or date and the video extensions follow Box (takagen99,
+  AGPL-3.0: `AlistDriveViewModel`, `AbstractDriveViewModel`, `StorageDriveType`).
+
+## MisaTV — GPL-3.0
+
+- `engine/core/.../drive/WebDavBackend.kt` (`Propfind`): the `PROPFIND` request body and the parsing of its answer
+  (elements matched by local name whatever the prefix, the `propstat` with status 200, hrefs as paths or whole urls
+  made relative to the DAV folder) are ported from MisaTV's `lib/services/webdav/dav.dart` and `dav_service.dart`.
+  Like MisaTV, files of a WebDAV with an account are relayed by a local server that adds the credentials.
 
 ## Win-box — MIT
 

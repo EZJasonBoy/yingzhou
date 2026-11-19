@@ -36,6 +36,10 @@ interface EngineStore {
     /** LAN sharing and paired devices; a store that does not keep them answers "off, nobody paired". */
     fun loadAccess(): AccessState = AccessState()
     fun saveAccess(state: AccessState) {}
+
+    /** Cloud drives and folders, credentials included (they never leave the engine); a store that does not keep them answers none. */
+    fun loadDrives(): List<tvbox.engine.core.drive.DriveConfig> = emptyList()
+    fun saveDrives(drives: List<tvbox.engine.core.drive.DriveConfig>) {}
 }
 
 /** Keeps everything in memory (tests, demo mode). */
@@ -58,6 +62,10 @@ class MemoryStore : EngineStore {
     @Volatile private var access = AccessState()
     override fun loadAccess() = access
     override fun saveAccess(state: AccessState) { access = state }
+
+    @Volatile private var drives = emptyList<tvbox.engine.core.drive.DriveConfig>()
+    override fun loadDrives() = drives
+    override fun saveDrives(drives: List<tvbox.engine.core.drive.DriveConfig>) { this.drives = drives }
 }
 
 /**
@@ -82,6 +90,8 @@ class JsonFileStore(private val dir: File) : EngineStore {
     override fun saveSettings(settings: EngineSettings) = write("settings.json", EngineSettings.serializer(), settings)
     override fun loadAccess() = read("access.json", AccessState.serializer()) ?: AccessState()
     override fun saveAccess(state: AccessState) = write("access.json", AccessState.serializer(), state)
+    override fun loadDrives() = read("drives.json", DrivesFile.serializer())?.entries ?: emptyList()
+    override fun saveDrives(drives: List<tvbox.engine.core.drive.DriveConfig>) = write("drives.json", DrivesFile.serializer(), DrivesFile(drives))
 
     private fun <T> read(name: String, serializer: KSerializer<T>): T? = synchronized(lock) {
         val file = File(dir, name)
@@ -111,4 +121,7 @@ class JsonFileStore(private val dir: File) : EngineStore {
 
     @Serializable
     private data class FavoritesFile(val entries: List<FavoriteEntry> = emptyList())
+
+    @Serializable
+    private data class DrivesFile(val entries: List<tvbox.engine.core.drive.DriveConfig> = emptyList())
 }

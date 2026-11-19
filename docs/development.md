@@ -55,7 +55,7 @@ flutter test                                # 单元 / 组件测试（用 test/f
 flutter run -d windows                      # 没有引擎在 9978 上时会自己拉起上面 installDist 的引擎
 ```
 
-引擎参数：`--port`、`--lan`（监听 0.0.0.0，局域网共享始终开启，配对码打印在标准输出）、`--name <名字>`（局域网里显示的名字，默认"映舟 · 计算机名"）、`--data <目录>`（默认 `~/.tvbox-next/engine`）、`--subscribe <地址>`、`--demo`、`--dev-cors`、`--exit-with-stdin`。
+引擎参数：`--port`、`--lan`（监听 0.0.0.0，局域网共享始终开启，配对码打印在标准输出）、`--name <名字>`（局域网里显示的名字，默认"映舟 · 计算机名"）、`--data <目录>`（默认 `~/.tvbox-next/engine`）、`--subscribe <地址>`、`--drive-folder <目录>`（把这台机器上的文件夹加成网盘，可以写多次，已有的不重复加）、`--demo`、`--dev-cors`、`--exit-with-stdin`。
 
 ### 局域网共享与鉴权
 
@@ -76,6 +76,24 @@ cd engine && ./gradlew :server:run --args="--demo --dev-cors --port 19978"
 它提供：一个采集站、一个 JS 蜘蛛站、一个 jar 蜘蛛站、一个需要嗅探的站；JSON 解析、jar 聚合解析、嗅探解析各一个；一条去广告规则；一个带节目单的直播源（含一个第一条线路是死链的频道，用来测自动换线）；「演示直播」里的「回看演示台」能回看 3 天（`catchup="default"`，回看地址是 `/demo/catchup.m3u8?start=&end=&utc=`，时间填对了就 302 到点播测试流，填错或不是过去的时间返回 400）；一个由 JS 蜘蛛给出列表的直播源「演示JS直播」（`/demo/live.js`，三个频道的地址分别是直链、脚本自己的代理地址和 `proxy://`，后两个要请求回到这个脚本才播得出来）。点播里《白昼迷踪 第二季》（首页第二个）的第一条线路"失效线路"也是死链，用来测点播的自动换线路。演示模式的数据默认只在内存里。
 
 演示 jar 的源码在 `engine/server/demo-jar/`，改了之后跑 `build.sh`（javac + d8）重新生成。
+
+### 演示网盘
+
+演示引擎启动时加两个网盘（`DemoDrive.kt`），内容相同：`演示剧集/第1集.ts`（旁边有 `第1集.srt`）、`第2集.ts`（旁边有 `第2集.zh.vtt`）、`第10集.ts`（测按数字排序），根目录的 `短片.ts` 和一个 `说明.txt`。视频由 `DemoVideo` 现做（每集 18 秒、约 1.2 MB，各集从不同的分片开始，画面上的分片号能看出是哪一集），仓库里没有视频文件。
+
+- 「演示 WebDAV」：引擎自己的 `/demo/dav/`（`PROPFIND`、`GET`、`HEAD`、`Range`，Basic 认证，账号 `demo` / `demo`）。因为有账号，播放器拿到的是引擎的 `/drive/<id>/…`。
+- 「演示本机文件夹」：上面的文件写到引擎临时目录的 `demo-drive`（`%TEMP%/tvbox-next-engine-<端口>/demo-drive`；带 `--data` 时在数据目录下），每次启动重写。
+
+带 `--data` 启动时网盘会存下来，再启动不会重复添加。
+
+试网盘的接口（Git Bash 会把以 `/` 开头的参数改成 Windows 路径，中文路径要先编码）：
+
+```bash
+curl -s http://127.0.0.1:19987/api/v1/drives
+curl -s "http://127.0.0.1:19987/api/v1/drives/<id>/list?path=%2F%E6%BC%94%E7%A4%BA%E5%89%A7%E9%9B%86"
+```
+
+测试：`engine/core/src/test/.../drive/`（`FakeDriveServers.kt` 里有测试用的 AList 和 WebDAV 服务器；本机文件夹的路径安全，包括指出文件夹的符号链接——Windows 上要开开发者模式才能建符号链接，建不了时这一段跳过）、`engine/api/src/test/.../DriveRoutesTest.kt`（HTTP 层：回答里没有密码和令牌、`Range`、局域网设备拿到签名地址）。客户端：`test/drives_page_test.dart`（`test/fake_drive_engine.dart` 在 `fake_engine.dart` 之上加了网盘接口）、`integration_test/drive_test.dart`（真实应用里浏览两个演示网盘并播放，见第 5 节）。
 
 ### 慢速片源
 
@@ -104,7 +122,10 @@ cd engine && ./gradlew :server:run --args="--demo --dev-cors --port 19978"
 cd client
 flutter test integration_test/desktop_play_test.dart -d windows --dart-define=SHOT_DIR=<截图目录>
 flutter test integration_test/live_test.dart -d windows --dart-define=SHOT_DIR=<截图目录>
+flutter test integration_test/drive_test.dart -d windows --dart-define=ENGINE_URL=http://127.0.0.1:19978 --dart-define=SHOT_DIR=<截图目录>
 ```
+
+`drive_test.dart` 打开「网盘」，进「演示 WebDAV」的 `演示剧集`，检查排序和"有字幕"，播放第 1 集、按 N 播第 2 集、返回后看"上次看到"，再到「演示本机文件夹」播放 `短片.ts`。
 
 每一步会打印 `MARK:<步骤>`，给了 `SHOT_DIR` 就在那一步存一张截图（应用内截图，包含视频画面；从外部截测试窗口是黑的）。
 

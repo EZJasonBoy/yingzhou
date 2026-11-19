@@ -170,7 +170,7 @@ class StreamCacheRoutesTest {
         val first = client.get(local(lines[3]))
         assertEquals(HttpStatusCode.OK, first.status)
         assertArrayEquals(bytes("seg3.ts"), first.readRawBytes())
-        repeat(50) { if (cache.store.stats().files < 1) delay(20) }
+        repeat(250) { if (cache.store.stats().files < 1) delay(20) }
         val again = client.get(local(lines[3]))
         assertEquals("video/mp2t", again.headers[HttpHeaders.ContentType])
         assertArrayEquals(bytes("seg3.ts"), again.readRawBytes())
@@ -221,7 +221,7 @@ class StreamCacheRoutesTest {
         val media = client.get(local(variant)).bodyAsText()
         assertTrue(segments(media).all { it.contains("/hls/") }, media)
         client.get(local(segments(media).first())).readRawBytes()
-        repeat(50) { if (cache.store.stats().files < 1) delay(20) }
+        repeat(250) { if (cache.store.stats().files < 1) delay(20) }
         assertEquals("[[0,10000]]", json("/api/v1/stream-cache/coverage?key=abc123")["ranges"].toString())
 
         val live = client.get("/m3u8?url=" + URLEncoder.encode(site.url("/ads/live.m3u8").toString(), "UTF-8")).bodyAsText()

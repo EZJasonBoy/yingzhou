@@ -41,6 +41,7 @@ import java.util.concurrent.TimeUnit
  * Standalone engine (desktop sidecar / Docker).
  *
  *   tvbox-engine [--port 9978] [--lan] [--data <dir>] [--name <name>] [--subscribe <url>] [--demo] [--dev-cors] [--exit-with-stdin]
+ *                [--drive-folder <dir>]...
  *   tvbox-engine --check [<subscription or file or folder>...] [--only cms,js,jar,live] [--play] [--max-sites N] [--max-configs N]
  *                [--report <file.md>] [--strict]
  *
@@ -138,16 +139,24 @@ fun main(args: Array<String>) {
         streamCache = streamCache,
     )
     val demo = if ("--demo" in args) DemoSite() else null
+    // The user's cloud drives and folders (AList / OpenList, WebDAV, folders of this machine), kept with the data.
+    val drives = tvbox.engine.core.drive.DriveService(store, client, local, localFolders = true, log = { System.err.println(it) })
+    // --drive-folder <folder>, any number of times: a folder of this machine as a drive (an engine without a screen).
+    args.indices.filter { args[it] == "--drive-folder" && it + 1 < args.size }.map { args[it + 1] }.forEach { folder ->
+        runCatching { drives.ensureFolder(folder) }.onFailure { System.err.println("--drive-folder $folder: ${it.message}") }
+    }
+    val demoDrive = if (demo != null && !check) DemoDrive(work).also { it.register(drives, local) } else null
     // Who may use the engine from other devices: pairing, tokens, signed media addresses (see AccessControl).
     val access = tvbox.engine.api.access.AccessControl(store, supported = !check, forced = "--lan" in args)
     // The demo site stands in for a third-party site, which other engines (an emulator's) fetch without a token.
     if (demo != null) access.publicPrefixes = listOf("/demo/")
 
     val serverModule: io.ktor.server.application.Application.() -> Unit = {
-        engineModule(engine, EngineModuleOptions(allowLocalhostCors = "--dev-cors" in args, access = access))
+        engineModule(engine, EngineModuleOptions(allowLocalhostCors = "--dev-cors" in args, access = access, drives = drives))
         routing {
             localFileRoutes()
             if (demo != null) demoRoutes(demo)
+            if (demoDrive != null) demoDriveRoutes(demoDrive)
         }
     }
     val server = embeddedServer(CIO, port = port, host = host, module = serverModule).start(wait = false)

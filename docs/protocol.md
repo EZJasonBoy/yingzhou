@@ -56,7 +56,7 @@ tvsig=<过期时间，秒，36 进制>.<设备 id 或 local>.<HMAC-SHA256 前 16
 - 密钥：设备签名用该设备令牌的哈希；`local` 签名用引擎每次启动随机生成的内存密钥，且只认来自回环地址的请求（本机播放器有时会带着 CDN 的 `Host` 头来请求引擎地址，靠它通过）。
 - 只用于 GET / HEAD，路径第一段不能是 `api`（不分大小写），不能含 `.` / `..` 段。设备签名还要求局域网共享开着、设备没被撤销。
 - 有效期：`/play/resolve` 返回的 24 小时；直播列表里的 30 天（客户端整次运行都用同一份列表）；经签名地址取到的播放列表里的地址继承那个签名的过期时间。
-- 签名发生在响应出去之前（Ktor 发送管道）：`PlayInfo.url`、`sniff.pageUrl`、直播列表里的频道地址，以及 HLS 播放列表正文里的地址。被签的是指向引擎自己的地址：`http://127.0.0.1:<端口>/`、`http://localhost:<端口>/`、`http://<请求的 Host>/`。HLS 正文里请求的 `Host` 可能来自播放器（可能是 CDN 的名字），所以那里按 `Host` 只签 `/m3u8?` 和 `/proxy?`。
+- 签名发生在响应出去之前（Ktor 发送管道）：`PlayInfo.url`、`sniff.pageUrl`、`subtitles[].url`、直播列表里的频道地址，以及 HLS 播放列表正文里的地址。被签的是指向引擎自己的地址：`http://127.0.0.1:<端口>/`、`http://localhost:<端口>/`、`http://<请求的 Host>/`。HLS 正文里请求的 `Host` 可能来自播放器（可能是 CDN 的名字），所以那里按 `Host` 只签 `/m3u8?` 和 `/proxy?`。
 - 新加返回引擎地址的接口：返回 `PlayInfo` / `LiveList` 会自动签名；别的形状要自己调用 `AccessControl.sign(url, call.accessGrant.subject, 过期时间)`。
 
 ### 局域网共享（只限本机）
@@ -180,6 +180,7 @@ event: end       data: {"sites":40,"ms":9120}
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/subtitle/convert` | 客户端本地的字幕文件：`{name, data}`（`data` 为文件内容的 base64，最大 32 MB）→ `{format, text}`，`text` 是 UTF-8、播放器能读的格式。编码和格式的识别同 `/subtitle`；`name` 的扩展名只在内容看不出格式时参考 |
+`subtitles`：和这个视频一起的外挂字幕，`[{name, lang, format, url}]`，没有时是空数组（`danmaku` 字段见弹幕的说明）。网盘的视频填的是它旁边同名的字幕文件（见下面"网盘"）：`name` 是文件名，`lang` 是文件名里的语言标记（`film.zh.srt` 的 `zh`，没有为空），`format` 是 `srt` / `ass` / `ssa` / `vtt`，`url` 和视频的地址给法相同（引擎的 `/drive/…` 或 AList 的 `/d/…`）。指向引擎的字幕地址和 `url` 一样按调用方改写主机、签名。
 
 引擎尽量自己走完解析链（直链 / JSON 解析接口 / `jx` / 网页嗅探）。网页嗅探：桌面与 NAS 引擎用无头 Edge/Chrome（CDP，浏览器装在非标准位置时设 `TVBOX_BROWSER`），Android 内置引擎用 WebView；判定规则同 TVBox（配置 `rules` 的 `host`/`rule`/`filter`，再加内置视频地址正则），返回的 `headers` 带上页面实际使用的 Referer / User-Agent / Cookie。配置的顶层 `headers` 里有播放地址所在域名的条目时，它的请求头也并进 `headers`（同名覆盖）；直播线路的 `headers` 同理。`/info` 的 `capabilities.sniff` 表示引擎能否嗅探；不能时才返回 `kind: "sniff"`，由客户端自行嗅探（或提示换线路）。
 
@@ -249,6 +250,44 @@ event: end       data: {"sites":40,"ms":9120}
 
 节目单：`epg` 为带 `{name}`/`{date}` 的模板（返回 `epg_data`），或不带占位符的同类接口（按 `?ch=&date=` 请求），或 XMLTV（`.xml` / `.xml.gz`，也可来自 M3U 的 `x-tvg-url`，缓存 6 小时）。频道名会先规整再查（`CCTV-1 综合` → `CCTV1`，去掉"高清""HD"等后缀），查不到再用原名。`logo` 模板的 `{name}` 同样用规整后的名字。
 
+## 网盘
+
+用户自己的视频：AList / OpenList、WebDAV、引擎所在机器上的文件夹（只有桌面和服务器引擎有，安卓内置引擎没有）。网盘列表连同账号、密码、令牌存在引擎里（数据目录的 `drives.json`）；**任何回答里都没有密码和令牌**，只说有没有。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/drives` | `[DriveInfo]` |
+| POST | `/drives` | `DriveRequest` → `201 DriveInfo` |
+| GET | `/drives/{id}` | `DriveInfo` |
+| PUT | `/drives/{id}` | `DriveRequest`：没带的字段不变；`password` / `token` 为空串表示删除 → `DriveInfo` |
+| DELETE | `/drives/{id}` | `204` |
+| POST | `/drives/test` | `DriveRequest`，不保存，读一次它的根目录 → `{ok, message, entries}`。带 `id` 时，没填的字段（包括密码、令牌）用那个已保存的网盘的，编辑表单里没改密码也能测 |
+| GET | `/drives/{id}/list?path=` | `{drive, path, entries: [DriveEntry]}`，`path` 缺省为 `/`。文件夹在前，再按名称（数字按大小："第2集"在"第10集"前） |
+| POST | `/drives/{id}/unlock` | `{path, password}`：AList 文件夹的密码。AList 认了就由引擎记下（对这个文件夹和它下面的都有效），回答同 `list` |
+| GET | `/drives/{id}/detail?path=` | 文件夹作为一部"片"：`VodDetail`，见下 |
+| GET | `/drives/{id}/play?path=` | 一个文件的 `PlayInfo`（含 `subtitles`） |
+
+```
+DriveInfo    {id, name, kind: alist|webdav|local, url, username, hasPassword, hasToken, root, proxy,
+              lockedFolders: [记着密码的 AList 文件夹], addedAt, site: "drive:<id>"}
+DriveRequest {name?, kind?, url?, username?, password?, token?, root?, proxy?, id?}
+DriveEntry   {name, path, dir, size, modified, type: folder|video|subtitle|other}
+```
+
+- `url`：AList 的网页地址；WebDAV 的 DAV 目录地址；本机文件夹的完整路径。地址里写了 `user:pass@` 时，账号被移到 `username` / `password`，地址里只留主机。`root` 是网盘从服务器上哪个文件夹开始（网盘的 `/` 就是它），本机文件夹没有。`proxy: true` 表示文件一律经引擎转给播放器。
+- 路径都是网盘里的路径，以 `/` 开头。含 `..`、反斜杠的路径一律 400；本机文件夹的路径还不能含 `:`。
+- 视频按扩展名认（mp4、mkv、avi、mov、wmv、flv、webm、ts、m2ts、mpg、rmvb 等），字幕是 `srt` / `ass` / `ssa` / `vtt`。
+- 只有本机的调用方能添加本机文件夹、或把网盘改成指向另一个本机文件夹（`403 LOCAL_ONLY`）；配对过的设备可以浏览、播放已有的。没有界面的引擎用启动参数 `--drive-folder <路径>` 添加。
+- 错误码：`DRIVE_PASSWORD`（403，AList 文件夹要密码或密码不对，客户端据此弹出密码框）、`DRIVE_AUTH`（403，网盘不认账号；不用 401，401 留给"引擎令牌无效"）、`DRIVE_PATH`（403，本机文件夹以外）、`DRIVE_UNREACHABLE`（502，连不上或回答看不懂）、`NOT_FOUND`、`BAD_REQUEST`。
+
+**文件夹即"片"**：网盘的文件夹在引擎的其他接口里是站点 `drive:<id>` 的一部片，片 id 是文件夹路径，只有一条线路（名字是网盘名），剧集是文件夹里的视频（按名称排，`id` 是文件路径，`name` 是去掉扩展名的文件名）。所以：
+
+- `GET /sites/drive:<id>/detail?id=<文件夹>` 和 `/drives/{id}/detail` 一样；
+- `POST /play/resolve` 带 `{site: "drive:<id>", episodeId: <文件路径>}` 和 `/drives/{id}/play` 一样；
+- 观看历史照常用 `PUT /history/drive:<id>/<文件夹路径>` 记录（`episodeId` 是文件路径），续播、"继续播放"和站点的片一样。`drive:` 开头的站点键是保留的。
+
+**播放器从哪里取**：能自己取的就给网盘自己的地址——AList 是 `/d/<路径>?sign=<签名>`（AList 的下载路由，它再转到存储），没有账号的 WebDAV 是文件的 WebDAV 地址，`headers` 为空。否则给引擎的 `http://127.0.0.1:<端口>/drive/<id>/<路径>`（见"兼容端点"），由引擎带上账号去取：带账号的 WebDAV、本机文件夹、`proxy: true` 的网盘，以及网盘地址是回环地址（`127.0.0.1` / `localhost`）而播放器在别的设备上时。局域网设备拿到的这类地址按它访问引擎用的地址改写并签名，字幕地址也一样。
+
 ## 历史、收藏、进度
 
 | 方法 | 路径 | 说明 |
@@ -270,6 +309,7 @@ event: end       data: {"sites":40,"ms":9120}
 | `/file/<路径>` | 仅桌面引擎、仅本机访问：本机文件，供 `clan://localhost/`、`file://` 和本机路径的订阅及其 `./` 引用使用 |
 | `/m3u8?url=&h=&k=` | HLS 播放列表：引擎拉取播放列表（`h` 为请求头 JSON 的 URL 安全 base64），把相对地址改成绝对地址，按配置 `rules` 的广告规则和保守的分片路径启发式去掉广告片段；主播放列表的各码率也指回这里（带着同一个 `k`）。点播的媒体播放列表在播放缓存开着时再改写一遍：分片、`#EXT-X-KEY`、`#EXT-X-MAP` 的地址换成 `/hls/…`，`#EXT-X-BYTERANGE` 去掉（范围由引擎向片源请求）。`k` 是 `/play/resolve` 给这一集起的缓存名，可以不带（那就按播放列表地址归档）。直播列表（没有 `#EXT-X-ENDLIST`）不改写、不缓存。拉取失败时 302 到原地址 |
 | `/subtitle?url=&h=&f=` | `PlayInfo.subtitles` 指向这里：引擎带着请求头（`h`，同 `/m3u8`）取 `url` 上的字幕，识别编码（BOM、UTF-16、UTF-8，否则在 GB18030 与 Big5 中按常用字多少选，不信服务器声明的）和格式，交出 UTF-8 的 SRT / ASS / WebVTT（TTML、LRC、B 站 JSON 字幕转成 SRT）。`f` 是站点声明的格式，内容看不出时才用。取不到时 502 |
+| `/drive/<网盘 id>/<路径>` | 网盘里的一个文件，由引擎取来给播放器（见"网盘"）：本机文件夹直接读文件，WebDAV / AList 由引擎带上账号向网盘要。支持 `GET` / `HEAD` 和单段 `Range`（`bytes=a-b`、`a-`、`-n`；范围不对时 416）；网盘的回答按原样转发状态码和 `Content-Range`，`Content-Type` 是 `application/octet-stream` 时按扩展名改成视频类型。本机文件夹之外的路径 403，`..` 400 |
 | `/hls/<播放列表>/<编号>.<扩展名>` | `/m3u8` 改写出来的地址：播放缓存里的分片（`.ts` / `.m4s` 等，片源的扩展名不像媒体文件时一律 `.ts`）、密钥（`.key`）、初始化段（`.mp4`）。支持 `Range`。引擎取不到时 302 到片源（按字节范围切的分片无法这样退回，返回 502） |
 
 `/play/resolve` 返回的 HLS 地址默认包成 `/m3u8?…`（`headers` 照样返回；经播放缓存时播放器用不上它们，引擎会带着去请求片源，没写 User-Agent 时用播放器自己的）。引擎为自己生成的地址（`/m3u8`、`/hls`、蜘蛛 `/proxy`）用 `127.0.0.1`；局域网里的其他设备请求时，按它访问引擎用的地址（请求的 `Host`）改写，所以电视连 NAS 引擎也能直接播。这些地址都带 `tvsig` 签名（见"鉴权与配对"），播放器不需要令牌。
