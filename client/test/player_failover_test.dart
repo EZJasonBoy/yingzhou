@@ -79,11 +79,11 @@ void main() {
     await mouse.removePointer();
   }
 
-  /// Presses a button of the player. The page also listens for double clicks, so a click counts only once the
-  /// time for a second one has run out.
+  /// Presses a button of the player and draws the next frame. Buttons act at once: only the picture waits to see
+  /// whether a click becomes a double click (0.3 s), which a button must not have to.
   Future<void> press(WidgetTester tester, Finder button) async {
     await tester.tap(button);
-    await pass(tester, const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 50));
   }
 
   /// Picks a line in the 选集 panel, the way the user changes line by hand.
@@ -286,6 +286,43 @@ void main() {
     expect(resolved, ['线路一', '线路二']);
     expect(find.text('「线路一」播放中断，已切到「线路二」'), findsOneWidget);
     expect(player.seeks, [const Duration(minutes: 3, seconds: 5)]);
+    await leave(tester);
+  });
+
+  testWidgets('buttons act at once, and the picture still takes clicks between them', (tester) async {
+    await play(tester, dead: {'线路二'});
+    expect(player.state.playing, isTrue);
+
+    // 选集, then a line: each within one frame of the click, not after the time a double click is given.
+    await showControls(tester);
+    await tester.tap(find.text('选集'));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.byType(ChoiceChip), findsNWidgets(3), reason: 'the panel is open');
+    await tester.tap(find.widgetWithText(ChoiceChip, '线路二'));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.byType(ChoiceChip), findsNothing, reason: 'the panel is closed');
+    expect(resolved, ['线路一', '线路二']);
+
+    // So does 重试, under the error that line ends in.
+    await pass(tester, const Duration(seconds: 1));
+    await tester.tap(find.text('重试'));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(resolved, ['线路一', '线路二', '线路二']);
+
+    // Back on a line that plays. A double click in the middle of the picture, with the controls showing and the
+    // notice layers above it, still reaches the picture (on a touch device that is play / pause).
+    await pass(tester, const Duration(seconds: 1));
+    await press(tester, find.text('换线路'));
+    await press(tester, find.widgetWithText(ChoiceChip, '线路三'));
+    await pass(tester, const Duration(seconds: 1));
+    expect(player.state.playing, isTrue);
+    await showControls(tester);
+    const middle = Offset(700, 450);
+    await tester.tapAt(middle);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tapAt(middle);
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(player.state.playing, isFalse, reason: 'the double click paused');
     await leave(tester);
   });
 

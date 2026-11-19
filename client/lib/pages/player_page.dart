@@ -515,29 +515,33 @@ class _PlayerPageState extends State<PlayerPage> {
             onPointerSignal: (e) {
               if (e is PointerScrollEvent) _changeVolume(e.scrollDelta.dy < 0 ? 5 : -5);
             },
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              // Desktop: click pauses, double-click goes fullscreen. Touch: tap shows/hides the controls.
-              onTap: _desktop
-                  ? () {
-                      _player.playOrPause();
-                      _pokeControls();
-                    }
-                  : () => _controlsVisible ? setState(() => _controlsVisible = false) : _pokeControls(),
-              onDoubleTap: _desktop ? _toggleFullScreen : _player.playOrPause,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  _backend.view,
-                  AnimatedOpacity(
-                    opacity: _controlsVisible ? 1 : 0,
-                    duration: const Duration(milliseconds: 200),
-                    child: IgnorePointer(ignoring: !_controlsVisible, child: _buildControls(context)),
-                  ),
-                  // Above the controls, whose shading takes every click on it: 重试 has to be reachable.
-                  _buildStatus(),
-                  if (_osd != null)
-                    Align(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // The picture alone listens for clicks and double clicks. A button inside this detector would have to
+                // wait until a click can no longer become a double click (0.3 s) before it reacts, so the layers
+                // above are its siblings, and whatever in them is only for show lets clicks through to it.
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  // Desktop: click pauses, double-click goes fullscreen. Touch: tap shows/hides the controls.
+                  onTap: _desktop
+                      ? () {
+                          _player.playOrPause();
+                          _pokeControls();
+                        }
+                      : () => _controlsVisible ? setState(() => _controlsVisible = false) : _pokeControls(),
+                  onDoubleTap: _desktop ? _toggleFullScreen : _player.playOrPause,
+                  child: _backend.view,
+                ),
+                AnimatedOpacity(
+                  opacity: _controlsVisible ? 1 : 0,
+                  duration: const Duration(milliseconds: 200),
+                  child: IgnorePointer(ignoring: !_controlsVisible, child: _buildControls(context)),
+                ),
+                _buildStatus(),
+                if (_osd != null)
+                  IgnorePointer(
+                    child: Align(
                       alignment: const Alignment(0, -0.55),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
@@ -548,9 +552,9 @@ class _PlayerPageState extends State<PlayerPage> {
                         ),
                       ),
                     ),
-                  if (_panelOpen) _buildEpisodePanel(context),
-                ],
-              ),
+                  ),
+                if (_panelOpen) _buildEpisodePanel(context),
+              ],
             ),
           ),
         ),
@@ -570,14 +574,22 @@ class _PlayerPageState extends State<PlayerPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (_error == null) const CircularProgressIndicator(color: Colors.white70),
-              const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: Text(
-                  text,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white70),
+              // The spinner and the text are for reading; only the buttons under an error take clicks.
+              IgnorePointer(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_error == null) const CircularProgressIndicator(color: Colors.white70),
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      child: Text(
+                        text,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               if (_error != null) ...[
@@ -602,29 +614,44 @@ class _PlayerPageState extends State<PlayerPage> {
 
   Widget _buildControls(BuildContext context) {
     final title = '${widget.detail.name} · ${_currentEpisode.name}';
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xB0000000), Color(0x00000000), Color(0x00000000), Color(0xC0000000)],
-          stops: [0, 0.22, 0.7, 1],
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Shading behind the two bars. A decorated box takes every click inside it, so it must not get any: clicks
+        // between the buttons belong to the picture underneath.
+        const IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0xB0000000), Color(0x00000000), Color(0x00000000), Color(0xC0000000)],
+                stops: [0, 0.22, 0.7, 1],
+              ),
+            ),
+          ),
         ),
-      ),
-      child: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 8, 16, 0),
-              child: Row(
-                children: [
-                  IconButton(
-                    tooltip: '返回 (Esc)',
-                    onPressed: _back,
-                    icon: const Icon(Icons.arrow_back, color: Colors.white),
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
+        _buildBars(context, title),
+      ],
+    );
+  }
+
+  Widget _buildBars(BuildContext context, String title) {
+    return SafeArea(
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 16, 0),
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: '返回 (Esc)',
+                  onPressed: _back,
+                  icon: const Icon(Icons.arrow_back, color: Colors.white),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: IgnorePointer(
                     child: Text(
                       title,
                       maxLines: 1,
@@ -632,62 +659,64 @@ class _PlayerPageState extends State<PlayerPage> {
                       style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600),
                     ),
                   ),
-                  Text(
+                ),
+                IgnorePointer(
+                  child: Text(
                     _parsedBy.isEmpty ? _currentLine.name : '${_currentLine.name} · ${_parserLabel(_parsedBy)}',
                     style: const TextStyle(color: Colors.white60, fontSize: 13),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-            const Spacer(),
-            _ProgressBar(player: _player, onSeek: (_) => _pokeControls()),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-              child: Row(
-                children: [
-                  if (_hasPrevious)
-                    IconButton(
-                      tooltip: '上一集 (P)',
-                      onPressed: () => _playEpisode(_episode - 1),
-                      icon: const Icon(Icons.skip_previous_rounded, color: Colors.white),
-                    ),
-                  StreamBuilder<bool>(
-                    stream: _player.stream.playing,
-                    initialData: _player.state.playing,
-                    builder: (context, snap) => IconButton(
-                      tooltip: '播放 / 暂停 (空格)',
-                      iconSize: 32,
-                      onPressed: _player.playOrPause,
-                      icon: Icon(snap.data == true ? Icons.pause_rounded : Icons.play_arrow_rounded, color: Colors.white),
-                    ),
+          ),
+          const Spacer(),
+          _ProgressBar(player: _player, onSeek: (_) => _pokeControls()),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+            child: Row(
+              children: [
+                if (_hasPrevious)
+                  IconButton(
+                    tooltip: '上一集 (P)',
+                    onPressed: () => _playEpisode(_episode - 1),
+                    icon: const Icon(Icons.skip_previous_rounded, color: Colors.white),
                   ),
-                  if (_hasNext)
-                    IconButton(
-                      tooltip: '下一集 (N)',
-                      onPressed: () => _playEpisode(_episode + 1),
-                      icon: const Icon(Icons.skip_next_rounded, color: Colors.white),
-                    ),
-                  const SizedBox(width: 8),
-                  _TimeLabel(player: _player),
-                  const Spacer(),
-                  if (_desktop) _VolumeControl(player: _player, onToggleMute: _toggleMute),
-                  _SpeedButton(player: _player, speeds: _speeds),
-                  TextButton.icon(
-                    onPressed: () => setState(() => _panelOpen = true),
-                    icon: const Icon(Icons.playlist_play_rounded, color: Colors.white),
-                    label: const Text('选集', style: TextStyle(color: Colors.white)),
+                StreamBuilder<bool>(
+                  stream: _player.stream.playing,
+                  initialData: _player.state.playing,
+                  builder: (context, snap) => IconButton(
+                    tooltip: '播放 / 暂停 (空格)',
+                    iconSize: 32,
+                    onPressed: _player.playOrPause,
+                    icon: Icon(snap.data == true ? Icons.pause_rounded : Icons.play_arrow_rounded, color: Colors.white),
                   ),
-                  if (_window.supported)
-                    IconButton(
-                      tooltip: _window.isFullScreen ? '退出全屏 (Esc)' : '全屏 (F / 双击)',
-                      onPressed: _toggleFullScreen,
-                      icon: Icon(_window.isFullScreen ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded, color: Colors.white),
-                    ),
-                ],
-              ),
+                ),
+                if (_hasNext)
+                  IconButton(
+                    tooltip: '下一集 (N)',
+                    onPressed: () => _playEpisode(_episode + 1),
+                    icon: const Icon(Icons.skip_next_rounded, color: Colors.white),
+                  ),
+                const SizedBox(width: 8),
+                IgnorePointer(child: _TimeLabel(player: _player)),
+                const Spacer(),
+                if (_desktop) _VolumeControl(player: _player, onToggleMute: _toggleMute),
+                _SpeedButton(player: _player, speeds: _speeds),
+                TextButton.icon(
+                  onPressed: () => setState(() => _panelOpen = true),
+                  icon: const Icon(Icons.playlist_play_rounded, color: Colors.white),
+                  label: const Text('选集', style: TextStyle(color: Colors.white)),
+                ),
+                if (_window.supported)
+                  IconButton(
+                    tooltip: _window.isFullScreen ? '退出全屏 (Esc)' : '全屏 (F / 双击)',
+                    onPressed: _toggleFullScreen,
+                    icon: Icon(_window.isFullScreen ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded, color: Colors.white),
+                  ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

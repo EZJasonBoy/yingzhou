@@ -143,8 +143,8 @@ PLAY=1 MAX_SITES=20 tools/check-configs.sh          # 加上播放解析；每�
 - 改变外壳布局（进全屏、窗口变窄）会重建所有页面，除非页面挂在 `GlobalKey` 下面。
 - media_kit 的 `Player` 不能在组件测试里创建，页面里要惰性创建。点播页的播放器来自 `AppState.playerBackend`，组件测试传入 `test/fake_player.dart` 里的假播放器（`Player(platformPlayer: …)`，不加载 libmpv），由测试决定每个地址是能播、报错还是没反应。
 - media_kit 在 `open()` 之后就把 `playing` 置为 true，不管媒体打不打得开；也没有"加载失败"事件，只有 mpv 的错误日志（`stream.error`），其中不少并不致命。判断线路死活要看播放位置有没有在走，见 `player_page.dart`。
-- 播放页的画面同时监听单击和双击，所以页面上任何按钮的点击都要等双击的时限（300 毫秒）过去才生效；组件测试里点完要多 `pump` 一会儿。
-- `DecoratedBox`（比如控制条的渐变）会拦下落在它范围内的所有点击，叠在它下面的按钮点不到：要让下面的东西可点，把它放到 `Stack` 的上层。
+- 同时带 `onTap` 和 `onDoubleTap` 的 `GestureDetector`，它里面所有按钮的点击都要等双击的时限（300 毫秒）过去才生效。播放页因此只让画面那一层监听单击和双击，控制条、提示、侧栏是它在 `Stack` 里的兄弟层，不是子节点；新加的按钮也别放进画面那一层里。
+- `DecoratedBox`（比如控制条的渐变）和文字会拦下落在自己范围内的点击，叠在下面的东西就收不到。播放页里只用来看的东西（渐变、标题、时间、提示文字）都包了 `IgnorePointer`，这样按钮之间的空白处点下去仍然是点画面。
 - 引擎代码要能在 Android 7 上跑：不用 `java.time`、`java.util.Base64`。
 - 用 shell 一行命令改 Kotlin / Dart 源码时，`\n`、`$` 容易被 shell 吃掉，改用编辑器或脚本文件。
 - `dart format` 的行宽在 `analysis_options.yaml` 里定为 160，别用默认值重排整个目录。

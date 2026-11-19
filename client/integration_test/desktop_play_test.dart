@@ -104,6 +104,28 @@ void main() {
     expect(find.byIcon(Icons.fullscreen_rounded), findsOneWidget);
     await mark(tester, 'windowed');
 
+    // A button reacts at once; it does not wait to see whether the click becomes a double click.
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp); // any key brings the controls back
+    await wait(tester, const Duration(milliseconds: 300));
+    await tester.tap(find.text('选集'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.byType(ChoiceChip), findsWidgets, reason: 'the side panel opens right after the click');
+    await mark(tester, 'panel');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await wait(tester, const Duration(milliseconds: 300));
+    expect(find.byType(ChoiceChip), findsNothing, reason: 'Esc closes the panel before leaving the player');
+
+    // A click on the picture still pauses and resumes, between the bars and under the notices.
+    final middle = tester.getCenter(find.byType(Scaffold).last);
+    await tester.tapAt(middle);
+    await wait(tester, const Duration(milliseconds: 800));
+    expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget, reason: 'paused');
+    await tester.tapAt(middle);
+    await wait(tester, const Duration(milliseconds: 800));
+    expect(find.byIcon(Icons.pause_rounded), findsOneWidget, reason: 'playing again');
+    await mark(tester, 'clicked');
+
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await until(tester, playButton);
     await mark(tester, 'back');
