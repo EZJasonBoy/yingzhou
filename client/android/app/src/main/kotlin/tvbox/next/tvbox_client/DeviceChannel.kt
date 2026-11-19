@@ -1,9 +1,13 @@
 package tvbox.next.tvbox_client
 
+import android.app.Activity
 import android.app.UiModeManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.os.Build
+import android.view.View
+import android.view.ViewGroup
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
@@ -17,6 +21,12 @@ object DeviceChannel {
                 else -> result.notImplemented()
             }
         }
+        // With a D-pad or a keyboard Android outlines the focused view, which here is the whole Flutter view; the app
+        // draws its own focus. The Flutter view is created after this, so it is caught when it takes the focus.
+        (context as? Activity)?.window?.decorView?.let { root ->
+            root.viewTreeObserver.addOnGlobalFocusChangeListener { _, focused -> focused?.let { noFocusHighlight(it) } }
+            root.post { noFocusHighlight(root) }
+        }
     }
 
     fun info(context: Context): Map<String, Any> {
@@ -27,5 +37,10 @@ object DeviceChannel {
             "leanback" to (pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || pm.hasSystemFeature("android.software.leanback_only")),
             "touchscreen" to pm.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN),
         )
+    }
+
+    private fun noFocusHighlight(view: View) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) view.defaultFocusHighlightEnabled = false
+        if (view is ViewGroup) for (i in 0 until view.childCount) noFocusHighlight(view.getChildAt(i))
     }
 }

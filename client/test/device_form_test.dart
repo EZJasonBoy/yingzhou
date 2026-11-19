@@ -56,16 +56,20 @@ void main() {
         textDirection: TextDirection.ltr,
         child: Column(
           children: [
-            Builder(builder: (context) {
-              outside = DeviceFormScope.of(context);
-              return const SizedBox();
-            }),
+            Builder(
+              builder: (context) {
+                outside = DeviceFormScope.of(context);
+                return const SizedBox();
+              },
+            ),
             DeviceFormScope.fixed(
               DeviceForm.tv,
-              child: Builder(builder: (context) {
-                inside = DeviceFormScope.of(context);
-                return const SizedBox();
-              }),
+              child: Builder(
+                builder: (context) {
+                  inside = DeviceFormScope.of(context);
+                  return const SizedBox();
+                },
+              ),
             ),
           ],
         ),

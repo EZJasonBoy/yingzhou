@@ -62,11 +62,7 @@ class DeviceFormController extends ChangeNotifier {
   }
 
   /// Always [form] (tests, previews).
-  DeviceFormController.fixed(DeviceForm form)
-    : info = const DeviceInfo(),
-      _settings = null,
-      _platform = defaultTargetPlatform,
-      _fixed = form;
+  DeviceFormController.fixed(DeviceForm form) : info = const DeviceInfo(), _settings = null, _platform = defaultTargetPlatform, _fixed = form;
 
   static const overrideKey = 'ui.form';
 
@@ -79,8 +75,7 @@ class DeviceFormController extends ChangeNotifier {
   DeviceFormOverride get override => _override;
 
   /// Windows, macOS, Linux (and the web build): mouse and keyboard, whatever the window size.
-  bool get isDesktopPlatform =>
-      kIsWeb || _platform == TargetPlatform.windows || _platform == TargetPlatform.macOS || _platform == TargetPlatform.linux;
+  bool get isDesktopPlatform => kIsWeb || _platform == TargetPlatform.windows || _platform == TargetPlatform.macOS || _platform == TargetPlatform.linux;
 
   /// The override is offered where it means something: a phone, tablet or TV.
   bool get canOverride => _fixed == null && !isDesktopPlatform;
@@ -122,8 +117,7 @@ class DeviceFormScope extends InheritedNotifier<DeviceFormController> {
   /// A scope that always answers [form] (tests).
   DeviceFormScope.fixed(DeviceForm form, {super.key, required super.child}) : super(notifier: DeviceFormController.fixed(form));
 
-  static DeviceFormController? maybeControllerOf(BuildContext context) =>
-      context.dependOnInheritedWidgetOfExactType<DeviceFormScope>()?.notifier;
+  static DeviceFormController? maybeControllerOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<DeviceFormScope>()?.notifier;
 
   /// The form for this context. Without a scope (widget tests that pump a page alone): desktop on a desktop
   /// platform, otherwise phone or tablet by size — never TV.
