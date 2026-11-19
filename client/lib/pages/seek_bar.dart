@@ -12,7 +12,10 @@ typedef BufferedRange = ({Duration start, Duration end});
 /// follows the pointer and a label says where it would land; the same label shows the time under a hovering mouse.
 /// Behind the played part the bar shows which parts are buffered ([buffered]).
 class SeekBar extends StatefulWidget {
-  const SeekBar({super.key, required this.position, required this.duration, this.buffered = const [], required this.onSeek, this.onInteraction});
+  const SeekBar({super.key, required this.position, required this.duration, this.buffered = const [], required this.onSeek, this.onInteraction, this.height = 28});
+
+  /// How tall the bar takes pointers: taller on touch screens (48 dp targets), the track itself stays thin.
+  final double height;
 
   final Duration position;
 
@@ -146,7 +149,7 @@ class _SeekBarState extends State<SeekBar> {
               label: '播放进度',
               value: '${SeekBar.format(shown)} / ${SeekBar.format(widget.duration)}',
               child: SizedBox(
-                height: 28,
+                height: widget.height,
                 width: width,
                 child: Stack(
                   clipBehavior: Clip.none,
@@ -172,7 +175,7 @@ class _SeekBarState extends State<SeekBar> {
                       Positioned(
                         // Centred over the pointer, kept inside the bar's width.
                         left: (aimed!.clamp(SeekBar.inset, width - SeekBar.inset) - 36).clamp(0.0, width - 72),
-                        bottom: 26,
+                        bottom: widget.height / 2 + 12,
                         width: 72,
                         child: IgnorePointer(
                           child: Center(
