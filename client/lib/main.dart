@@ -8,6 +8,7 @@ import 'desktop/desktop_window.dart';
 import 'engine/engine_client.dart';
 import 'engine/local_engine.dart';
 import 'settings.dart';
+import 'ui/form_factor.dart';
 import 'ui/poster_cache.dart';
 import 'ui/pairing_dialog.dart';
 import 'ui/shell.dart';
@@ -18,6 +19,8 @@ Future<void> main() async {
   MediaKit.ensureInitialized();
   // During development, point the client at another engine with --dart-define=ENGINE_URL=http://127.0.0.1:19978
   const engineUrl = String.fromEnvironment('ENGINE_URL', defaultValue: defaultEngineUrl);
+  // Phone, tablet, TV or desktop (ui/form_factor.dart): Android is asked once whether it is a TV.
+  await FormFactors.init();
   final settings = await SharedPreferencesSettings.load();
   DesktopWindow.instance.restoreAndTrack(settings);
   // Posters are kept on disk (see ui/poster_cache.dart).
@@ -55,7 +58,8 @@ class _TvboxAppState extends State<TvboxApp> {
       child: MaterialApp(
         title: '映舟',
         debugShowCheckedModeBanner: false,
-        themeMode: ThemeMode.dark,
+        // Phones and tablets follow the system's light / dark setting; desktops and TVs stay dark.
+        themeMode: FormFactors.isMobile ? ThemeMode.system : ThemeMode.dark,
         theme: buildLightTheme(),
         darkTheme: buildDarkTheme(),
         navigatorKey: _navigator,
