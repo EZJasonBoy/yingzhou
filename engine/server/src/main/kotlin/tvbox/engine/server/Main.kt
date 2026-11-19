@@ -132,7 +132,7 @@ fun main(args: Array<String>) {
     val engine = Engine(
         info = EngineInfo(
             name = "tvbox-engine",
-            version = "0.1.0",
+            version = "0.2.0",
             platform = "jvm-" + System.getProperty("os.name").lowercase().substringBefore(' '),
             capabilities = Capabilities(jar = false, js = false, py = false, sniff = false),
         ),

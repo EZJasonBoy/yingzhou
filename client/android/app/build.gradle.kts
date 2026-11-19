@@ -56,8 +56,8 @@ android {
 
 dependencies {
     // Embedded engine (composite build of ../../engine).
-    implementation("tvbox.engine:api:0.1.0")
-    implementation("tvbox.engine:runtime-js:0.1.0")
+    implementation("tvbox.engine:api:0.2.0")
+    implementation("tvbox.engine:runtime-js:0.2.0")
     implementation("io.ktor:ktor-server-cio:3.6.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     // Host API for jar spiders: TVBox's OkHttp helper exposes androidx ArrayMap in its signatures.
