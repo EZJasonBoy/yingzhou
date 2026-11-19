@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'library_models.dart';
 import 'live_models.dart';
 import 'models.dart';
+import 'stream_cache_models.dart';
 import 'vod_models.dart';
 
 /// Client for engine protocol v1. The same client talks to the built-in engine and to remote ones.
@@ -41,6 +42,18 @@ class EngineClient {
 
   Future<EngineSettings> updateSettings(EngineSettings settings) async =>
       EngineSettings.fromJson(await _send('PUT', 'settings', body: settings.toJson()));
+
+  /// Changes only the settings named in [fields]; the engine keeps the others as they are.
+  Future<EngineSettings> patchSettings(Map<String, Object?> fields) async => EngineSettings.fromJson(await _send('PUT', 'settings', body: fields));
+
+  // ---- the engine's stream cache ----
+
+  Future<StreamCacheInfo> streamCache() async => StreamCacheInfo.fromJson(await _send('GET', 'stream-cache'));
+
+  Future<StreamCacheInfo> clearStreamCache() async => StreamCacheInfo.fromJson(await _send('DELETE', 'stream-cache'));
+
+  /// Which parts of the film behind `PlayInfo.cache` the engine holds.
+  Future<StreamCoverage> streamCoverage(String key) async => StreamCoverage.fromJson(await _send('GET', 'stream-cache/coverage', query: {'key': key}));
 
   Future<List<SiteInfo>> sites() async => [for (final s in await _send('GET', 'sites') as List<dynamic>) SiteInfo.fromJson(s as Map<String, dynamic>)];
 

@@ -16,6 +16,10 @@ Map<String, Object> fakeLine(String name, String tag, {int count = 3}) => {
 /// [lines] replaces the play lines every detail comes with. `/play/resolve` hands back the episode's own address,
 /// except on the lines named in [deadLines], which fail; it notes each line it is asked about in [resolved]. The
 /// history the app saves ends up in [savedHistory], by video id.
+///
+/// With [streamCache] the engine has a stream cache: the map is its `/api/v1/stream-cache` answer (emptied by
+/// DELETE), `/play/resolve` names the cache key `k1`, and [coverage] is what the cache holds of that film, as
+/// `[startMs, endMs]` pairs. [settingsSent] collects the bodies of `PUT /api/v1/settings`.
 MockClient fakeEngine({
   bool hasConfig = false,
   List<Map<String, Object>> history = const [],
@@ -23,6 +27,9 @@ MockClient fakeEngine({
   Set<String> deadLines = const {},
   List<String>? resolved,
   Map<String, Map<String, dynamic>>? savedHistory,
+  Map<String, Object>? streamCache,
+  List<List<int>> coverage = const [],
+  List<Map<String, dynamic>>? settingsSent,
 }) {
   var configured = hasConfig;
   final historyById = <String, Map<String, dynamic>>{for (final h in history) h['vodId'] as String: h};
@@ -49,7 +56,7 @@ MockClient fakeEngine({
     {'key': 'js1', 'name': '脚本站', 'type': 3, 'searchable': false, 'quickSearch': true, 'filterable': true, 'runtime': 'js'},
   ];
   // What the engine would fetch: with the GitHub proxy off, a proxy in front of a GitHub address is taken off.
-  var settings = <String, dynamic>{'githubProxy': false, 'githubProxyPrefix': 'https://ghfast.top/'};
+  var settings = <String, dynamic>{'githubProxy': false, 'githubProxyPrefix': 'https://ghfast.top/', 'streamCache': true, 'streamCacheMaxMB': 2048};
   // The summary as the engine would give it: with the proxy on, the config is fetched through it.
   Map<String, Object?> summarised() => {
     ...summary,
@@ -102,8 +109,20 @@ MockClient fakeEngine({
       case ('GET', '/api/v1/settings'):
         return json(settings);
       case ('PUT', '/api/v1/settings'):
-        settings = jsonDecode(request.body) as Map<String, dynamic>;
+        // Like the engine: what is sent is laid over what is there.
+        final sent = jsonDecode(request.body) as Map<String, dynamic>;
+        settingsSent?.add(sent);
+        settings = {...settings, ...sent};
         return json(settings);
+      case ('GET', '/api/v1/stream-cache') when streamCache != null:
+        return json({...streamCache, 'enabled': settings['streamCache'] ?? true, 'maxBytes': ((settings['streamCacheMaxMB'] ?? 2048) as int) * 1024 * 1024});
+      case ('DELETE', '/api/v1/stream-cache') when streamCache != null:
+        streamCache['bytes'] = 0;
+        streamCache['files'] = 0;
+        streamCache['streams'] = 0;
+        return json({...streamCache, 'enabled': settings['streamCache'] ?? true, 'maxBytes': ((settings['streamCacheMaxMB'] ?? 2048) as int) * 1024 * 1024});
+      case ('GET', '/api/v1/stream-cache/coverage') when streamCache != null:
+        return json({'durationMs': 2400000, 'ranges': request.url.queryParameters['key'] == 'k1' ? coverage : <Object>[]});
       case ('GET', '/api/v1/config'):
         return configured ? json(summarised()) : json(noConfig, 409);
       case ('GET', '/api/v1/sites'):
@@ -165,7 +184,7 @@ MockClient fakeEngine({
             'error': {'code': 'PLAY_FAILED', 'message': '$line 取不到播放地址'},
           }, 502);
         }
-        return json({'kind': 'direct', 'url': body['episodeId'], 'headers': <String, String>{}, 'parsedBy': ''});
+        return json({'kind': 'direct', 'url': body['episodeId'], 'headers': <String, String>{}, 'parsedBy': '', 'cache': streamCache == null ? '' : 'k1'});
       case ('GET', '/api/v1/search/stream'):
         final sse = StringBuffer()
           ..write('event: site\ndata: {"site":"cms","status":"started"}\n\n')

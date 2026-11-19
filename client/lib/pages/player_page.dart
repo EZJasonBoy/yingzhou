@@ -9,10 +9,13 @@ import '../app_state.dart';
 import '../desktop/desktop_window.dart';
 import '../engine/engine_client.dart';
 import '../engine/library_models.dart';
+import '../engine/models.dart' show EngineException;
 import '../engine/vod_models.dart';
 import '../player_backend.dart';
+import '../player_cache.dart';
 import '../settings.dart';
 import 'browse_page.dart' show errorText;
+import 'seek_bar.dart';
 
 /// Full-window player: resolves the episode through the engine, plays it with media_kit (libmpv on desktop),
 /// and draws its own controls so they work the same with mouse, touch and keyboard.
@@ -24,6 +27,10 @@ import 'browse_page.dart' show errorText;
 /// A line that cannot play the episode (its address does not resolve, the player cannot open it, no picture for 15
 /// seconds, or the stream breaks off long before the end) is replaced by the next line that has the episode, carrying
 /// on from the position reached. Every line gets one turn; a line the user picked by hand is not switched away from.
+///
+/// Seeking: the bar seeks once, when it is let go ([SeekBar]), and shows what is buffered — what the player holds
+/// and, for streams the engine caches, what the engine has on disk. The player's own cache is set up for where the
+/// video comes from ([PlayerCache]).
 class PlayerPage extends StatefulWidget {
   const PlayerPage({super.key, required this.detail, required this.line, required this.episode, this.startPosition});
 
@@ -80,6 +87,20 @@ class _PlayerPageState extends State<PlayerPage> {
   Duration _lastPosition = Duration.zero;
   Timer? _watchdog;
   Timer? _errorCheck;
+
+  /// Where the player was last sent, until it reports a position from there: further steps start from this place,
+  /// not from where the picture still is.
+  Duration? _seekingTo;
+  Timer? _seekingTimeout;
+
+  /// What is buffered, for the seek bar: looked at once a second. [_cacheKey] names the film in the engine's stream
+  /// cache when the engine serves it from there.
+  final _buffered = ValueNotifier<List<BufferedRange>>(const []);
+  Timer? _bufferWatch;
+  bool _readingBuffer = false;
+  int _bufferTicks = 0;
+  String _cacheKey = '';
+  List<BufferedRange> _engineRanges = const [];
 
   static const _volumeKey = 'player.volume';
   static const _speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
@@ -147,6 +168,8 @@ class _PlayerPageState extends State<PlayerPage> {
       _player.stream.position.listen((p) {
         // Stopping the media before the next one resets the position.
         if (_opening) return;
+        // The player has taken up the seek: its position is the place to step from again.
+        if (_seekingTo != null && (p - _seekingTo!).abs() < const Duration(seconds: 2)) _clearSeekingTo();
         // Moving on from somewhere past zero: frames are coming (a jump to the resume point alone is not that).
         if (_lastPosition > Duration.zero && p > _lastPosition) {
           _advances++;
@@ -175,6 +198,7 @@ class _PlayerPageState extends State<PlayerPage> {
         });
       }),
     );
+    _bufferWatch = Timer.periodic(const Duration(seconds: 1), (_) => _readBuffered());
     _open(_line, _episode, resume: widget.startPosition);
     _pokeControls();
   }
@@ -187,6 +211,9 @@ class _PlayerPageState extends State<PlayerPage> {
     _volumeSave?.cancel();
     _watchdog?.cancel();
     _errorCheck?.cancel();
+    _seekingTimeout?.cancel();
+    _bufferWatch?.cancel();
+    _buffered.dispose();
     _settings.setString(_volumeKey, _player.state.volume.toStringAsFixed(0));
     if (_window.isFullScreen) _window.fullScreen = false;
     _window.title = '映舟';
@@ -349,6 +376,10 @@ class _PlayerPageState extends State<PlayerPage> {
     _lastPosition = Duration.zero;
     _resumeAt = _pendingSeek = resume;
     _opening = true;
+    _clearSeekingTo();
+    _cacheKey = '';
+    _engineRanges = const [];
+    _buffered.value = const [];
     setState(() {
       _line = line;
       _episode = episode;
@@ -376,7 +407,11 @@ class _PlayerPageState extends State<PlayerPage> {
       _status = '正在缓冲…';
       _parsedBy = info.parsedBy;
     });
+    _cacheKey = info.cache;
     try {
+      // What the player keeps of the video depends on whether the engine keeps it too.
+      await PlayerCache.prepare(_player, engineCached: info.cache.isNotEmpty);
+      if (!mounted || seq != _requestSeq) return;
       await _player.open(Media(info.url, httpHeaders: info.headers));
     } catch (e) {
       if (mounted && seq == _requestSeq) _lineFailed('无法播放', '播放出错：$e');
@@ -411,14 +446,60 @@ class _PlayerPageState extends State<PlayerPage> {
     });
   }
 
+  void _clearSeekingTo() {
+    _seekingTimeout?.cancel();
+    _seekingTimeout = null;
+    _seekingTo = null;
+  }
+
+  /// Sends the player to [target]. Until it reports a position from there, [_seekingTo] stands for where it is.
+  void _seekTo(Duration target) {
+    _seekingTimeout?.cancel();
+    _seekingTo = target;
+    _seekingTimeout = Timer(const Duration(seconds: 3), _clearSeekingTo);
+    _player.seek(target);
+    _pokeControls();
+  }
+
   void _seekBy(Duration delta) {
     final duration = _player.state.duration;
-    var target = _player.state.position + delta;
+    // Steps add up: the second press of a key starts from where the first one sent the player.
+    var target = (_seekingTo ?? _player.state.position) + delta;
     if (target < Duration.zero) target = Duration.zero;
     if (duration > Duration.zero && target > duration) target = duration;
-    _player.seek(target);
+    _seekTo(target);
     final seconds = delta.inSeconds.abs();
     _showOsd('${delta.isNegative ? '⏪' : '⏩'} $seconds 秒   ${_TimeLabel.format(target)} / ${_TimeLabel.format(duration)}');
+  }
+
+  /// Looks at what is buffered: what the player holds, and what the engine's stream cache has of this film.
+  Future<void> _readBuffered() async {
+    if (_readingBuffer || _opening || !mounted) return;
+    _readingBuffer = true;
+    final seq = _requestSeq;
+    try {
+      final own = await PlayerCache.read(_player);
+      final key = _cacheKey;
+      // The engine is asked every other time: it is a request over the network when the engine is another machine.
+      if (key.isNotEmpty && _bufferTicks++ % 2 == 0) {
+        try {
+          final coverage = await _client.streamCoverage(key);
+          if (seq == _requestSeq) _engineRanges = coverage.ranges;
+        } on EngineException {
+          // An engine without a stream cache, or one that is busy: the bar shows what it knew.
+        }
+      }
+      if (!mounted || seq != _requestSeq) return;
+      _buffered.value = PlayerCache.merge([...own.ranges, ..._engineRanges]);
+      // The player's cache file only grows while the video is open; when it has grown too big, the video is opened
+      // again where it is, which starts a new file.
+      if (own.diskBytes > PlayerCache.diskLimit && _started && _error == null) {
+        _showOsd('播放器缓存已满，正在重新载入…', const Duration(seconds: 3));
+        _open(_line, _episode, resume: _player.state.position, automatic: true);
+      }
+    } finally {
+      _readingBuffer = false;
+    }
   }
 
   void _changeVolume(double delta) {
@@ -670,7 +751,21 @@ class _PlayerPageState extends State<PlayerPage> {
             ),
           ),
           const Spacer(),
-          _ProgressBar(player: _player, onSeek: (_) => _pokeControls()),
+          ValueListenableBuilder<List<BufferedRange>>(
+            valueListenable: _buffered,
+            builder: (context, buffered, _) => StreamBuilder<Duration>(
+              stream: _player.stream.position,
+              initialData: _player.state.position,
+              builder: (context, snap) => SeekBar(
+                key: const Key('seek-bar'),
+                position: snap.data ?? Duration.zero,
+                duration: _player.state.duration,
+                buffered: buffered,
+                onSeek: _seekTo,
+                onInteraction: _pokeControls,
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
             child: Row(
@@ -786,47 +881,6 @@ class _PlayerPageState extends State<PlayerPage> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _ProgressBar extends StatelessWidget {
-  const _ProgressBar({required this.player, required this.onSeek});
-
-  final Player player;
-  final ValueChanged<Duration> onSeek;
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<Duration>(
-      stream: player.stream.position,
-      initialData: player.state.position,
-      builder: (context, snap) {
-        final duration = player.state.duration;
-        final max = duration.inMilliseconds.toDouble();
-        final value = (snap.data ?? Duration.zero).inMilliseconds.toDouble().clamp(0, max <= 0 ? 0 : max).toDouble();
-        return SliderTheme(
-          data: SliderTheme.of(context).copyWith(
-            trackHeight: 3,
-            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-            overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-            activeTrackColor: Colors.white,
-            inactiveTrackColor: Colors.white24,
-            thumbColor: Colors.white,
-          ),
-          child: Slider(
-            value: max <= 0 ? 0 : value,
-            max: max <= 0 ? 1 : max,
-            onChanged: max <= 0
-                ? null
-                : (v) {
-                    final target = Duration(milliseconds: v.round());
-                    player.seek(target);
-                    onSeek(target);
-                  },
-          ),
-        );
-      },
     );
   }
 }

@@ -170,6 +170,11 @@ class AppState extends ChangeNotifier {
     await _loadSites();
   });
 
+  /// Turns the engine's stream cache on or off, or changes how much disk it may take. Nothing is loaded again.
+  Future<void> setStreamCache({bool? enabled, int? maxMB}) => _run(() async {
+    engineSettings = await client.patchSettings({'streamCache': ?enabled, 'streamCacheMaxMB': ?maxMB});
+  });
+
   /// True while the engine loads the active subscription (right after it starts, it loads the last one again).
   bool loadingConfig = false;
 
