@@ -1,17 +1,21 @@
 /// Live TV (engine protocol v1, `/live`).
 class LiveSourceInfo {
-  const LiveSourceInfo({required this.index, required this.name, this.hasEpg = false, this.supported = true});
+  const LiveSourceInfo({required this.index, required this.name, this.hasEpg = false, this.supported = true, this.spider = ''});
 
   final int index;
   final String name;
   final bool hasEpg;
   final bool supported;
 
+  /// The runtime of the spider that serves the list (jar / js / py); empty for a plain playlist.
+  final String spider;
+
   factory LiveSourceInfo.fromJson(Map<String, dynamic> j) => LiveSourceInfo(
     index: (j['index'] as num).toInt(),
     name: j['name'] as String? ?? '',
     hasEpg: j['hasEpg'] as bool? ?? false,
     supported: j['supported'] as bool? ?? true,
+    spider: j['spider'] as String? ?? '',
   );
 }
 

@@ -42,7 +42,7 @@ import java.util.concurrent.TimeUnit
  *
  *   tvbox-engine [--port 9978] [--lan] [--data <dir>] [--name <name>] [--subscribe <url>] [--demo] [--dev-cors] [--exit-with-stdin]
  *                [--drive-folder <dir>]...
- *   tvbox-engine --check [<subscription or file or folder>...] [--only cms,js,jar,live] [--play] [--max-sites N] [--max-configs N]
+ *   tvbox-engine --check [<subscription or file or folder>...] [--only cms,js,jar,py,live] [--play] [--max-sites N] [--max-configs N]
  *                [--report <file.md>] [--strict]
  *
  * - --exit-with-stdin: exit when stdin closes. The desktop client starts the engine with a pipe on stdin, so the
@@ -112,6 +112,18 @@ fun main(args: Array<String>) {
         port = { port },
         cacheDir = File(work, "cache/d2j"),
     )
+    // Python spiders run in a Python process of their own, on a Python found on this machine (or downloaded when the
+    // user asks for it in the app). A check that leaves "py" out does not look for one.
+    val pyRuntime = if (checkOnly != null && "py" !in checkOnly) null else tvbox.engine.py.PyRuntime(
+        manager = tvbox.engine.py.PythonManager(File(work, "python"), client, log = { System.err.println(it) }),
+        scripts = tvbox.engine.py.PyScripts(client, locator, File(work, "python/spiders"), log = { System.err.println(it) }),
+        proxyUrl = "$local/proxy",
+        network = network,
+        githubProxy = githubProxy,
+        strictTls = "--strict-tls" in args,
+        log = { System.err.println(it) },
+        onProcess = { p, started -> if (started) ChildProcesses.register(p) else ChildProcesses.kill(p) },
+    )
     // Web page sniffing in a headless Edge/Chrome, when one is installed.
     val sniffer = CdpSniffer.findBrowser()?.let { CdpSniffer(it, File(work, "sniff-profile"), client, network = network) }
     // The HLS streams players are served, kept on disk; an engine without a data folder (--demo) starts with none.
@@ -132,7 +144,7 @@ fun main(args: Array<String>) {
         // A check limited to some kinds must not run anything else. Skipping the sites is not enough: a live list
         // served through a spider's proxy, or a jar parser, loads the config's jar too. So without "jar" (or "js")
         // in --only that runtime does not exist in this engine at all.
-        runtimes = listOf(jarRuntime, jsRuntime).filter { checkOnly == null || it.kind in checkOnly },
+        runtimes = listOfNotNull(jarRuntime, jsRuntime, pyRuntime).filter { checkOnly == null || it.kind in checkOnly },
         sniffer = sniffer,
         githubProxy = githubProxy,
         network = network,
@@ -165,6 +177,7 @@ fun main(args: Array<String>) {
             localFileRoutes()
             if (demo != null) demoRoutes(demo)
             if (demoDrive != null) demoDriveRoutes(demoDrive)
+            if (pyRuntime != null) pythonRoutes(pyRuntime)
         }
     }
     val server = embeddedServer(CIO, port = port, host = host, module = serverModule).start(wait = false)

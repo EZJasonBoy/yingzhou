@@ -27,6 +27,8 @@ class LiveService(
     private val locator: ConfigLocator? = null,
     /** Asks the spider of a `type: 3` source for its playlist text (`liveContent`); null when no runtime can. */
     private val spiderList: (suspend (LiveSourceSpec) -> String)? = null,
+    /** Spider kinds that can serve lists besides jar and js, as of now ("py" once a Python is found). */
+    private val moreSpiderKinds: () -> List<String> = { emptyList() },
 ) {
     private class Loaded(val list: LiveList, val tvgUrl: String, val at: Long)
 
@@ -60,8 +62,9 @@ class LiveService(
         else -> "jar"
     }
 
-    /** Jar spiders have `liveContent` and JS spiders `live`; Python spiders have no runtime yet. */
-    private fun supported(spec: LiveSourceSpec) = spec.supported && (spec.api.isEmpty() || (spiderList != null && spiderKind(spec) in SPIDER_KINDS))
+    /** Jar and Python spiders have `liveContent`, JS spiders `live`; Python ones need a Python on this machine. */
+    private fun supported(spec: LiveSourceSpec) =
+        spec.supported && (spec.api.isEmpty() || (spiderList != null && (spiderKind(spec) in SPIDER_KINDS || spiderKind(spec) in moreSpiderKinds())))
 
     suspend fun list(index: Int, refresh: Boolean = false): LiveList {
         val spec = spec(index)

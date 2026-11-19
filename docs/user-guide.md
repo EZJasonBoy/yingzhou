@@ -52,6 +52,17 @@
 
 「源」页底部的 **缓存** 一栏显示这些内容占了多少空间，可以一键清除。占用有上限（站点数据约 50 MB、海报 300 MB），旧的会自动清掉。清除后第一次启动要重新等订阅下载。播放缓存不在这里。
 
+### Python 站点
+
+订阅里有些站点（站点列表里标着 **PY**）和直播源是用 Python 写的，要用电脑上的 Python 3.8 或更新的版本来运行。映舟不自带 Python，「源」页的 **Python 蜘蛛** 一栏写着现在用的是哪个：
+
+- 电脑上已经装了 Python（python.org 的安装包、Microsoft Store、scoop、Homebrew 都行）：自动找到，什么都不用做。装在别处的，在"Python 位置"里填 `python.exe`（或它所在的文件夹）再点"应用"。
+- 没有 Python（Windows）：点 **下载 Python 运行时**。确认框里写着从哪里下载（python.org）、多大（约 12 MB）、放在哪里，确认后才开始下载；它只给映舟用，不装进系统、不改环境变量，以后可以在同一处删除。macOS 请自己装 Python 3（python.org 的安装包或 Homebrew），装好后点这一栏右上角的刷新。
+- **安装常用依赖**：大部分 Python 站点还要用到 `requests`、`lxml` 等第三方包。点这个按钮，映舟会用 pip 把 TVBox 的 Python 版自带的那几个包（requests、lxml、pycryptodome、beautifulsoup4、pyquery、ujson、jsonpath、cachetools）装到映舟自己的目录里，不会动你电脑上 Python 自己的环境。确认框里写着从哪里下载、装到哪里。某个站点打开时提示"缺少 Python 包 xxx"，这一栏也会列出来，旁边有"安装 xxx"按钮。
+- 下载慢的话，在"镜像"里填国内的 PyPI 镜像（如 `https://mirrors.aliyun.com/pypi/simple/`）或 Python 下载镜像（如 `https://mirrors.huaweicloud.com/python/`）。下载的 Python 会按 python.org 公布的校验值检查，用镜像也一样。
+
+Python 站点和其他站点一样浏览、搜索、播放；Python 直播源也和其他直播源一样在「直播」页里。没有 Python 时，这些站点在「源」页标着"需要 Python"，直播源标着"（需要 Python）"，打不开但不影响其他站点。
+
 ## 4. 看片
 
 1. 「首页」选站点 → 点海报进详情页。
@@ -324,7 +335,16 @@ AList 和没有账号的 WebDAV 是由各设备的播放器自己去网盘地址
 `hosts`（域名重定向）目前只对引擎自己发的请求生效：取频道列表、节目单、站点数据都算，但播放器直接去取的直播流不算。靠 `hosts` 换 CDN 才能播的频道暂时还放不了。
 
 **站点能打开，但点进去加载失败或一直转圈**
-大多是站点自己失效了，换个站点试试，在安卓 TVBox 上同样会失败。如果安卓上正常、这里不行，查 [compatibility.md](compatibility.md) 里的已知缺口——最常见的是加固 jar（带 native 壳）和 Python 蜘蛛，桌面上还跑不了。
+大多是站点自己失效了，换个站点试试，在安卓 TVBox 上同样会失败。如果安卓上正常、这里不行，查 [compatibility.md](compatibility.md) 里的已知缺口——最常见的是加固 jar（带 native 壳），桌面上还跑不了。
+
+**站点标着"需要 Python"，或者打开时提示"需要 Python 3.8 或更新的版本"**
+这是 Python 写的站点，见第 3 节"Python 站点"：电脑上装了 Python 会自动找到；没装就在「源 → Python 蜘蛛」里点"下载 Python 运行时"（Windows），或者自己装一个再点刷新。装好之后不用重启，站点马上能点开。
+
+**打开 Python 站点提示"缺少 Python 包 xxx"**
+站点要用一个没装的第三方包。到「源 → Python 蜘蛛」，点"安装常用依赖"，或者点那个包旁边的"安装"。装完马上生效。装不上时点"查看输出"能看到 pip 的原话：常见的是网络连不上 PyPI（在"镜像"里换一个国内镜像），或者这个包没有适合你这个 Python 版本的安装包（换个版本的 Python，或者用下载的运行时）。
+
+**Python 站点提示"Python 进程退出了"**
+蜘蛛把运行它的 Python 进程弄崩了（脚本有问题，或者用到的包和这个 Python 版本不兼容）。再点一次会自动重新启动 Python；一直这样就是这个站点在这台电脑上跑不了，换个站点。引擎日志里有 Python 的报错（行首是 `py:`）。
 
 **提示"这条线路需要网页嗅探，但引擎没有可用的浏览器内核"**
 嗅探要用系统里的 Edge 或 Chrome。Windows 10/11 自带 Edge；如果装在非标准位置，设环境变量 `TVBOX_BROWSER` 指向浏览器的 exe。还有别的线路时播放页会先自动换过去（提示"需要网页嗅探，已切到…"），都不行才显示这句话。
@@ -357,7 +377,7 @@ m3u8 视频改由播放器直接向片源要分片，播放器只在内存里留
 去广告靠订阅里的规则加一个保守的自动判断，宁可漏掉也不误删正片。没去掉说明这个站的广告规则订阅里没有。
 
 **直播页显示"暂不支持"的直播源**
-那是配置里写成 `type: 3` 却没有指定蜘蛛的直播源，或者要用 Python 蜘蛛的直播源，还没实现。由 jar 蜘蛛或 JS 蜘蛛给出频道列表的直播源是支持的。
+那是配置里写成 `type: 3` 却没有指定蜘蛛的直播源，还没实现。由 jar、JS 或 Python 蜘蛛给出频道列表的直播源是支持的；标着"（需要 Python）"的，见上面"站点标着'需要 Python'"。
 
 **想知道一个订阅里到底哪些站点能用**
 运行 `tools/check-configs.sh <订阅地址>`，它会把每个站点、每个直播源试一遍，生成报告 `dist/check-report.md`，并区分是引擎的问题还是站点自己失效。详见 [compatibility.md](compatibility.md) 第 8 节。
@@ -378,6 +398,8 @@ m3u8 视频改由播放器直接向片源要分片，播放器只在内存里留
 订阅、历史、收藏、网盘（含账号密码，`drives.json`）：`C:\Users\<你>\.tvbox-next\engine`。jar 和转换缓存也在这个目录下，删掉会重新下载；订阅副本和站点数据在其中的 `cache\data`。海报图片在 `C:\Users\<你>\AppData\Local\Yingzhou` 下的 `posters` 目录。窗口位置、音量等界面设置在 `C:\Users\<你>\AppData\Roaming\Yingzhou`。这两处都不在安装目录里，所以升级、重装不会丢。
 
 播放缓存（m3u8 视频的分片）在 `C:\Users\<你>\.tvbox-next\engine\cache\stream`，「源 → 播放缓存」里也写着这个位置；它只是缓存，随时可以清空。下载默认也在这个文件夹里（"清空缓存"不会删掉它们），下载列表记在 `C:\Users\<你>\.tvbox-next\engine\downloads.json`。播放直链视频时播放器的临时缓存文件在系统临时目录的 `yingzhou-player-cache` 里，关掉视频就删除（程序异常退出留下的，下次播放时会清掉）。
+
+Python 相关的都在 `C:\Users\<你>\.tvbox-next\engine\python`：下载的 Python 运行时（`runtime`）、给 Python 站点装的包（`packages`）、Python 蜘蛛脚本（`spiders`）。删掉整个目录不影响别的，只是要重新下载、重新安装。卸载映舟时默认保留它（和订阅、历史一样）。播放直链视频时播放器的临时缓存文件在系统临时目录的 `yingzhou-player-cache` 里，关掉视频就删除（程序异常退出留下的，下次播放时会清掉）。
 
 **安装程序提示"检测到映舟正在运行"**
 先关掉映舟的窗口再点"确定"。如果窗口已经关了还提示，在任务管理器里结束 `yingzhou.exe`。

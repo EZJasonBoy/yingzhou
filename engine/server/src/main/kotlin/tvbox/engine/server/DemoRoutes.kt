@@ -90,6 +90,7 @@ class DemoSite {
                 put("searchable", 0)
                 put("playUrl", "$base/demo/sniff?url=")
             })
+            DemoPython.sites(base).forEach { add(it) }
         })
         put("parses", buildJsonArray {
             // First = default parser, as in TVBox; engines without jar spiders skip it.
@@ -125,6 +126,7 @@ class DemoSite {
                 put("url", "http://127.0.0.1:9978/proxy?do=live&url=$base/demo/live.m3u")
             })
             DemoLive.lives(base).forEach { add(it) }
+            DemoPython.lives(base).forEach { add(it) }
         })
         put("rules", buildJsonArray {
             add(buildJsonObject {
@@ -378,6 +380,7 @@ fun Route.demoRoutes(site: DemoSite) {
         call.respondText(DemoSite.epg(call.request.queryParameters["ch"].orEmpty(), call.request.queryParameters["date"].orEmpty()), ContentType.Application.Json)
     }
     demoLiveRoutes()
+    demoPythonRoutes()
     get("/demo/ads/index.m3u8") {
         val text = buildString {
             appendLine("#EXTM3U")

@@ -9,6 +9,7 @@
 | Visual Studio | "使用 C++ 的桌面开发"工作负载 | Windows 客户端；还需要打开系统的**开发者模式**（插件要建符号链接） |
 | Xcode | — | macOS 客户端 |
 | Android SDK | platforms;android-36、build-tools;36.0.0 | 只在构建 Android 客户端或重建演示 jar 时需要 |
+| Python | 3.8+，可选 | Python 蜘蛛的引擎测试和演示站要用；找不到时这些测试跳过。用 `TVBOX_PYTHON` 指定 |
 
 Windows 上用 scoop 装的话，新开的终端里要有这些环境变量（Git Bash）：
 
@@ -73,7 +74,7 @@ flutter run -d windows                      # 没有引擎在 9978 上时会自�
 cd engine && ./gradlew :server:run --args="--demo --dev-cors --port 19978"
 ```
 
-它提供：一个采集站、一个 JS 蜘蛛站、一个 jar 蜘蛛站、一个需要嗅探的站；JSON 解析、jar 聚合解析、嗅探解析各一个；一条去广告规则；一个带节目单的直播源（含一个第一条线路是死链的频道，用来测自动换线）；「演示直播」里的「回看演示台」能回看 3 天（`catchup="default"`，回看地址是 `/demo/catchup.m3u8?start=&end=&utc=`，时间填对了就 302 到点播测试流，填错或不是过去的时间返回 400）；一个由 JS 蜘蛛给出列表的直播源「演示JS直播」（`/demo/live.js`，三个频道的地址分别是直链、脚本自己的代理地址和 `proxy://`，后两个要请求回到这个脚本才播得出来）。点播里《白昼迷踪 第二季》（首页第二个）的第一条线路"失效线路"也是死链，用来测点播的自动换线路。演示模式的数据默认只在内存里。
+它提供：一个采集站、一个 JS 蜘蛛站、一个 jar 蜘蛛站、一个需要嗅探的站；JSON 解析、jar 聚合解析、嗅探解析各一个；一条去广告规则；一个带节目单的直播源（含一个第一条线路是死链的频道，用来测自动换线）；「演示直播」里的「回看演示台」能回看 3 天（`catchup="default"`，回看地址是 `/demo/catchup.m3u8?start=&end=&utc=`，时间填对了就 302 到点播测试流，填错或不是过去的时间返回 400）；一个由 JS 蜘蛛给出列表的直播源「演示JS直播」（`/demo/live.js`，三个频道的地址分别是直链、脚本自己的代理地址和 `proxy://`，后两个要请求回到这个脚本才播得出来）；Python 蜘蛛的「演示Python站」（`/demo/py/demo_vod.py`，只用标准库：浏览、搜索，每部片两条线路"直连"和"代理"，后者经蜘蛛的 `localProxy` 取播放列表）、「演示Python依赖站」（`demo_pkg.py`，导入 lxml：没装时用来看缺包提示和安装按钮）和直播源「演示Python直播」（`demo_live.py`，频道写法同「演示JS直播」），脚本在 `engine/server/src/main/resources/demo/py/`，见下面"Python 蜘蛛"。点播里《白昼迷踪 第二季》（首页第二个）的第一条线路"失效线路"也是死链，用来测点播的自动换线路。演示模式的数据默认只在内存里。
 
 演示 jar 的源码在 `engine/server/demo-jar/`，改了之后跑 `build.sh`（javac + d8）重新生成。
 
@@ -105,6 +106,8 @@ curl -s "http://127.0.0.1:19987/api/v1/drives/<id>/list?path=%2F%E6%BC%94%E7%A4%
 
 它的地址写成 `localhost` 而不是 `127.0.0.1`：引擎不会把自己地址上的 m3u8 再包一层 `/m3u8`，换个名字它才和普通站点一样经过播放列表接口和播放缓存。
 
+《慢速源演示》后面四集是给离线下载用的（`DemoDownloads.kt`）：「短片」「短片加密」「短片直链」是同一段视频的前两分钟（20 个分片，约 30 MB），分别是普通播放列表、AES-128 加密、直链文件，演示时几秒到几十秒就能下完；「直播」是一个随时间滑动、没有结尾的播放列表，下载会拒绝它。上面的 `set` 参数对它们同样有效：`kBps` 调慢能看清进度和速度，`refuse=503` 相当于片源下线（播放列表照常给，分片和密钥都拒绝），用来演示下载中途失败、重试，以及片源下线后离线播放。
+
 ### 字幕、音轨与弹幕演示
 
 首页最后两个是《字幕演示》和《弹幕演示》（`DemoMedia.kt`），视频同样是现算出来的（三分钟），不需要外网。字幕和弹幕只在「演示JS站」里有：JS 蜘蛛的 `play` 遇到 `/demo/av/` 的地址时，把 `/demo/extras?url=` 返回的整个播放结果交出去；在「演示站」（采集站）里打开就只有视频。
@@ -112,7 +115,6 @@ curl -s "http://127.0.0.1:19987/api/v1/drives/<id>/list?path=%2F%E6%BC%94%E7%A4%
 - 《字幕演示》：`/demo/av/master.m3u8`，主列表里有两条 `#EXT-X-MEDIA` 音轨（国语单声道、English 立体声，MPEG-1 Layer II，手写的静音帧，没有编码器所以听不出区别，只能看音轨列表）；`subs` 给三条字幕：`/demo/subs/gbk.srt`（GBK 编码、CRLF、不声明编码）、`/demo/subs/styled.ass`（带样式、顶部提示、UTF-8 BOM）、`/demo/subs/private.srt`（没有 `Referer: …/demo/` 就 403，播放结果的 `header` 里给了）。
 - 《弹幕演示》：`/demo/av/video.m3u8`，蜘蛛给出 `danmaku: /demo/danmaku/dense.xml`：三分钟 3000 条 B 站 XML（固定随机种子，85% 滚动、8% 顶部、7% 底部），像 B 站一样用不带头的 deflate 压缩并声明 `Content-Encoding: deflate`。
 - 演示配置有顶层 `danmaku`：`/demo/danmaku/api?name={name}&episode={episode}`，对任何片名都回答 `{"url": …/demo/danmaku/comments.json?…}`，后者是 80 条弹幕接口常见的 JSON（`comments[].p` = 时间,模式,颜色,用户）。引擎只在「源 → 弹幕」里打开"订阅的弹幕接口"之后才会问它。
-后面四集是给离线下载用的（`DemoDownloads.kt`）：「短片」「短片加密」「短片直链」是同一段视频的前两分钟（20 个分片，约 30 MB），分别是普通播放列表、AES-128 加密、直链文件，演示时几秒到几十秒就能下完；「直播」是一个随时间滑动、没有结尾的播放列表，下载会拒绝它。上面的 `set` 参数对它们同样有效：`kBps` 调慢能看清进度和速度，`refuse=503` 相当于片源下线（播放列表照常给，分片和密钥都拒绝），用来演示下载中途失败、重试，以及片源下线后离线播放。
 
 ### 离线下载
 
@@ -121,6 +123,23 @@ curl -s "http://127.0.0.1:19987/api/v1/drives/<id>/list?path=%2F%E6%BC%94%E7%A4%
 - 测试：`DownloadManagerTest`（核心：并发上限、重启后继续、钉住与缓存上限、密钥和初始化段、直链断点续传、导出、地址过期、直播、空间不足）、`DownloadRoutesTest`（经 HTTP：片源关掉后离线播放、局域网签名、事件、设置）；客户端 `test/downloads_test.dart`。
 - 手动试：`--demo --port 19988 --data <临时目录>` 启动（带 `--data` 才能试"重启后接着下"），在详情页下载「短片」，或者 `curl -X POST -H 'Content-Type: application/json' -d '{"items":[{"site":"demo","line":"慢速线路","episodeId":"http://localhost:19988/demo/slow/short/index.m3u8"}]}' http://127.0.0.1:19988/api/v1/downloads`。Git Bash 里 curl 发出去的中文会变成问号，片名在列表里就是一串 `?`，从客户端发的不会。
 - **试导出时一定给 `path`**：不给就写进用户真正的「下载」文件夹（桌面引擎的默认导出目录）。
+
+### Python 蜘蛛
+
+设计见 [architecture.md](architecture.md) 2.11。代码在 `engine/runtime-py`：Kotlin 一侧 `PyRuntime`（`SpiderRuntime`）、`PySpider`、`PyWorker`（进程与协议）、`PythonManager`（找 Python、下载、装包）、`PythonLocator`、`PyScripts`；Python 一侧在 `src/main/resources/tvbox/py/`。路由 `engine/server/.../PythonRoutes.kt`；客户端 `client/lib/engine/python.dart`、`lib/pages/python_settings.dart`。
+
+- **用哪个 Python**：引擎启动时在后台找（顺序见 compatibility.md "Python 蜘蛛"），日志里打印一行 `python: using …`。开发时想换一个，设 `TVBOX_PYTHON=<python 路径>` 再启动引擎；或者在应用「源 → Python 蜘蛛」里填。`--demo` 不带 `--data` 时，下载的运行时和装的包都在系统临时目录的 `tvbox-next-engine-<端口>/python` 里。
+- **演示站**：「演示Python站」只用标准库，有 Python 就能跑；「演示Python依赖站」要 lxml，可以在设置里点安装，也可以拿它看缺包时的样子。改了 `demo/py/*.py` 要重新 `installDist`。
+- **测试**：`./gradlew :runtime-py:test`。`PyRuntimeTest` 用真的 Python 跑 `src/test/resources/py/` 里的测试蜘蛛（浏览、搜索、播放、代理、直播、依赖、崩溃、卡死、缺包、网络规则），`PyLanTest` 测配对设备打开 Python 蜘蛛的代理地址，`PythonManagerTest` 用本地的假服务器测下载 CPython（含校验失败）和 pip 装包（含没有 pip 时先取 pip 的 wheel）。全部只连本机。没有 Python 时这些测试跳过（`Assumptions`）；用到 `requests` 的那一个在 Python 没装 requests 时跳过——要跑它，建一个装了 requests 的虚拟环境并设 `TVBOX_PYTHON`：
+
+  ```bash
+  python -m venv <临时目录>/venv && <临时目录>/venv/Scripts/python -m pip install requests lxml
+  TVBOX_PYTHON=<临时目录>/venv/Scripts/python.exe ./gradlew :runtime-py:test --rerun-tasks
+  ```
+
+  CI（`.github/workflows/desktop.yml` 的 Windows 任务）用 `actions/setup-python` 装 Python，所以这些测试在 CI 上会跑。
+- **单独看 worker**：`python -E -X utf8 -u <bridge>/worker.py --home <目录>` 后在标准输入里逐行敲 JSON（`{"id":1,"op":"setup","proxy":"http://127.0.0.1:9978/proxy"}`、`{"id":2,"op":"load","key":"k","path":"x.py"}`、`{"id":3,"op":"init","key":"k","ext":""}`、`{"id":4,"op":"call","key":"k","method":"homeContent","args":[true]}`），第一行输出是 `{"id":0,…,"hello":1}`。bridge 目录在 `<数据目录>/python/bridge/<哈希>/`。
+- **集成测试**：`client/integration_test/python_test.dart` 在真实应用里打开「演示Python站」、播放经蜘蛛代理的线路、搜索、看依赖站的缺包提示、播放「演示Python直播」的代理频道（跑法同下面第 5 节，引擎所在的机器要有 Python）。
 
 ## 5. 在真实 Windows 应用里跑集成测试
 
@@ -205,6 +224,7 @@ PLAY=1 MAX_SITES=20 tools/check-configs.sh          # 加上播放解析；每�
 - **9978 被占**：已有引擎在跑时客户端直接用它，不会再启动一个。
 - **嗅探不可用**：引擎启动时会打印找到的浏览器；装在非标准位置时设环境变量 `TVBOX_BROWSER`。
 - **jar 蜘蛛报缺类**：转换时会列出 jar 用到但桩类里没有的安卓类，在 `engine/runtime-jar/src/main/java/android/**` 补。
+- **Python 站点打不开**：`GET /api/v1/python` 里的 `problem` 说明为什么没有 Python；引擎日志里 `python: using …` 是选中的那个，`py:` 开头的是 worker 的标准错误（蜘蛛的 `print` 和 Python 的完整报错）。`?refresh=1` 让引擎重新找 Python。
 - **数据位置**：订阅、历史、收藏在 `~/.tvbox-next/engine`；窗口大小、音量等客户端偏好在系统的应用设置里。
 
 ## 9. 踩过的坑
@@ -212,6 +232,11 @@ PLAY=1 MAX_SITES=20 tools/check-configs.sh          # 加上播放解析；每�
 - jlink 裁出的运行时要包含 `jdk.zipfs`：dex2jar 通过名字找 zip 文件系统，`jdeps` 查不出这个依赖，漏掉时所有 jar 蜘蛛报 "cant find zipfs support"。开发时用完整 JDK 不会暴露，所以打包脚本里有自检。
 
 - dex2jar 用 `Dex2jar.from(bytes).to(path)`；写到 `ByteArrayOutputStream` 的那个接口产不出类。
+- Python 的免安装版（embeddable）有 `python3XX._pth`：它不读 `PYTHONPATH`、不把脚本所在目录放进 `sys.path`、没有 `site-packages` 也没有 pip。所以 worker 自己往 `sys.path` 里插 bridge 和包目录，pip 从 wheel 里直接运行（`python pip-xx.whl/pip install …`）。
+- Windows 的 `PATH` 里常有微软商店的 `python.exe` 占位程序（`WindowsApps`），带参数运行时只打印"去商店安装"并以 9009 退出；不能把"`python` 在 PATH 上"当成"有 Python"。macOS 上苹果的 `/usr/bin/python3` 在没装开发者工具时会弹出安装窗口，所以先看 `xcode-select -p`。
+- 蜘蛛和原生库会往标准输出打印东西。worker 一启动就把真正的 stdin / stdout 复制给协议，再把文件描述符 0、1 重定向，协议输出只用 ASCII 的 JSON（`ensure_ascii`），不受控制台编码影响。
+- pip 拒绝没有 `Content-Type: text/html` 的 simple 索引页（"Skipping page … because the GET request got Content-Type: Unknown"），自己写假索引时要带上。
+- 从 Git Bash 用 curl 发含中文的 JSON 时，中文会按系统代码页而不是 UTF-8 发出去（`-d '{"line":"代理"}'` 到了引擎就不是"代理"了）；用 `--data-binary @文件`。
 - 转换出来的类不一定过 JVM 校验器，JDK 21 上要 `-XX:+UnlockDiagnosticVMOptions -XX:-BytecodeVerificationRemote`。
 - Edge 的启动进程会立刻退出并把工作交给另一个进程：不能等它的退出码，要轮询 `DevToolsActivePort`。
 - 改变外壳布局（进全屏、窗口变窄）会重建所有页面，除非页面挂在 `GlobalKey` 下面。

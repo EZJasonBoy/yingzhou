@@ -284,6 +284,18 @@ class AppState extends ChangeNotifier {
     engineSettings = await client.patchSettings({'streamCache': ?enabled, 'streamCacheMaxMB': ?maxMB});
   });
 
+  /// Asks the engine what it can run again: Python sites open once a Python is set up (源 → Python 蜘蛛).
+  Future<void> refreshInfo() async {
+    final c = _client;
+    if (c == null) return;
+    try {
+      info = await c.info();
+      notifyListeners();
+    } on EngineException {
+      // The next connect shows what is wrong.
+    }
+  }
+
   /// True while the engine loads the active subscription (right after it starts, it loads the last one again).
   bool loadingConfig = false;
 

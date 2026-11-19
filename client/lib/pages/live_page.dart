@@ -624,7 +624,7 @@ class _LivePageState extends State<LivePage> {
             DropdownMenuItem(
               value: s.index,
               enabled: s.supported,
-              child: Text(s.supported ? s.name : '${s.name}（暂不支持）', overflow: TextOverflow.ellipsis),
+              child: Text(s.supported ? s.name : '${s.name}（${s.spider == 'py' ? '需要 Python' : '暂不支持'}）', overflow: TextOverflow.ellipsis),
             ),
         ],
         onChanged: (i) {

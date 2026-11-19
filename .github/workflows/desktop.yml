@@ -47,9 +47,17 @@ jobs:
           if (-not (Test-Path "$dir\ISCC.exe")) { throw "ISCC.exe not installed" }
           "ISCC=$dir\ISCC.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      # The Python spider tests run a real Python; without one they are skipped.
+      - uses: actions/setup-python@v5
+        id: python
+        with:
+          python-version: "3.13"
+
       - name: Engine tests
         working-directory: engine
         shell: bash
+        env:
+          TVBOX_PYTHON: ${{ steps.python.outputs.python-path }}
         run: ./gradlew test --console=plain
 
       - name: Client tests

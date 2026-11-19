@@ -16,7 +16,7 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/info` | `{name, version, protocol, platform, capabilities: {jar, js, py, sniff}}`，无需令牌 |
+| GET | `/info` | `{name, version, protocol, platform, capabilities: {jar, js, py, sniff}}`，无需令牌。`py` 是"现在能运行 Python 蜘蛛"：引擎有 Python 运行时、并且找到了 Python 3.8+，用户装好 Python 后会由 false 变 true，客户端要重新问 |
 | POST | `/pair` | `{code, name}` → `{token, deviceId, name}`，无需令牌；`name` 是设备给自己起的名字 |
 
 局域网发现：开启局域网共享时，引擎在每个局域网地址上用 mDNS 通告服务 `_tvbox-engine._tcp`，TXT 记录含 `protocol` 与 `name`。
@@ -305,7 +305,7 @@ event: end       data: {"sites":40,"ms":9120}
 | GET | `/live/{index}/epg?channel=&date=` | `{channel, date, programs: [{start, end, title}]}`，`date` 为 `yyyy-MM-dd`（中国时间，缺省今天；过去的日期也可以，回看用），时间为毫秒时间戳 |
 | GET | `/live/{index}/catchup?channel=&group=&line=&start=&end=` | 回看：`{url, headers, line, alternates: [{url, headers, line}]}`。`start` / `end` 为毫秒时间戳；`group` 可选（频道名在不同分组里重复时用）；`line` 是想先用的线路（缺省 0）。`url` 是先试的地址，`alternates` 是它播不了时再试的：同一线路的其他写法，再是这个频道其他能回看的线路。频道不能回看、节目还没开始、参数不对时 400，频道不存在 404 |
 
-`lives` 支持：`type: 0` 的 TXT（`分组,#genre#`、`频道,url#url2$线路名`）/ M3U（`group-title`、`tvg-logo`、`x-tvg-url`、`#EXTVLCOPT` 的 UA 与 Referer）播放列表；`proxy://do=live&ext=…` 里藏的列表地址；直接写在配置里的 `group`/`channels`；被包成配置格式（图片 base64、AES）的列表。`type: 3`（蜘蛛直播）由 `api` 指定的蜘蛛给出列表：jar 蜘蛛的 `liveContent(url)`、JS 蜘蛛的 `live(url)`；Python 蜘蛛和没写 `api` 的 `supported=false`，取列表时返回 501。频道里的 `proxy://` 指向引擎，局域网客户端拿到的地址按它访问引擎用的地址改写；蜘蛛给出的列表里，这类地址还会带上 `siteKey`（该直播源的蜘蛛），`/proxy` 据此把请求交回给同一个蜘蛛。
+`lives` 支持：`type: 0` 的 TXT（`分组,#genre#`、`频道,url#url2$线路名`）/ M3U（`group-title`、`tvg-logo`、`x-tvg-url`、`#EXTVLCOPT` 的 UA 与 Referer）播放列表；`proxy://do=live&ext=…` 里藏的列表地址；直接写在配置里的 `group`/`channels`；被包成配置格式（图片 base64、AES）的列表。`type: 3`（蜘蛛直播）由 `api` 指定的蜘蛛给出列表：jar 和 Python 蜘蛛的 `liveContent(url)`、JS 蜘蛛的 `live(url)`；没写 `api` 的，和本机还没有 Python 时的 Python 蜘蛛 `supported=false`，取列表时返回 501。频道里的 `proxy://` 指向引擎，局域网客户端拿到的地址按它访问引擎用的地址改写；蜘蛛给出的列表里，这类地址还会带上 `siteKey`（该直播源的蜘蛛），`/proxy` 据此把请求交回给同一个蜘蛛。
 
 回看规则（M3U 的 `catchup*` 属性、`lives[].catchup`、`/PLTV/` 地址）留在引擎里，不随列表下发；客户端只看 `catchupDays`，要播时问 `/catchup`。地址怎么拼见 [compatibility.md](compatibility.md) 第 6 节"回看"。
 
@@ -362,11 +362,48 @@ DriveEntry   {name, path, dir, size, modified, type: folder|video|subtitle|other
 
 `subtitle` / `audio` 是给这部片选的字幕和音轨，客户端写、客户端读，引擎不解释：`off`（关闭字幕）、`lang:<语言>`、`name:<轨道名>`，空为播放器默认。
 
+## Python 蜘蛛
+
+只有桌面 / NAS 的独立引擎有这组接口（安卓内置引擎没有 Python，返回 404，客户端据此不显示「Python 蜘蛛」设置）。谁能用引擎谁就能看；改动只接受本机的请求（403 `LOCAL_ONLY`），因为 Python 的位置是引擎要运行的程序，安装是往那台机器上放软件。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/python?refresh=1` | 状态（见下）；`refresh=1` 重新查找 Python |
+| PUT | `/python` | `{path?, indexUrl?, downloadMirror?}`：Python 的位置（空 = 自动查找）、PyPI 镜像（空 = pip 自己的设置）、Python 下载镜像（空 = python.org，目录结构相同）。没写的字段不变。返回状态 |
+| POST | `/python/download` | 开始下载 CPython 免安装版（只有 Windows），返回状态；已经在下载或安装时 409 `PYTHON_BUSY`，不是 Windows 时 400 |
+| DELETE | `/python/download` | 删除下载的 CPython 和给它装的包 |
+| POST | `/python/packages` | `{packages: [...]}`，空 = 常用的包；包名只能是名字加可选的版本条件（`pywasm==0.4.8`），选项和路径一律 400。返回状态 |
+
+状态：
+
+```json
+{
+  "supported": true, "available": true,
+  "python": {"path": "C:\\…\\python.exe", "version": "3.14.10", "source": "downloaded", "pip": false},
+  "problem": "",
+  "settings": {"path": "", "indexUrl": "", "downloadMirror": ""},
+  "packagesDir": "C:\\Users\\…\\.tvbox-next\\engine\\python\\packages\\cp314-win_amd64",
+  "packages": [{"name": "requests", "module": "requests", "installed": true, "where": "engine"}],
+  "missing": [{"module": "lxml", "packageName": "lxml", "site": "某站", "at": 1795097938765}],
+  "download": {"version": "3.14.10", "url": "https://www.python.org/ftp/python/3.14.10/python-3.14.10-embed-amd64.zip",
+               "sizeBytes": 12619664, "sha256": "9090…", "dir": "…\\python\\runtime", "installed": true},
+  "task": {"kind": "install", "state": "running", "message": "…", "progress": -1, "log": ["$ pip install lxml", "…"]},
+  "worker": {"running": true, "pid": 1234, "starts": 1, "spiders": 3}
+}
+```
+
+- `source`：`custom`（用户填的）、`env`（`TVBOX_PYTHON`）、`system`（本机找到的）、`downloaded`。`problem`：没有 Python 的原因，或者用户填的位置有什么问题。
+- `packages`：TVBox 的 Python 版自带的那几个包，这个 Python（加上引擎给它装的）能否导入。`where`：`engine` 在引擎的目录里，`python` 是 Python 自己环境里的。
+- `missing`：蜘蛛导入了但没有的模块（最近的在前），装上之后自动消失。`packageName` 是提供它的包。
+- `download`：可以下载的 CPython；不是 Windows 时没有这个字段。下载与安装在后台进行，`task` 是正在进行的或上一次的（`state`：`running` / `done` / `failed`），客户端每秒问一次直到结束。
+
+Python 站点调用失败时的错误码：`PY_UNAVAILABLE`（没有可用的 Python）、`PY_MODULE_MISSING`（缺包，消息里有包名）、`PY_CRASHED`（Python 进程退出了，下次调用会重启它）；蜘蛛自己抛的异常是 `SITE_ERROR`，加载时就出错是 `SPIDER_LOAD_FAILED`。
+
 ## 兼容端点（不在 `/api/v1` 下）
 
 | 路径 | 说明 |
 |---|---|
-| `/proxy?…` | 兼容 TVBox 9978：先给 `siteKey` 对应的蜘蛛，再给 jar 的 `Proxy.proxy`；`do=js` 给 JS 蜘蛛；`do=ck` 返回 `ok` |
+| `/proxy?…` | 兼容 TVBox 9978：先给 `siteKey` 对应的蜘蛛，再给 jar 的 `Proxy.proxy`；`do=js` 给 JS 蜘蛛；`do=py` 只给 Python 蜘蛛的 `localProxy`（`siteKey` 指名的，没有就是最近用过的）；`do=ck` 返回 `ok` |
 | `/file/<路径>` | 仅桌面引擎、仅本机访问：本机文件，供 `clan://localhost/`、`file://` 和本机路径的订阅及其 `./` 引用使用 |
 | `/m3u8?url=&h=&k=` | HLS 播放列表：引擎拉取播放列表（`h` 为请求头 JSON 的 URL 安全 base64），把相对地址改成绝对地址，按配置 `rules` 的广告规则和保守的分片路径启发式去掉广告片段；主播放列表的各码率也指回这里（带着同一个 `k`）。点播的媒体播放列表在播放缓存开着时再改写一遍：分片、`#EXT-X-KEY`、`#EXT-X-MAP` 的地址换成 `/hls/…`，`#EXT-X-BYTERANGE` 去掉（范围由引擎向片源请求）。`k` 是 `/play/resolve` 给这一集起的缓存名，可以不带（那就按播放列表地址归档）。直播列表（没有 `#EXT-X-ENDLIST`）不改写、不缓存。拉取失败时 302 到原地址 |
 | `/subtitle?url=&h=&f=` | `PlayInfo.subtitles` 指向这里：引擎带着请求头（`h`，同 `/m3u8`）取 `url` 上的字幕，识别编码（BOM、UTF-16、UTF-8，否则在 GB18030 与 Big5 中按常用字多少选，不信服务器声明的）和格式，交出 UTF-8 的 SRT / ASS / WebVTT（TTML、LRC、B 站 JSON 字幕转成 SRT）。`f` 是站点声明的格式，内容看不出时才用。取不到时 502 |

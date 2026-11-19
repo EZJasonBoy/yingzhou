@@ -87,8 +87,12 @@ class Engine(
     /** Keeps the HLS streams this engine serves on disk (see [tvbox.engine.core.cache.StreamCache]); null: players fetch segments themselves. */
     val streamCache: tvbox.engine.core.cache.StreamCache? = null,
 ) {
+    /** `py` also needs a Python on this machine, which can turn up while the engine runs (the user installs one). */
+    val info: EngineInfo
+        get() = baseInfo.copy(capabilities = baseInfo.capabilities.copy(py = runtimes.any { it.kind == "py" && it.available }))
+
     /** Capabilities are derived from the runtimes actually present. */
-    val info: EngineInfo = info.copy(
+    private val baseInfo: EngineInfo = info.copy(
         capabilities = info.capabilities.copy(
             js = runtimes.any { it.kind == "js" },
             jar = runtimes.any { it.kind == "jar" },
@@ -134,7 +138,7 @@ class Engine(
         playlistBase = proxyBase.substringBefore("/proxy") + "/m3u8?",
     )
     private val searchAggregator = SearchAggregator()
-    private val live = LiveService(http, proxyBase, spiderList = ::spiderLive)
+    private val live = LiveService(http, proxyBase, spiderList = ::spiderLive, moreSpiderKinds = { runtimes.filter { it.kind == "py" && it.available }.map { it.kind } })
 
     /** What the engine's own playlist addresses begin with (see [PlayResolver]). */
     private val playlistBase = proxyBase.substringBefore("/proxy") + "/m3u8?"
@@ -544,7 +548,7 @@ class Engine(
         if (keyword.isBlank()) throw EngineException.BadRequest("keyword is empty")
         val sources = current().sources.values.filter { src ->
             val bean = src.bean
-            bean.isSearchable && src !is UnsupportedSource && (siteKeys == null || bean.key in siteKeys)
+            bean.isSearchable && src !is UnsupportedSource && (siteKeys == null || bean.key in siteKeys) && (src as? SpiderSource)?.available != false
         }
         return searchAggregator.search(sources, keyword.trim()) { describe(it) }
     }
@@ -638,6 +642,16 @@ class Engine(
      * first. Null when nobody handles it.
      */
     suspend fun proxy(params: Map<String, String>): ProxyResponse? {
+        // `do=py` is the Python runtime's alone, as in TVBox: no jar is asked (or loaded) for it.
+        if (params["do"] == "py") return runtimes.firstOrNull { it.kind == "py" }?.let { py ->
+            try {
+                py.proxy(params)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+        }
         val ordered = if (params["do"] == "js") runtimes.sortedByDescending { it.kind == "js" } else runtimes.sortedBy { it.kind == "js" }
         for (runtime in ordered) {
             val response = try {
@@ -688,7 +702,7 @@ class Engine(
         is SiteHttpException -> (if (e.message?.startsWith("timeout") == true) "SITE_TIMEOUT" else "SITE_UNREACHABLE") to (e.message ?: "network error")
         is SiteResultException -> "SITE_BAD_RESULT" to (e.message ?: "unexpected data")
         is UnsupportedSiteException -> "UNSUPPORTED_SITE" to (e.message ?: "unsupported")
-        is SpiderLoadException -> "SPIDER_LOAD_FAILED" to (e.message ?: "spider failed to load")
+        is SpiderLoadException -> e.code to (e.message ?: "spider failed to load")
         else -> "SITE_ERROR" to (e.message ?: e.javaClass.simpleName)
     }
 

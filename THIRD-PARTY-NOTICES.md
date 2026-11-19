@@ -9,6 +9,17 @@ Yingzhou (映舟) is licensed under AGPL-3.0 (see `LICENSE`). It includes code a
 - `engine/core/.../play/PlayResolver.kt`, `PlayRules`, `M3u8Cleaner.kt`: the parse chain, `rules` handling and m3u8 ad rules follow TVBoxOS and Box (takagen99, AGPL-3.0), which credit FongMi/TV.
 - `engine/core/.../live/Catchup.kt`: live catch-up (回看) addresses follow `LivePlayActivity` of Box (takagen99, AGPL-3.0: `?playseek=` on `/PLTV/` addresses) and TVBoxOS (the `catchup` object's `type` / `source` / `replace` / `regex`, `${(b)…}` / `${(e)…}` placeholders, `appendCatchupUrl`), and `TxtSubscribe` for the M3U attributes. The catch-up modes and placeholders of M3U playlists (`shift`, `flussonic`, `xc`, `{utc}`, `{duration:N}`, `{offset:N}` …) follow the behaviour documented for Kodi's IPTV Simple PVR client (kodi-pvr/pvr.iptvsimple, GPL-2.0-or-later); no code of it is included.
 
+- `engine/runtime-py/src/main/resources/tvbox/py/base/spider.py`: the Python spider base class keeps the method names,
+  helpers and behaviour of TVBox's "pyramid" base class (`pyramid/src/python/base/spider.py` in TVBoxOS and Box,
+  takagen99), including its order-agnostic `regStr` and the one-instance-per-class rule; `worker.py` follows
+  `pyramid/src/python/app.py` (dependencies via `getDependence`, `init` receiving the loaded dependencies,
+  `localProxy` results as `[code, mime, content, headers, base64]`) and `PythonSpider.java` / `PythonLoader.java`.
+  `base/htmlParser.py` is TVBoxOS's file unchanged (its header credits its author).
+- The Python spider runtime's design (one long-lived Python process spoken to over stdin / stdout, the spider's own
+  `print` kept off the protocol stream, trying `searchContent` with and without `pg`, the packages Python spiders
+  commonly import) learned from MisaTV (GPL-3.0, `assets/python_runner/runner.py`, `lib/services/py_spider/`); no
+  code of it is included.
+
 - `engine/core/.../net/ConfigNetwork.kt`: how `hosts`, `doh` and `ads` behave follows TVBoxOS (`OkGoHelper.CustomDns`,
   its DoH list and `ips` bootstrap, the fallback to the system's DNS, `AdBlocker`) and Box (the longer DoH list); the
   `*` in `hosts` names and the top-level `headers` list follow FongMi/TV (GPL-3.0), described from its behaviour.
@@ -74,6 +85,15 @@ SOFTWARE.
 - file_selector (`file_selector` and its platform packages, flutter.dev; picking a subtitle or danmaku file in the client) — BSD-3-Clause
 - JmDNS (`org.jmdns:jmdns`, mDNS announcement of a shared engine) — Apache-2.0
 - bonsoir (`bonsoir`, `bonsoir_platform_interface`, `bonsoir_android`, `bonsoir_darwin`, `bonsoir_linux`, `bonsoir_windows`; finding engines on the LAN in the client), Copyright (c) 2019 Hugo DELAUNAY "Skyost" — MIT
+
+## Downloaded only when the user asks
+
+Not part of the repository or the packages. The 「Python 蜘蛛」 settings can download the official Windows embeddable
+CPython (Python Software Foundation License Version 2) from python.org, and install pip (MIT) and the packages Python
+spiders commonly use with it: requests (Apache-2.0), lxml (BSD-3-Clause), pycryptodome (BSD-2-Clause / public
+domain), beautifulsoup4 (MIT), pyquery (BSD-3-Clause), ujson (BSD-3-Clause), jsonpath (MIT), cachetools (MIT), and
+what pip pulls in for them (urllib3, certifi, idna, charset-normalizer, soupsieve, cssselect, ...), each under its own
+licence, into the engine's data folder.
 
 ## Docker image
 
