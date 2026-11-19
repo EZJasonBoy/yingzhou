@@ -211,7 +211,9 @@ class _DetailPageState extends State<DetailPage> {
               icon: Icon(_favorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
                   color: _favorite ? Colors.pinkAccent : null),
             ),
-            if (_downloads.available == true && line != null)
+            // Not for drive folders: their files are the user's own already, and the engine's download queue
+            // resolves episodes through the sites, which drives are not.
+            if (_downloads.available == true && line != null && !d.site.startsWith('drive:'))
               DownloadButton(detail: d, line: _line, watcher: _downloads, episode: resume != null && resume.$1 == _line ? resume.$2 : 0),
           ],
         ),
