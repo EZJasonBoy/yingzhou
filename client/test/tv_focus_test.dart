@@ -192,6 +192,48 @@ void main() {
     expect(focusOnText('A'), isTrue);
     await key(tester, LogicalKeyboardKey.arrowUp);
     expect(inputType(), 'TextInputType.none');
+    // BACK on the field is back, as anywhere (Android would hand it to the field's input connection otherwise).
+    await key(tester, LogicalKeyboardKey.select);
+    await tester.sendKeyEvent(LogicalKeyboardKey.goBack, platform: 'android', physicalKey: PhysicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(focusIsIn(find.byKey(const Key('tv-rail-2'))), isTrue, reason: 'out of the page onto 搜索');
+  });
+
+  testWidgets('← / → leave a text field once the caret is at that end', (tester) async {
+    await pumpTv(tester);
+    await key(tester, LogicalKeyboardKey.arrowDown, times: 4);
+    await key(tester, LogicalKeyboardKey.select);
+    final field = find.widgetWithText(TextField, '引擎地址');
+    expect(focusIsIn(field), isTrue, reason: '源 starts on the engine address');
+    final editable = tester.state<EditableTextState>(find.descendant(of: field, matching: find.byType(EditableText)));
+    editable.userUpdateTextEditingValue(
+      editable.textEditingValue.copyWith(selection: const TextSelection.collapsed(offset: 4)),
+      SelectionChangedCause.keyboard,
+    );
+    await tester.pump();
+    await key(tester, LogicalKeyboardKey.arrowRight);
+    expect(focusIsIn(field), isTrue, reason: 'in the middle of the text → moves the caret');
+    expect(editable.textEditingValue.selection.baseOffset, 5);
+    final end = editable.textEditingValue.text.length;
+    editable.userUpdateTextEditingValue(editable.textEditingValue.copyWith(selection: TextSelection.collapsed(offset: end)), SelectionChangedCause.keyboard);
+    await tester.pump();
+    await key(tester, LogicalKeyboardKey.arrowRight);
+    expect(focusIsIn(find.widgetWithText(FilledButton, '连接')), isTrue, reason: 'at the end → the button beside it');
+  });
+
+  testWidgets('BACK that closed a dialog is not handed back to Android as a second back', (tester) async {
+    await pumpTv(tester);
+    // Nothing takes BACK on 首页's entry: both halves go to Android, which asks the app to go back (the quit question).
+    expect(await tester.sendKeyDownEvent(LogicalKeyboardKey.goBack, platform: 'android', physicalKey: PhysicalKeyboardKey.escape), isFalse);
+    expect(await tester.sendKeyUpEvent(LogicalKeyboardKey.goBack, platform: 'android', physicalKey: PhysicalKeyboardKey.escape), isFalse);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('退出映舟？'), findsOneWidget);
+    // In the dialog BACK closes it on key down, and the key up stays in the app.
+    expect(await tester.sendKeyDownEvent(LogicalKeyboardKey.goBack, platform: 'android', physicalKey: PhysicalKeyboardKey.escape), isTrue);
+    await tester.pumpAndSettle();
+    expect(find.text('退出映舟？'), findsNothing);
+    expect(await tester.sendKeyUpEvent(LogicalKeyboardKey.goBack, platform: 'android', physicalKey: PhysicalKeyboardKey.escape), isTrue);
   });
 
   testWidgets('desktop: no TV frame, no rail of big entries, mouse habits unchanged', (tester) async {

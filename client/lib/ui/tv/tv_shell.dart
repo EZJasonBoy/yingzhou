@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -62,6 +64,7 @@ class TvShellState extends State<TvShell> {
     for (final n in _items) {
       n.dispose();
     }
+    _tileTimer?.cancel();
     _railScope.dispose();
     _pagesScope.dispose();
     super.dispose();
@@ -139,7 +142,36 @@ class TvShellState extends State<TvShell> {
     if (i != widget.index) widget.onSelect(i);
     // Into the page once it has been built (live TV and others start loading when shown).
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && !enterPage()) _items[i].requestFocus();
+      if (!mounted) return;
+      if (!enterPage()) _items[i].requestFocus();
+      _preferTileSoon(i);
+    });
+  }
+
+  Timer? _tileTimer;
+
+  /// A page that loads its content after it is entered (我的, 网盘) first offers only its header buttons: when its
+  /// posters or tiles show up within a couple of seconds, and the focus has not been moved meanwhile, it goes to the
+  /// first of them.
+  void _preferTileSoon(int index) {
+    _tileTimer?.cancel();
+    // Where entering the page put the focus: known once that request has been applied, i.e. at the first tick.
+    FocusNode? landed;
+    var ticks = 0;
+    _tileTimer = Timer.periodic(const Duration(milliseconds: 250), (t) {
+      final now = FocusManager.instance.primaryFocus;
+      landed ??= now;
+      if (!mounted || widget.index != index || now == null || now != landed || _isTile(now) || !_inPages || ++ticks > 10) {
+        t.cancel();
+        return;
+      }
+      for (final n in _pagesScope.traversalDescendants) {
+        if (n is! FocusScopeNode && n.context != null && _isTile(n)) {
+          t.cancel();
+          n.requestFocus();
+          return;
+        }
+      }
     });
   }
 
@@ -216,6 +248,9 @@ class TvShellState extends State<TvShell> {
         actions: {DirectionalFocusIntent: _EdgeAwareDirectionalFocusAction(_onEdge)},
         child: Scaffold(
           backgroundColor: widget.immersive ? Colors.black : null,
+          // The system keyboard does not squeeze the column of entries (it would overflow); the page under it makes
+          // room for its own text field.
+          resizeToAvoidBottomInset: false,
           body: Stack(
             children: [
               // The page starts right of the closed column; the open one lies over it, so nothing reflows.

@@ -42,14 +42,18 @@ class TvAppFrame extends StatelessWidget {
               navigationMode: NavigationMode.directional,
             )
           : media,
-      child: Shortcuts(
-        shortcuts: tv ? _tvShortcuts : const <ShortcutActivator, Intent>{},
-        child: FocusTraversalGroup(
-          // Off TV the same policy as the app's own top-level group, so nothing changes there.
-          policy: tv ? TvTraversalPolicy() : ReadingOrderTraversalPolicy(),
-          child: TvFocusRing(
-            enabled: tv,
-            child: TvTextInputGate(enabled: tv, child: child),
+      child: _BackKeyGuard(
+        // Phones and tablets send BACK as a key too (button navigation), with the same double back.
+        enabled: !isDesktop(context),
+        child: Shortcuts(
+          shortcuts: tv ? _tvShortcuts : const <ShortcutActivator, Intent>{},
+          child: FocusTraversalGroup(
+            // Off TV the same policy as the app's own top-level group, so nothing changes there.
+            policy: tv ? TvTraversalPolicy() : ReadingOrderTraversalPolicy(),
+            child: TvFocusRing(
+              enabled: tv,
+              child: TvTextInputGate(enabled: tv, child: child),
+            ),
           ),
         ),
       ),
@@ -70,6 +74,43 @@ class TvAppFrame extends StatelessWidget {
     a.right > b.right ? a.right : b.right,
     a.bottom > b.bottom ? a.bottom : b.bottom,
   );
+}
+
+/// Android goes back a page when BACK is let go (key up) and the app did not take the key. A panel or a dialog that
+/// closes on BACK takes the key down; nothing below takes the key up, which Flutter then hands back to Android, and
+/// Android goes back a page as well: the dialog closes and the page behind it goes too (or the quit question comes
+/// straight back). This sits above every handler of the app: a key up of BACK reaches it only when nobody took it,
+/// and it keeps it when the key down never got this far, i.e. something in the app already acted on that press.
+class _BackKeyGuard extends StatefulWidget {
+  const _BackKeyGuard({required this.enabled, required this.child});
+
+  final bool enabled;
+  final Widget child;
+
+  @override
+  State<_BackKeyGuard> createState() => _BackKeyGuardState();
+}
+
+class _BackKeyGuardState extends State<_BackKeyGuard> {
+  /// The last BACK key down was not taken by the app (Android's own back follows on key up).
+  bool _downPassed = false;
+
+  KeyEventResult _onKey(FocusNode _, KeyEvent event) {
+    if (!widget.enabled || event.logicalKey != LogicalKeyboardKey.goBack) return KeyEventResult.ignored;
+    if (event is KeyDownEvent) {
+      _downPassed = true;
+      return KeyEventResult.ignored;
+    }
+    if (event is KeyUpEvent) {
+      final passed = _downPassed;
+      _downPassed = false;
+      return passed ? KeyEventResult.ignored : KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  @override
+  Widget build(BuildContext context) => Focus(canRequestFocus: false, skipTraversal: true, onKeyEvent: _onKey, child: widget.child);
 }
 
 /// The theme on a TV: [base] with focus that shows from across the room (a coral fill on focused buttons, chips and

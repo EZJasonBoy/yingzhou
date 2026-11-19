@@ -33,8 +33,8 @@ extension _PlayerTv on _PlayerPageState {
     final key = event.logicalKey;
     final down = event is KeyDownEvent;
     final primary = FocusManager.instance.primaryFocus;
-    // A button of the bar or something in a panel has the focus (and the bar has not faded out under it).
-    final inside = primary != _focus && (_tvPanelOpen || _controlsVisible);
+    // A button of the bar, of an error or something in a panel has the focus (and the bar has not faded out under it).
+    final inside = primary != _focus && (_tvPanelOpen || _controlsVisible || _error != null);
 
     if (TvKeys.isBack(key)) {
       if (down) _tvBack();

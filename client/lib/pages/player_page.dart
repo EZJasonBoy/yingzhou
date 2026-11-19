@@ -848,7 +848,7 @@ class _PlayerPageState extends State<PlayerPage> {
                   runSpacing: 8,
                   alignment: WrapAlignment.center,
                   children: [
-                    FilledButton.tonal(onPressed: _retry, child: const Text('重试')),
+                    TvAutofocus(child: FilledButton.tonal(onPressed: _retry, child: const Text('重试'))),
                     // The lines stay the user's to choose from when the page has run out of them.
                     if (widget.detail.lines.length > 1) OutlinedButton(onPressed: () => setState(() => _panelOpen = true), child: const Text('换线路')),
                   ],

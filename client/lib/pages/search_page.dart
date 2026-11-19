@@ -204,6 +204,8 @@ class _SearchPageState extends State<SearchPage> {
     final scheme = Theme.of(context).colorScheme;
     final recent = _query == null && _error == null ? _recentQueries() : const <String>[];
     return Scaffold(
+      // The system keyboard covers the letter keys instead of squeezing them; the field is at the top.
+      resizeToAvoidBottomInset: false,
       body: SafeArea(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -276,7 +278,13 @@ class _SearchPageState extends State<SearchPage> {
                         ],
                       ),
                     ),
-                  Expanded(child: recent.isNotEmpty ? _recentOnTv(recent) : _body(visible, state)),
+                  Expanded(
+                    child: recent.isNotEmpty
+                        ? _recentOnTv(recent)
+                        : _query == null && _error == null
+                        ? const StatusView(icon: Icons.travel_explore, message: '用左边的键盘输入片名、拼音或首字母，再按「搜索」\n中文和语音请用「输入法」')
+                        : _body(visible, state),
+                  ),
                 ],
               ),
             ),

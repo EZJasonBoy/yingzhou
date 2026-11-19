@@ -101,9 +101,36 @@ class _TvTextInputGateState extends State<TvTextInputGate> {
     return context.findAncestorStateOfType<EditableTextState>();
   }
 
-  /// OK on a focused text field: open the system keyboard for it.
+  /// OK on a focused text field: open the system keyboard for it. BACK on a field whose keyboard is closed: back, as
+  /// anywhere else (Android would otherwise hand the key to the field's input connection, which swallows it).
   KeyEventResult _onKey(FocusNode _, KeyEvent event) {
-    if (!widget.enabled || !TvKeys.isActivate(event.logicalKey) || event.logicalKey == LogicalKeyboardKey.space) return KeyEventResult.ignored;
+    if (!widget.enabled) return KeyEventResult.ignored;
+    if (event.logicalKey == LogicalKeyboardKey.goBack) {
+      final node = FocusManager.instance.primaryFocus;
+      final context = node?.context;
+      if (_editable(node) == null || context == null) return KeyEventResult.ignored;
+      if (event is KeyDownEvent) {
+        _close();
+        Navigator.maybeOf(context)?.maybePop();
+      }
+      return KeyEventResult.handled;
+    }
+    // ← / → move the caret, and leave the field once the caret is at that end (the field beside it is reachable).
+    if (TvKeys.isLeft(event.logicalKey) || TvKeys.isRight(event.logicalKey)) {
+      final editable = _editable(FocusManager.instance.primaryFocus);
+      if (editable == null || !editable.mounted) return KeyEventResult.ignored;
+      final left = TvKeys.isLeft(event.logicalKey);
+      final value = editable.textEditingValue;
+      final selection = value.selection;
+      final atEnd = !selection.isValid || (selection.isCollapsed && (left ? selection.baseOffset <= 0 : selection.baseOffset >= value.text.length));
+      if (!atEnd) return KeyEventResult.ignored;
+      if (event is! KeyUpEvent) {
+        // From above the field's own actions: the shell's (which knows the edges of the page) or the app's.
+        Actions.maybeInvoke(editable.context, DirectionalFocusIntent(left ? TraversalDirection.left : TraversalDirection.right));
+      }
+      return KeyEventResult.handled;
+    }
+    if (!TvKeys.isActivate(event.logicalKey) || event.logicalKey == LogicalKeyboardKey.space) return KeyEventResult.ignored;
     final node = FocusManager.instance.primaryFocus;
     final editable = _editable(node);
     if (editable == null || node == null || editable.widget.readOnly) return KeyEventResult.ignored;
