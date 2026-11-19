@@ -1,15 +1,49 @@
+import 'package:flutter/rendering.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../engine/vod_models.dart';
 import 'common.dart';
 
-/// Grid delegate shared by every poster wall: ~160px wide cards, poster ratio 0.7 plus a two-line title.
-const posterGridDelegate = SliverGridDelegateWithMaxCrossAxisExtent(
-  maxCrossAxisExtent: 168,
-  mainAxisSpacing: 18,
-  crossAxisSpacing: 14,
-  childAspectRatio: 0.56,
-);
+/// Grid delegate shared by every poster wall: ~160px wide cards, poster ratio 0.7 plus a two-line title; three to a
+/// row on a phone held upright ([PosterGridDelegate]).
+const posterGridDelegate = PosterGridDelegate();
+
+/// The poster wall's columns, by the width it has: below [narrow] (a phone held upright) three columns of smaller
+/// posters filling the width, as phone video apps do; from there on cards of about 160 dp.
+class PosterGridDelegate extends SliverGridDelegate {
+  const PosterGridDelegate();
+
+  static const narrow = 560.0;
+
+  static const _wide = SliverGridDelegateWithMaxCrossAxisExtent(
+    maxCrossAxisExtent: 168,
+    mainAxisSpacing: 18,
+    crossAxisSpacing: 14,
+    childAspectRatio: 0.56,
+  );
+
+  @override
+  SliverGridLayout getLayout(SliverConstraints constraints) {
+    final width = constraints.crossAxisExtent;
+    if (width >= narrow) return _wide.getLayout(constraints);
+    const spacing = 10.0;
+    final columns = width < 300 ? 2 : 3;
+    final itemWidth = (width - spacing * (columns - 1)) / columns;
+    // The poster, the gap under it and two lines of title (with room for a larger system font).
+    final itemHeight = itemWidth / 0.7 + 8 + 46;
+    return SliverGridRegularTileLayout(
+      crossAxisCount: columns,
+      mainAxisStride: itemHeight + 12,
+      crossAxisStride: itemWidth + spacing,
+      childMainAxisExtent: itemHeight,
+      childCrossAxisExtent: itemWidth,
+      reverseCrossAxis: axisDirectionIsReversed(constraints.crossAxisDirection),
+    );
+  }
+
+  @override
+  bool shouldRelayout(PosterGridDelegate oldDelegate) => false;
+}
 
 class PosterCard extends StatefulWidget {
   const PosterCard({super.key, required this.vod, required this.onTap, this.caption});

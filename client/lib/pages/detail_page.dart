@@ -167,18 +167,22 @@ class _DetailPageState extends State<DetailPage> {
 
     final poster = ClipRRect(
       borderRadius: BorderRadius.circular(14),
-      child: SizedBox(width: wide ? 200 : 140, height: wide ? 286 : 200, child: NetImage(d.pic.isNotEmpty ? d.pic : widget.preview.pic)),
+      child: SizedBox(width: wide ? 200 : 112, height: wide ? 286 : 160, child: NetImage(d.pic.isNotEmpty ? d.pic : widget.preview.pic)),
     );
+    // Narrow (a phone held upright): the title and facts go beside a small poster, the buttons under both.
+    final heading = [
+      Text(d.name, style: (wide ? theme.textTheme.headlineMedium : theme.textTheme.titleLarge)?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 8),
+      if (meta.isNotEmpty) Text(meta, style: TextStyle(color: scheme.onSurfaceVariant)),
+      const SizedBox(height: 4),
+      Text('来源：$siteName', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+      if (d.director.isNotEmpty) ...[const SizedBox(height: 10), _kv('导演', d.director, scheme)],
+      if (d.actor.isNotEmpty) ...[const SizedBox(height: 4), _kv('主演', d.actor, scheme)],
+    ];
     final info = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(d.name, style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
-        const SizedBox(height: 8),
-        if (meta.isNotEmpty) Text(meta, style: TextStyle(color: scheme.onSurfaceVariant)),
-        const SizedBox(height: 4),
-        Text('来源：$siteName', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
-        if (d.director.isNotEmpty) ...[const SizedBox(height: 10), _kv('导演', d.director, scheme)],
-        if (d.actor.isNotEmpty) ...[const SizedBox(height: 4), _kv('主演', d.actor, scheme)],
+        if (wide) ...heading,
         const SizedBox(height: 18),
         Wrap(
           spacing: 12,
@@ -226,7 +230,16 @@ class _DetailPageState extends State<DetailPage> {
         children: [
           wide
               ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [poster, const SizedBox(width: 28), Expanded(child: info)])
-              : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [poster, const SizedBox(height: 18), info]),
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [poster, const SizedBox(width: 16), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: heading))],
+                    ),
+                    info,
+                  ],
+                ),
           if (d.content.isNotEmpty) ...[
             const SizedBox(height: 24),
             GestureDetector(
@@ -264,7 +277,7 @@ class _DetailPageState extends State<DetailPage> {
               children: [
                 for (var i = 0; i < line!.episodes.length; i++)
                   SizedBox(
-                    width: 112,
+                    width: wide ? 112 : _narrowEpisodeWidth(context),
                     child: OutlinedButton(
                       onPressed: () => _play(d, _line, i),
                       style: OutlinedButton.styleFrom(
@@ -295,6 +308,14 @@ class _DetailPageState extends State<DetailPage> {
       const SizedBox(height: 2),
       SizedBox(height: 16, child: download == null ? null : EpisodeDownloadMark(key: Key('download-mark-$i'), item: download, compact: true)),
     ]);
+  }
+
+  /// On a narrow screen the episode buttons fill the row: as many of about 84 dp as fit, at least three.
+  static double _narrowEpisodeWidth(BuildContext context) {
+    final padding = MediaQuery.paddingOf(context);
+    final width = MediaQuery.sizeOf(context).width - padding.left - padding.right - 48;
+    final columns = ((width + 8) / 92).floor().clamp(3, 8);
+    return (width - 8 * (columns - 1)) / columns - 0.5;
   }
 
   Widget _kv(String k, String v, ColorScheme scheme) => Text.rich(
