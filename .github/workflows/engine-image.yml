@@ -1,0 +1,108 @@
+# Docker image of the engine (engine/Dockerfile) for amd64 and arm64.
+#
+# Every run: builds the amd64 image, starts it, and checks it answers, prints a pairing code, refuses the API without
+# a token, is healthy, and passes the demo self-test (CMS, JS, jar spiders, sniffing with the image's Chromium, live)
+# inside the image. Then builds both platforms; pushes to ghcr.io/<owner>/yingzhou-engine on a tag (v*) or a manual
+# run with "push" ticked.
+name: engine-image
+
+on:
+  workflow_dispatch:
+    inputs:
+      push:
+        description: Push the image to ghcr.io
+        type: boolean
+        default: false
+  push:
+    tags: ["v*"]
+    branches: [main]
+    paths: ["engine/**", ".github/workflows/engine-image.yml"]
+  pull_request:
+    paths: ["engine/**", ".github/workflows/engine-image.yml"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build (amd64, for the smoke test)
+        uses: docker/build-push-action@v6
+        with:
+          context: engine
+          platforms: linux/amd64
+          load: true
+          tags: yingzhou-engine:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name engine -p 9978:9978 --shm-size 256m yingzhou-engine:test
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:9978/api/v1/info && break
+            sleep 2
+          done
+          echo
+          docker logs engine 2>&1 | tee engine.log
+          grep -q '配对码' engine.log
+          # From outside the container nobody is "local": the API wants a token, engine info does not.
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9978/api/v1/sites)" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9978/api/v1/info)" = 200
+          for i in $(seq 1 30); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' engine)"
+            [ "$status" = healthy ] && break
+            sleep 5
+          done
+          echo "health: $status"
+          [ "$status" = healthy ]
+          # Runs as the non-root user.
+          test "$(docker exec engine id -u)" = 10001
+          docker rm -f engine
+
+      - name: Demo self-test inside the image
+        shell: bash
+        run: |
+          docker run --rm --shm-size 256m --entrypoint /opt/yingzhou/jre/bin/java yingzhou-engine:test \
+            -Xss1m -XX:+UnlockDiagnosticVMOptions -XX:-BytecodeVerificationRemote -Dstdout.encoding=UTF-8 \
+            -cp '/opt/yingzhou/lib/*' tvbox.engine.server.MainKt --demo --check --play --strict
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/yingzhou-engine
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=branch
+            type=sha
+
+      - name: Log in to ghcr.io
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.push
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build amd64 + arm64
+        uses: docker/build-push-action@v6
+        with:
+          context: engine
+          platforms: linux/amd64,linux/arm64
+          push: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.push == true }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

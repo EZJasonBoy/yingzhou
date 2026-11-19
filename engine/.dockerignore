@@ -1,0 +1,11 @@
+# Only the Gradle build and the entrypoint go into the image build.
+**/build
+**/.gradle
+.gradle
+.idea
+**/*.iml
+**/out
+local.properties
+server/demo-jar/stubs/**/*.class
+docker-compose.yml
+Dockerfile

@@ -1,0 +1,34 @@
+# The Yingzhou (映舟) engine on a NAS:
+#
+#   cd engine
+#   docker compose up -d --build
+#   docker compose logs -f        # the pairing code is printed here
+#
+# Then on each device: 「源」 → engine address http://<NAS address>:9978 → enter the pairing code.
+# See docs/user-guide.md section 8.
+services:
+  engine:
+    build:
+      context: .
+      # args:
+      #   WITH_CHROMIUM: "false"   # no web page sniffing; a much smaller image
+    image: yingzhou-engine:local
+    container_name: yingzhou-engine
+    restart: unless-stopped
+    ports:
+      - "9978:9978"
+    volumes:
+      # Subscriptions, history, favourites, paired devices, spider caches.
+      - yingzhou-data:/data
+    environment:
+      TZ: Asia/Shanghai
+      TVBOX_NAME: 映舟引擎（NAS）
+      # TVBOX_MAX_HEAP: 512m
+    # Chromium needs more shared memory than Docker's 64 MB default when it plays video pages.
+    shm_size: 256m
+    # Automatic discovery (mDNS) does not leave a bridged network. For it, use the host's network instead
+    # (Linux only) and remove `ports` above:
+    # network_mode: host
+
+volumes:
+  yingzhou-data:
