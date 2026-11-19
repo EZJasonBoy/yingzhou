@@ -311,7 +311,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t yingzhou-engine .   # 
 
 基础镜像只固定到系列（`eclipse-temurin:21-jdk`、`debian:bookworm-slim`），每次构建会拿到当时的安全更新；需要可重复构建时用 `--build-arg JDK_IMAGE=…@sha256:…` 固定摘要。
 
-## 13. Android 电视（遥控器）
+## 14. Android 电视（遥控器）
 
 设计见 [architecture.md](architecture.md) 第 4 节"电视与遥控器"。代码：`client/lib/ui/device_form.dart`（是不是电视，和手机会话共用）、`client/lib/ui/tv/`（外框、焦点、外壳、输入框、键盘、对话框）、`client/lib/pages/player_tv.dart`、`live_tv.dart`、`ui_mode_settings.dart`，安卓侧 `DeviceChannel.kt`。
 
