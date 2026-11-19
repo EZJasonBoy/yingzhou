@@ -87,6 +87,14 @@ cd engine && ./gradlew :server:run --args="--demo --dev-cors --port 19978"
 
 它的地址写成 `localhost` 而不是 `127.0.0.1`：引擎不会把自己地址上的 m3u8 再包一层 `/m3u8`，换个名字它才和普通站点一样经过播放列表接口和播放缓存。
 
+### 字幕、音轨与弹幕演示
+
+首页最后两个是《字幕演示》和《弹幕演示》（`DemoMedia.kt`），视频同样是现算出来的（三分钟），不需要外网。字幕和弹幕只在「演示JS站」里有：JS 蜘蛛的 `play` 遇到 `/demo/av/` 的地址时，把 `/demo/extras?url=` 返回的整个播放结果交出去；在「演示站」（采集站）里打开就只有视频。
+
+- 《字幕演示》：`/demo/av/master.m3u8`，主列表里有两条 `#EXT-X-MEDIA` 音轨（国语单声道、English 立体声，MPEG-1 Layer II，手写的静音帧，没有编码器所以听不出区别，只能看音轨列表）；`subs` 给三条字幕：`/demo/subs/gbk.srt`（GBK 编码、CRLF、不声明编码）、`/demo/subs/styled.ass`（带样式、顶部提示、UTF-8 BOM）、`/demo/subs/private.srt`（没有 `Referer: …/demo/` 就 403，播放结果的 `header` 里给了）。
+- 《弹幕演示》：`/demo/av/video.m3u8`，蜘蛛给出 `danmaku: /demo/danmaku/dense.xml`：三分钟 3000 条 B 站 XML（固定随机种子，85% 滚动、8% 顶部、7% 底部），像 B 站一样用不带头的 deflate 压缩并声明 `Content-Encoding: deflate`。
+- 演示配置有顶层 `danmaku`：`/demo/danmaku/api?name={name}&episode={episode}`，对任何片名都回答 `{"url": …/demo/danmaku/comments.json?…}`，后者是 80 条弹幕接口常见的 JSON（`comments[].p` = 时间,模式,颜色,用户）。引擎只在「源 → 弹幕」里打开"订阅的弹幕接口"之后才会问它。
+
 ## 5. 在真实 Windows 应用里跑集成测试
 
 单元测试覆盖不到播放器、窗口和全屏。`client/integration_test/` 里的测试会启动真正的应用，连演示引擎，一步步操作：
@@ -99,6 +107,8 @@ flutter test integration_test/live_test.dart -d windows --dart-define=SHOT_DIR=<
 ```
 
 每一步会打印 `MARK:<步骤>`，给了 `SHOT_DIR` 就在那一步存一张截图（应用内截图，包含视频画面；从外部截测试窗口是黑的）。
+
+`desktop_play_test.dart` 的"subtitles, audio tracks and danmaku"一步要用「演示JS站」的《字幕演示》《弹幕演示》（见第 4 节），开始前会删掉这两部片在引擎里的观看历史（否则会按上次选的字幕和进度继续）。弹幕部分把帧策略切到 `fullyLive`，按引擎实际出的每一帧统计构建 / 光栅化耗时，打印三行 `DANMAKU_FRAMES:{…}`（弹幕开、全屏、弹幕关），结果记在 [architecture.md](architecture.md) 第 4 节。按键偶尔没有送到播放页时，前面一行 `KEYS:` 会打印当时按住的键和焦点在哪。
 
 `integration_test/seek_test.dart` 量的是拖动进度条的耗时：在《慢速源演示》上播一分钟，然后点进度条——跳到预读的位置、看过的位置、两处没缓存的位置、回到其中一处、回到开头，中间还按住拖两秒。每次跳转打印一行 `SEEK:{…}`：从点击到出第一帧（`firstPictureMs`）、到重新播起来（`playingMs`）各多少毫秒，播放器收到几次跳转，片源收到哪些请求；另外打印应用和引擎的内存（`MEMORY:{…}`）。第二个用例播"直链"那一集，检查播放器自己的缓存文件。缓存命中的跳转要求一秒内恢复、不向片源请求落点所在的分片，拖动只算一次跳转。
 

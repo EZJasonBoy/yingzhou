@@ -17,6 +17,13 @@ data class HistoryEntry(
     val durationMs: Long = 0,
     /** Epoch millis; set by the engine. */
     val updatedAt: Long = 0,
+    /**
+     * The subtitle chosen for this title, kept for the next episode and the next visit: `off`, `lang:<language>` or
+     * `name:<track name>`; empty for the player's own choice. Written by clients, opaque to the engine.
+     */
+    val subtitle: String = "",
+    /** The audio track chosen, `lang:<language>` or `name:<track name>`; empty for the default. */
+    val audio: String = "",
 )
 
 @Serializable

@@ -50,7 +50,7 @@
 | `headers` | ✅ | `[{host, header}]`：按域名加请求头，引擎的请求和交给播放器的请求头都带上 |
 | `ads` | 🟡 | 嗅探时屏蔽这些域名（桌面引擎）；TVBox 内置的那份默认广告域名表没有搬过来 |
 | `proxy` | ⬜ | 部分分支用来指定哪些域名走代理，未读取 |
-| `danmaku` | ⬜ | 弹幕未实现 |
+| `danmaku` | ✅ | 弹幕接口，按片名和集数找弹幕（写法见第 7 节"弹幕"）。**默认不用**：它会收到每一集的片名，由使用者在「源 → 弹幕」里打开；TVBoxOS 是默认就用，没有时还会去问它内置的第三方服务，这里两样都不做 |
 | `ijk`、`logo`、`notice`、`warningText` 等 | ⬜ | 与安卓播放器内核或界面相关，忽略 |
 
 ### 网络项：`hosts`、`headers`、`doh`、`ads`
@@ -196,9 +196,50 @@ jar 蜘蛛在桌面上依赖的安卓类是桩类，覆盖了常见用法（`Con
 | `header` / `headers` | ✅ | 对象或 JSON 字符串都行 |
 | `flag` | ✅ | |
 | `playUrl` | ✅ | |
-| `subs` / `subt` 字幕 | ⬜ | |
-| `danmaku` | ⬜ | |
+| `subt` | ✅ | 一个字幕地址；`地址#文件名.ass` 里 `#` 后面是显示的名字（扩展名说明格式），不发给服务器 |
+| `subs` | ✅ | `[{name, lang, format, url}]`，全部列出（Box 只取第一条）；`format` 认 `application/x-subrip`、`text/x-ssa`、`text/vtt`、`text/lrc` 等 MIME 类型；名字里有 lyric / lrc / 歌词的是歌词，不当字幕。也接受写成 JSON 字符串或单个对象 |
+| `danmaku` | ✅ | 弹幕地址（`http(s)://`、`proxy://`），或直接写进来的弹幕（XML 文本、JSON），见下面"弹幕" |
 | `format` | 🟡 | 引擎按地址和响应判断格式，不看这个字段 |
+
+### 字幕
+
+`subt` 在前，`subs` 依次在后，同一地址只算一次。地址可以是 `http(s)://` 或 `proxy://`（蜘蛛自己的代理）；`file://` 等本地路径不支持。
+
+交给播放器的不是站点的地址，而是引擎的 `/subtitle?url=…`：引擎带上播放结果里的 `header` 去取，再交给播放器 UTF-8 文本——
+
+| 字幕文件 | 支持 | 说明 |
+|---|---|---|
+| SRT、ASS / SSA、WebVTT | ✅ | 原样转交；SRT 时间里的 `.` 改成 `,` |
+| TTML / DFXP、LRC、B 站 JSON 字幕（`{"body":[{from,to,content}]}`） | ✅ | 转成 SRT |
+| MicroDVD 等其他文本格式 | 🟡 | 原样转交，由播放器自己识别 |
+| GBK、Big5、UTF-16（有无 BOM）、UTF-8 | ✅ | 按内容识别，不信服务器声明的编码；GBK 和 Big5 按常用字出现的多少区分 |
+| gzip / deflate 压缩的文件 | ✅ | 按内容识别并解压 |
+| 图形字幕（SUP、VobSub）、`.zip` 字幕包 | ⬜ | |
+
+字幕由 libmpv 用 libass 绘制，ASS 的字体、颜色、位置照原样显示。安卓客户端由 media_kit 画纯文本字幕。
+
+### 弹幕
+
+一集的弹幕按顺序找，找到就停：① 播放结果里的 `danmaku`（引擎在解析播放地址时记下，按"站点 + 线路 + 剧集"）；② 配置顶层的 `danmaku` 接口，**使用者打开了才问**；③ 使用者自己填的弹幕接口。结果在引擎里按集保留 30 分钟（最近 24 集）。
+
+| 弹幕接口的写法（配置 `danmaku`，或自己填的） | 支持 | 说明 |
+|---|---|---|
+| 带 `{name}`、`{episode}` 的地址 | ✅ | 填进片名和集名（URL 编码）后 GET |
+| 以 `/danmaku` 结尾的地址 | ✅ | POST 表单 `name`、`episode`（同 TVBoxOS） |
+| 其他地址 | ✅ | 当作弹弹play 兼容接口的根（如 danmu_api 一类自建服务）：`/api/v2/search/episodes?anime=&episode=` 找剧集（片名相同的优先，再按集名、集数，电影取唯一的一集），`/api/v2/comment/{id}?format=json` 取弹幕 |
+| 接口的回答 | ✅ | 弹幕本身（下表的格式），或弹幕地址：`{"url"}`、`[{"url"}]`（取第一个）、纯文本地址 |
+| TVBoxOS 内置的第三方弹幕服务 | ⬜ | 不内置任何第三方服务（会把看的内容发出去） |
+| jar 蜘蛛的弹幕搜索界面（`onClick` / `onLongClick`） | ⬜ | |
+
+| 弹幕格式 | 支持 | 说明 |
+|---|---|---|
+| B 站 XML `<d p="时间,模式,字号,颜色,…">` | ✅ | 模式 1/2/3/6 滚动、4 底部、5 顶部；7（高级）、8（代码）弹幕不显示。实体、CDATA、属性顺序、单双引号都按宽松方式读 |
+| B 站接口的 raw deflate（`Content-Encoding: deflate`）、gzip | ✅ | 按内容识别并解压 |
+| JSON `{comments: [{p, m}]}`（弹弹play 类服务） | ✅ | `p` = 时间,模式,颜色,用户；五段以上按 B 站的顺序（字号在颜色前）。也认 `data`、`list` 等字段，或直接一个数组 |
+| DPlayer / ArtPlayer：`[时间, 类型, 颜色, 作者, 文字]`、`{text, time, color, type}` | ✅ | 类型 0 滚动、1 顶部、2 底部 |
+| ASS（弹幕转换工具生成的） | ✅ | `\move` 为滚动，`\an8` 顶部、`\an2` 底部（或样式里的对齐），颜色取 `\c&HBBGGRR&` |
+| B 站 protobuf 分段弹幕 | ⬜ | |
+| 编码 | ✅ | 同字幕：UTF-8 / UTF-16 / GBK / Big5 自动识别 |
 
 ### 播放地址是 m3u8 时
 

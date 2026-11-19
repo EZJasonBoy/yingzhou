@@ -184,7 +184,7 @@ tvbox-next/
 
 ## 4. 客户端（Flutter）
 
-> 现状：单窗口外壳（首页、直播、搜索、我的、源）+ 详情页 + 播放页，桌面用 media_kit（libmpv），触控 / 鼠标模式。下面列的迷你播放器、画中画、遥控器焦点模式、`PlayerKernel` 抽象、弹幕都还是计划。
+> 现状：单窗口外壳（首页、直播、搜索、我的、源）+ 详情页 + 播放页，桌面用 media_kit（libmpv），触控 / 鼠标模式；点播有字幕、音轨和弹幕（Flutter 图层）。下面列的迷你播放器、画中画、遥控器焦点模式、`PlayerKernel` 抽象、弹幕的 mpv/ASS 渲染方式都还是计划。
 
 - **单窗口 + 路由**：首页、分类、搜索、详情、播放、直播、历史、收藏、设置。支持迷你播放器与画中画。
 - **两种交互模式**：触控/鼠标模式；遥控器焦点模式（电视）。组件共用，布局与焦点逻辑分开。
@@ -192,9 +192,24 @@ tvbox-next/
   - 桌面：libmpv（media_kit），硬解（d3d11va / videotoolbox / vaapi）。
   - Android：ExoPlayer（官方 video_player）为默认，libmpv 兜底冷门格式。
   - iOS：AVPlayer 为默认，libmpv 兜底 mkv / flv 等。
+- **字幕与音轨（已实现）**：引擎把站点给的 `subt` / `subs`（`core/play/Subtitles.kt`）变成自己的 `/subtitle?url=&h=` 地址，取的时候识别编码（`core/util/TextDecoding.kt`：BOM、UTF-16、UTF-8，否则 GB18030 / Big5 按常用字打分；gzip / deflate 按内容解压）并把 TTML、LRC、B 站 JSON 字幕转成 SRT（`SubtitleConverter`）；本地文件经 `POST /subtitle/convert` 走同一条路，所以客户端不需要任何编码库。桌面播放器开 libass（`PlayerConfiguration(libass: true)`），字幕由 libmpv 画进视频纹理，ASS 样式原样保留；大小、位置、时间偏移是 libmpv 的 `sub-scale`、`sub-pos`、`sub-delay`（`pages/player_tracks.dart` 的 `PlayerTracks`）。站点的字幕在选中时才 `sub-add`，之后按轨道 id 切换。选的字幕语言和音轨写进观看历史（`HistoryEntry.subtitle` / `audio`）。安卓不开 libass，由 media_kit 画纯文本。
 - **弹幕**：引擎下发统一格式；客户端两种渲染：
-  1. Flutter 图层：文字预栅格化缓存、只绘制可见部分，兼容任何内核、可交互。
-  2. 桌面 mpv 模式：转成 ASS 交给 libmpv 渲染，几乎零开销。
+  1. Flutter 图层（已实现）：文字预栅格化缓存、只绘制可见部分，兼容任何内核、可交互。
+  2. 桌面 mpv 模式：转成 ASS 交给 libmpv 渲染，几乎零开销（未做，Flutter 图层已经够快，见下）。
+
+#### 弹幕（已实现）
+
+- **引擎**（`core/danmaku/`）：`DanmakuParser` 把 B 站 XML、各种 JSON、弹幕 ASS 读成一种格式（毫秒、`scroll`/`top`/`bottom`、0xRRGGBB、B 站字号、文字），解压和编码识别与字幕共用 `TextDecoding`。`DanmakuService` 按顺序找一集的弹幕：播放结果里的 `danmaku`（`Engine.resolvePlay` 时按"站点 + 线路 + 剧集"记下）、配置的 `danmaku` 接口（`EngineSettings.danmakuConfigApi` 打开时）、使用者自己的接口（`danmakuApi`），结果在内存里按集保留 30 分钟。接口不内置任何第三方地址，两个开关默认都关。客户端经 `GET /api/v1/danmaku`（带令牌）取，所以局域网客户端不需要签名地址。
+- **客户端**（`pages/danmaku_layer.dart`）：`DanmakuScheduler` 是纯计算（可单测）：滚动弹幕在视频时间里用 9 秒（除以速度设置）从右到左走完一屏，越长越快；一条轨道只在前一条完全进场、并且新的追不上旧的时才接新的，大字号占两条轨道；顶部 / 底部弹幕停 4 秒；没有轨道就丢掉（密集时保持可读）；跳转后把最近 9 秒内开始的弹幕放回它们此刻应在的位置。`DanmakuOverlay` 用帧时间戳（应用里是垂直同步时间，组件测试里是测试时钟）推算播放位置：播放器报的位置和推算差 120 ms 以上才校正、1.5 秒以上算跳转；暂停、缓冲时冻结，倍速按视频时间走。每条弹幕上屏时用 `TextPainter` 画一次（带描边）并 `toImageSync` 成纹理，之后每帧只是 `drawImageRect`；只有在播放且有弹幕时 `Ticker` 才运行，暂停时不重绘；整层 `RepaintBoundary` + `IgnorePointer`，在画面之上、控制条之下。屏蔽类型和屏蔽词在上屏时过滤，改了设置时把已在屏上的被屏蔽弹幕立即拿掉。
+- **实测**（`client/integration_test/desktop_play_test.dart`，真实 Windows 应用，调试构建，演示引擎的《弹幕演示》：三分钟 3000 条，2026-11-19；窗口 1346×823 逻辑像素 = 2356×1441 物理像素，显示器约 144 Hz，帧由引擎按刷新率出）：
+
+  | 20 秒内 | 帧数 | 构建 p50 / p90 / p99 / 最大 | 光栅化 p50 / p90 / p99 / 最大 | 超过 16.7 ms 的帧 | 屏上弹幕（平均 / 最多） |
+  |---|---|---|---|---|---|
+  | 弹幕开，窗口 | 2877 | 0.60 / 1.14 / 1.52 / 10.32 ms | 1.31 / 1.56 / 2.04 / 2.82 ms | 0 | 125 / 151 |
+  | 弹幕开，全屏 3601×2252（10 秒） | 1454 | 0.50 / 1.06 / 1.74 / 12.12 ms | 1.22 / 1.51 / 2.15 / 3.14 ms | 0 | 103 / 141 |
+  | 弹幕关（10 秒，对照） | 1220 | 0.21 / 0.69 / 1.33 / 14.96 ms | 0.31 / 0.56 / 0.75 / 1.47 ms | 0 | — |
+
+  即同屏一百多条时每帧多出约 0.4 ms 构建、1 ms 光栅化。20 秒里上屏 388 条、因没有轨道丢掉 8 条。这是调试构建；发布构建只会更快。CPU 占用没有单独测。
 
 ## 5. 安全
 

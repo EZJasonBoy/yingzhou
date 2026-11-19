@@ -108,6 +108,25 @@ data class PlayInfo(
      * disk, and `/api/v1/stream-cache/coverage?key=` with this value says which parts are there.
      */
     val cache: String = "",
+    /** External subtitles the site named, each served by the engine as UTF-8 SRT / ASS / WebVTT. */
+    val subtitles: List<SubtitleTrack> = emptyList(),
+    /**
+     * Where the site's danmaku for this episode come from ("" when it named none). For display only: clients get the
+     * danmaku themselves from `/api/v1/danmaku`, which also asks the configured danmaku services.
+     */
+    val danmaku: String = "",
+)
+
+/** An external subtitle of a [PlayInfo]. */
+@Serializable
+data class SubtitleTrack(
+    val name: String,
+    /** Language code or name as the site gave it ("" when it did not). */
+    val lang: String = "",
+    /** What the engine serves at [url]: srt | ass | ssa | vtt. */
+    val format: String = "",
+    /** The engine's `/subtitle?…` address (signed for LAN clients), not the site's. */
+    val url: String,
 )
 
 /** Aggregated search events (SSE). */

@@ -41,6 +41,9 @@ object PlayerResult {
             headers = headers(obj),
             playUrl = playUrl,
             flag = obj.str("flag") ?: flag,
+            subtitles = tvbox.engine.core.play.Subtitles.parse(obj),
+            // Usually an address; a few spiders put the danmaku themselves in (XML text, or JSON).
+            danmaku = obj.get("danmaku")?.takeIf { !it.isJsonNull }?.let { if (it.isJsonPrimitive) it.asString else it.toString() }?.trim().orEmpty(),
         )
     }
 

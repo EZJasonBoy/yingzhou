@@ -166,7 +166,16 @@ class VodDetail {
 }
 
 class PlayInfo {
-  const PlayInfo({required this.kind, this.url = '', this.headers = const {}, this.sniffPageUrl, this.parsedBy = '', this.cache = ''});
+  const PlayInfo({
+    required this.kind,
+    this.url = '',
+    this.headers = const {},
+    this.sniffPageUrl,
+    this.parsedBy = '',
+    this.cache = '',
+    this.subtitles = const [],
+    this.danmaku = '',
+  });
 
   /// `direct` or `sniff`.
   final String kind;
@@ -178,6 +187,12 @@ class PlayInfo {
   /// Not empty when the engine's stream cache serves [url]; the key to ask the engine which parts it holds.
   final String cache;
 
+  /// Subtitles the site named, each an engine address the player can open (UTF-8 SRT / ASS / WebVTT).
+  final List<ExternalSubtitle> subtitles;
+
+  /// Where the site's danmaku come from ("" when it named none); the danmaku themselves come from `/danmaku`.
+  final String danmaku;
+
   bool get isDirect => kind == 'direct';
 
   factory PlayInfo.fromJson(Map<String, dynamic> j) => PlayInfo(
@@ -187,6 +202,27 @@ class PlayInfo {
         sniffPageUrl: (j['sniff'] as Map<String, dynamic>?)?['pageUrl'] as String?,
         parsedBy: j['parsedBy'] as String? ?? '',
         cache: j['cache'] as String? ?? '',
+        subtitles: [for (final s in j['subtitles'] as List<dynamic>? ?? const []) ExternalSubtitle.fromJson(s as Map<String, dynamic>)],
+        danmaku: j['danmaku'] as String? ?? '',
+      );
+}
+
+/// A subtitle file that is not part of the stream: one the site named (served by the engine) or one from disk.
+class ExternalSubtitle {
+  const ExternalSubtitle({required this.name, this.lang = '', this.format = '', required this.url});
+
+  final String name;
+  final String lang;
+
+  /// srt | ass | ssa | vtt
+  final String format;
+  final String url;
+
+  factory ExternalSubtitle.fromJson(Map<String, dynamic> j) => ExternalSubtitle(
+        name: j['name'] as String? ?? '',
+        lang: j['lang'] as String? ?? '',
+        format: j['format'] as String? ?? '',
+        url: j['url'] as String? ?? '',
       );
 }
 
