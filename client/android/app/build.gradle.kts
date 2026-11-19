@@ -1,7 +1,27 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// The release signing key. CI: the ANDROID_KEYSTORE_* secrets (see .github/workflows/desktop.yml). A local release
+// build: a properties file named by YINGZHOU_SIGNING (keystore, alias, storePassword, keyPassword). Without either,
+// release builds are signed with the debug key and cannot update an installed release.
+val releaseSigning: Map<String, String>? = run {
+    val env = System.getenv()
+    val file = env["ANDROID_KEYSTORE_FILE"]
+    if (!file.isNullOrBlank() && File(file).isFile) {
+        return@run mapOf(
+            "keystore" to file,
+            "alias" to (env["ANDROID_KEY_ALIAS"] ?: ""),
+            "storePassword" to (env["ANDROID_KEYSTORE_PASSWORD"] ?: ""),
+            "keyPassword" to (env["ANDROID_KEY_PASSWORD"] ?: ""),
+        )
+    }
+    val props = env["YINGZHOU_SIGNING"]?.let { File(it) }?.takeIf { it.isFile } ?: return@run null
+    Properties().apply { props.inputStream().use { load(it) } }.let { p -> p.stringPropertyNames().associateWith { p.getProperty(it) } }
 }
 
 android {
@@ -16,10 +36,8 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "tvbox.next.tvbox_client"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+        // Never change it once released: Android treats another id as another app.
+        applicationId = "io.github.sa1koro.yingzhou"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
@@ -30,11 +48,20 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (releaseSigning != null) {
+            create("release") {
+                storeFile = File(releaseSigning.getValue("keystore"))
+                keyAlias = releaseSigning.getValue("alias")
+                storePassword = releaseSigning.getValue("storePassword")
+                keyPassword = releaseSigning.getValue("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             // Jar spiders link against host classes (OkHttp, Gson, Jsoup, com.github.catvod.*) by name.
             proguardFiles("proguard-rules.pro")
         }
