@@ -23,8 +23,8 @@ import javax.imageio.ImageIO
 
 /**
  * A fake MacCMS JSON site for development (`--demo`): categories, paging, search, details, generated posters,
- * one directly playable line and one line that goes through a JSON parser. Nothing here touches third-party sites
- * except the public HLS test stream used as the video.
+ * one directly playable line and one line that goes through a JSON parser (and, on one title, a dead line in front
+ * of them). Nothing here touches third-party sites except the public HLS test stream used as the video.
  */
 class DemoSite {
     private val classes = listOf("1" to "电影", "2" to "剧集", "3" to "动漫", "4" to "纪录片")
@@ -182,10 +182,13 @@ class DemoSite {
             put("vod_director", "导演丁")
             put("vod_content", "这是开发用的演示数据。《${item.name}》讲述了一个关于远方与回声的故事，共 ${item.episodes} 集。")
             val eps = (1..item.episodes).map { if (item.episodes == 1) "正片" else "第${it}集" }
-            put("vod_play_from", "演示直链" + LINE_SEP + "需解析线路")
+            // One title has a dead line in front of the two that play, for the player's change of line.
+            val dead = item.id == DEAD_LINE_ITEM
+            put("vod_play_from", (if (dead) "失效线路$LINE_SEP" else "") + "演示直链" + LINE_SEP + "需解析线路")
             put(
                 "vod_play_url",
-                eps.joinToString("#") { "$it\$$TEST_STREAM" } + LINE_SEP +
+                (if (dead) eps.mapIndexed { i, n -> "$n\$http://127.0.0.1:1/dead/${item.id}/${i + 1}.m3u8" }.joinToString("#") + LINE_SEP else "") +
+                    eps.joinToString("#") { "$it\$$TEST_STREAM" } + LINE_SEP +
                     eps.mapIndexed { i, n -> "$n\$$base/demo/page/${item.id}/${i + 1}" }.joinToString("#"),
             )
         }
@@ -240,6 +243,9 @@ class DemoSite {
 
     companion object {
         private const val LINE_SEP = "\$\$\$"
+
+        /** 《白昼迷踪 第二季》, second on the home page: its first line, 失效线路, points at a port nothing listens on. */
+        private const val DEAD_LINE_ITEM = 95
 
         /** Public HLS test stream (Big Buck Bunny, CC BY 3.0), widely used for player development. */
         const val TEST_STREAM = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"

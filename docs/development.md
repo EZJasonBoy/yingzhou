@@ -65,7 +65,7 @@ flutter run -d windows                      # 没有引擎在 9978 上时会自�
 cd engine && ./gradlew :server:run --args="--demo --dev-cors --port 19978"
 ```
 
-它提供：一个采集站、一个 JS 蜘蛛站、一个 jar 蜘蛛站、一个需要嗅探的站；JSON 解析、jar 聚合解析、嗅探解析各一个；一条去广告规则；一个带节目单的直播源（含一个第一条线路是死链的频道，用来测自动换线）。演示模式的数据默认只在内存里。
+它提供：一个采集站、一个 JS 蜘蛛站、一个 jar 蜘蛛站、一个需要嗅探的站；JSON 解析、jar 聚合解析、嗅探解析各一个；一条去广告规则；一个带节目单的直播源（含一个第一条线路是死链的频道，用来测自动换线）。点播里《白昼迷踪 第二季》（首页第二个）的第一条线路"失效线路"也是死链，用来测点播的自动换线路。演示模式的数据默认只在内存里。
 
 演示 jar 的源码在 `engine/server/demo-jar/`，改了之后跑 `build.sh`（javac + d8）重新生成。
 
@@ -141,7 +141,10 @@ PLAY=1 MAX_SITES=20 tools/check-configs.sh          # 加上播放解析；每�
 - 转换出来的类不一定过 JVM 校验器，JDK 21 上要 `-XX:+UnlockDiagnosticVMOptions -XX:-BytecodeVerificationRemote`。
 - Edge 的启动进程会立刻退出并把工作交给另一个进程：不能等它的退出码，要轮询 `DevToolsActivePort`。
 - 改变外壳布局（进全屏、窗口变窄）会重建所有页面，除非页面挂在 `GlobalKey` 下面。
-- media_kit 的 `Player` 不能在组件测试里创建，页面里要惰性创建。
+- media_kit 的 `Player` 不能在组件测试里创建，页面里要惰性创建。点播页的播放器来自 `AppState.playerBackend`，组件测试传入 `test/fake_player.dart` 里的假播放器（`Player(platformPlayer: …)`，不加载 libmpv），由测试决定每个地址是能播、报错还是没反应。
+- media_kit 在 `open()` 之后就把 `playing` 置为 true，不管媒体打不打得开；也没有"加载失败"事件，只有 mpv 的错误日志（`stream.error`），其中不少并不致命。判断线路死活要看播放位置有没有在走，见 `player_page.dart`。
+- 播放页的画面同时监听单击和双击，所以页面上任何按钮的点击都要等双击的时限（300 毫秒）过去才生效；组件测试里点完要多 `pump` 一会儿。
+- `DecoratedBox`（比如控制条的渐变）会拦下落在它范围内的所有点击，叠在它下面的按钮点不到：要让下面的东西可点，把它放到 `Stack` 的上层。
 - 引擎代码要能在 Android 7 上跑：不用 `java.time`、`java.util.Base64`。
 - 用 shell 一行命令改 Kotlin / Dart 源码时，`\n`、`$` 容易被 shell 吃掉，改用编辑器或脚本文件。
 - `dart format` 的行宽在 `analysis_options.yaml` 里定为 160，别用默认值重排整个目录。

@@ -102,6 +102,18 @@ class PlayLine {
   final String name;
   final List<Episode> episodes;
 
+  /// Where this line keeps the episode that another line of the same title has at [index] under [name]: the same
+  /// place in the list, unless the names show this line is laid out differently (a trailer first, newest first,
+  /// episodes missing). Null when this line does not have the episode.
+  int? findEpisode({required int index, required String name}) {
+    final wanted = name.trim();
+    final inRange = index >= 0 && index < episodes.length;
+    if (inRange && episodes[index].name.trim() == wanted) return index;
+    final byName = episodes.indexWhere((e) => e.name.trim() == wanted);
+    if (byName >= 0) return byName;
+    return inRange ? index : null;
+  }
+
   factory PlayLine.fromJson(Map<String, dynamic> j) => PlayLine(
         name: j['name'] as String,
         episodes: [for (final e in j['episodes'] as List<dynamic>) Episode.fromJson(e as Map<String, dynamic>)],

@@ -108,4 +108,41 @@ void main() {
     await until(tester, playButton);
     await mark(tester, 'back');
   });
+
+  // The demo's 白昼迷踪 第二季 has a line in front, 失效线路, whose addresses nothing answers.
+  testWidgets('a dead line is replaced by the next one, which plays', (tester) async {
+    MediaKit.ensureInitialized();
+    final settings = MemorySettings();
+    await settings.setString('siteKey', 'demo');
+    await tester.pumpWidget(TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings)));
+    await until(tester, find.text('白昼迷踪 第二季'));
+    await tester.tap(find.text('白昼迷踪 第二季').first);
+    await until(tester, playButton);
+
+    // Pick the dead line and its first episode by hand: after an earlier run the history points at the line that
+    // played, and the play button would start there.
+    final deadLine = find.textContaining('失效线路');
+    await tester.ensureVisible(deadLine);
+    await wait(tester, const Duration(milliseconds: 500));
+    await tester.tap(deadLine);
+    await wait(tester, const Duration(milliseconds: 500));
+    await mark(tester, 'deadline-detail');
+    await tester.ensureVisible(find.text('第1集'));
+    await wait(tester, const Duration(milliseconds: 500));
+    await tester.tap(find.text('第1集'));
+
+    await until(tester, find.textContaining('已切到「演示直链」'));
+    await mark(tester, 'deadline-switched');
+    final end = DateTime.now().add(const Duration(seconds: 40));
+    while ((clock() ?? Duration.zero) < const Duration(seconds: 2)) {
+      if (DateTime.now().isAfter(end)) fail('the second line did not start (clock: ${clock()})');
+      await wait(tester, const Duration(milliseconds: 500));
+    }
+    expect(find.text('演示直链'), findsOneWidget, reason: 'the line named at the top right');
+    expect(find.text('重试'), findsNothing);
+    await mark(tester, 'deadline-playing');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await until(tester, playButton);
+  });
 }

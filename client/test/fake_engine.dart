@@ -3,10 +3,29 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+/// A line of [count] episodes named 第1集, 第2集, … whose addresses carry the line's [tag].
+Map<String, Object> fakeLine(String name, String tag, {int count = 3}) => {
+  'name': name,
+  'episodes': [
+    for (var i = 1; i <= count; i++) {'id': 'https://cdn.test/$tag/$i.m3u8', 'name': '第$i集'},
+  ],
+};
+
 /// A tiny in-memory stand-in for the engine's HTTP API.
-MockClient fakeEngine({bool hasConfig = false, List<Map<String, Object>> history = const []}) {
+///
+/// [lines] replaces the play lines every detail comes with. `/play/resolve` hands back the episode's own address,
+/// except on the lines named in [deadLines], which fail; it notes each line it is asked about in [resolved]. The
+/// history the app saves ends up in [savedHistory], by video id.
+MockClient fakeEngine({
+  bool hasConfig = false,
+  List<Map<String, Object>> history = const [],
+  List<Map<String, Object>>? lines,
+  Set<String> deadLines = const {},
+  List<String>? resolved,
+  Map<String, Map<String, dynamic>>? savedHistory,
+}) {
   var configured = hasConfig;
-  final historyById = {for (final h in history) h['vodId'] as String: h};
+  final historyById = <String, Map<String, dynamic>>{for (final h in history) h['vodId'] as String: h};
   final favoritesById = <String, Map<String, dynamic>>{};
 
   http.Response json(Object body, [int status = 200]) => http.Response.bytes(
@@ -63,6 +82,7 @@ MockClient fakeEngine({bool hasConfig = false, List<Map<String, Object>> history
         case 'PUT':
           final body = jsonDecode(request.body) as Map<String, dynamic>;
           store[id] = {...body, 'site': 'cms', 'vodId': id};
+          if (lib.group(1) == 'history') savedHistory?[id] = store[id]!;
           return json(store[id]!);
         case 'DELETE':
           store.remove(id);
@@ -122,18 +142,30 @@ MockClient fakeEngine({bool hasConfig = false, List<Map<String, Object>> history
           'name': '片名',
           'year': '2024',
           'content': '<p>简介</p>',
-          'lines': [
-            {
-              'name': '线路一',
-              'episodes': [
-                {'id': 'https://cdn.test/1.m3u8', 'name': '第1集'},
-                {'id': 'https://cdn.test/2.m3u8', 'name': '第2集'},
-                // Sites sometimes reuse one url for several episodes.
-                {'id': 'https://cdn.test/2.m3u8', 'name': '第3集'},
+          'lines':
+              lines ??
+              [
+                {
+                  'name': '线路一',
+                  'episodes': [
+                    {'id': 'https://cdn.test/1.m3u8', 'name': '第1集'},
+                    {'id': 'https://cdn.test/2.m3u8', 'name': '第2集'},
+                    // Sites sometimes reuse one url for several episodes.
+                    {'id': 'https://cdn.test/2.m3u8', 'name': '第3集'},
+                  ],
+                },
               ],
-            },
-          ],
         });
+      case ('POST', '/api/v1/play/resolve'):
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final line = body['line'] as String;
+        resolved?.add(line);
+        if (deadLines.contains(line)) {
+          return json({
+            'error': {'code': 'PLAY_FAILED', 'message': '$line 取不到播放地址'},
+          }, 502);
+        }
+        return json({'kind': 'direct', 'url': body['episodeId'], 'headers': <String, String>{}, 'parsedBy': ''});
       case ('GET', '/api/v1/search/stream'):
         final sse = StringBuffer()
           ..write('event: site\ndata: {"site":"cms","status":"started"}\n\n')

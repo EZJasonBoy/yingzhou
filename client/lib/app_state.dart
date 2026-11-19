@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'engine/engine_client.dart';
 import 'engine/local_engine.dart';
 import 'engine/models.dart';
+import 'player_backend.dart';
 import 'settings.dart';
 
 typedef EngineClientFactory = EngineClient Function(Uri baseUrl);
@@ -17,9 +18,13 @@ class AppState extends ChangeNotifier {
     SettingsStore? settings,
     this._localEngine,
     this.waitStep = const Duration(milliseconds: 500),
+    this.playerBackend = mediaKitBackend,
   }) : _settings = settings ?? MemorySettings();
 
   final EngineClientFactory clientFactory;
+
+  /// The player the video-on-demand page plays with.
+  final PlayerBackendFactory playerBackend;
   final SettingsStore _settings;
 
   /// Local preferences of this client (window, player volume...).
