@@ -69,7 +69,7 @@ tvsig=<过期时间，秒，36 进制>.<设备 id 或 local>.<HMAC-SHA256 前 16
 | POST | `/lan/code` | 换一个配对码 |
 | DELETE | `/lan/devices/{id}` | 撤销一台设备 |
 
-这四个接口每次都在处理函数里再检查一次"本机"，不是本机一律 `403 LOCAL_ONLY`，带令牌也不行。`supported=false`：这个引擎不能共享（安卓内置引擎），或者是没有网络监听能力的测试环境。`forced=true`：以 `--lan` 启动，开关不起作用。
+这四个接口每次都在处理函数里再检查一次"本机"，不是本机一律 `403 LOCAL_ONLY`，带令牌也不行。`supported=false`：这个引擎不能共享（体检模式、旧版安卓引擎），或者是没有网络监听能力的测试环境。`forced=true`：以 `--lan` 启动，开关不起作用。安卓引擎和桌面引擎一样：打开后在每个局域网地址上另起监听（端口同为 9978），用系统的 NSD（`NsdManager`）通告 `_tvbox-engine._tcp`，共享期间在前台服务里运行。
 
 ## 订阅与配置
 
@@ -225,7 +225,7 @@ event: end       data: {"sites":40,"ms":9120}
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/stream-cache` | `{available, enabled, bytes, files, streams, maxBytes, path, pinnedBytes}`。`available: false` 表示这台引擎没有播放缓存（如安卓 App 内置的引擎）；`streams` 是有缓存的视频数；`path` 是引擎所在机器上的目录；`pinnedBytes` 是放在同一目录里的下载（不算在 `bytes` 里，也不会因为超过容量被删） |
+| GET | `/stream-cache` | `{available, enabled, bytes, files, streams, maxBytes, path, pinnedBytes, freeBytes, reserveBytes}`。`available: false` 表示这台引擎没有播放缓存（旧版引擎）；`streams` 是有缓存的视频数；`path` 是引擎所在机器上的目录；`pinnedBytes` 是放在同一目录里的下载（不算在 `bytes` 里，也不会因为超过容量被删）；`reserveBytes > 0` 表示缓存还看着磁盘剩余空间（安卓引擎：500 MB），`freeBytes` 是那块磁盘的剩余空间，其他引擎为 `-1` 和 `0` |
 | DELETE | `/stream-cache` | 清空，返回清空后的同一个对象。正在播放、正被读取的文件会留到用完 |
 | GET | `/stream-cache/coverage?key=` | `{durationMs, ranges: [[startMs, endMs], …]}`：`key` 是 `PlayInfo.cache`；`ranges` 是这部片已经在缓存里的时间段，按顺序、不重叠，给进度条画"已缓冲"用。没有这个 key 的播放列表时返回空 |
 
@@ -239,6 +239,7 @@ event: end       data: {"sites":40,"ms":9120}
 - 对播放器的请求立即应答，文件边到边转发；片源说了长度就带 `Content-Length`，否则分块传输。
 - 片源拒绝引擎或一直连不上时：还没开始应答就 302 到片源；已经开始应答就断开连接，播放器重试时再 302。同一个视频刚打开就连续两次被拒，10 分钟内这个视频不再经缓存。
 - 超过容量时删最久没用过的文件（不分是哪一部片）。下载（钉住的流）除外。
+- 有 `reserveBytes` 时（安卓引擎），缓存还给磁盘留出这么多：快放不下时先删自己最旧的文件，删光了剩余空间也不够（只差不到 `reserveBytes` 的十分之一）就不再缓存新的分片、也不预读，播放器请求的分片 302 到片源；已经在缓存里的照常给。
 
 ## 离线下载
 
@@ -246,15 +247,17 @@ event: end       data: {"sites":40,"ms":9120}
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/downloads` | `{available, items: [DownloadItem]}`；`available: false` 表示这台引擎不能下载（安卓 App 内置的引擎），这时其他接口返回 `501 UNSUPPORTED_SITE` |
+| GET | `/downloads` | `{available, items: [DownloadItem]}`；`available: false` 表示这台引擎不能下载（0.2.0 之前的引擎），这时其他接口返回 `501 UNSUPPORTED_SITE` |
 | POST | `/downloads` | `{items: [{site, line, episodeId, vodId?, title?, pic?, episodeName?, episodeIndex?}]}` → `{available, items}`：排队下载。前三项和 `/play/resolve` 一样；其余只是给列表显示的。同一集（站点 + 线路 + `episodeId`）已经在列表里就原样返回那一项，不会重复 |
 | GET | `/downloads/events` | **SSE**：先发一次，之后列表有变化就再发（下载时最多每 0.4 秒一次），`event: downloads`，`data` 同 `GET /downloads`；空闲时每 15 秒一行 `: ping` |
 | POST | `/downloads/{id}/pause` | 暂停（排队中的也可以），返回那一项 |
 | POST | `/downloads/{id}/resume` | 继续暂停的；对失败的就是重试（重新解析地址）。返回那一项 |
 | DELETE | `/downloads/{id}` | 停下并删掉它的文件，`204` |
-| POST | `/downloads/{id}/export` | `{path?}` → `{path, bytes, format}`：在**引擎所在的机器上**写一个文件。`path` 是文件夹（不存在就建）或者以视频扩展名结尾的文件名；不填就是默认的导出目录（桌面引擎：用户的「下载」文件夹）。同名文件已存在时文件名后加 ` (2)`。不能导出时 `501`，`message` 说明原因 |
-| GET | `/downloads/settings` | `{available, dir, path, defaultPath, concurrency, maxConcurrency, freeBytes, reserveBytes, bytes}` |
+| POST | `/downloads/{id}/export` | `{path?}` → `{path, bytes, format, uri}`：在**引擎所在的机器上**写一个文件。`path` 是文件夹（不存在就建）或者以视频扩展名结尾的文件名；不填就是默认的导出目录（桌面引擎：用户的「下载」文件夹）。同名文件已存在时文件名后加 ` (2)`。不能导出时 `501`，`message` 说明原因。**安卓引擎**不填 `path` 时交给系统：Android 10 起写进系统「下载」里的 `Download/映舟/`（MediaStore），更早的版本写进应用自己的 `Android/data/<应用>/files/Download/`；返回的 `path` 是给人看的位置，`uri` 是这个文件的 `content://` 地址，同一台设备上的 App 用它打开分享面板。其他引擎 `uri` 为空 |
+| GET | `/downloads/settings` | `{available, dir, path, defaultPath, concurrency, maxConcurrency, freeBytes, reserveBytes, bytes, locations}` |
 | PUT | `/downloads/settings` | `{dir?, concurrency?}`，只改带了的项。`dir` 是引擎所在机器上的完整路径，空串回到默认；不是完整路径或不能写入时 `400` |
+
+`locations`：引擎所在设备上不能随便填文件夹时（安卓：应用只能写自己的目录），可选的下载位置 `[{name, dir, path, freeBytes, totalBytes, removable}]`。第一项是默认位置（内部存储，`dir` 为空串），后面是插着的 SD 卡、U 盘上应用自己的目录（`removable: true`：拔出期间那里的下载看不了）。客户端有 `locations` 时给一个下拉框，选中项的 `dir` 原样发给 `PUT`；没有（桌面、NAS 引擎）时让用户填路径。
 
 `DownloadItem`：
 
@@ -283,7 +286,7 @@ event: end       data: {"sites":40,"ms":9120}
 - **直链**：带 `Range` 下载，暂停、重试、引擎重启后都从已下的位置接着下。片源不说文件多大（多半是直播流）时拒绝。
 - 需要客户端嗅探的线路（`kind: "sniff"`）拒绝下载。
 - 同时下载的集数是 `concurrency`（默认 2，1–5），其余排队，按加入的先后。
-- **存在哪**：默认放进播放缓存的目录，作为"钉住"的流：文件名和播放缓存给这一集起的一样，所以看过的部分不用再下，下载中的那一集也可以照常在线播放（共用同一份文件），播放缓存的容量上限和"清空"都不碰它们。`dir` 设成别的目录后，新的下载放到那里，已有的留在原处。
+- **存在哪**：默认放进播放缓存的目录，作为"钉住"的流：文件名和播放缓存给这一集起的一样，所以看过的部分不用再下，下载中的那一集也可以照常在线播放（共用同一份文件），播放缓存的容量上限和"清空"都不碰它们。`dir` 设成别的目录后，新的下载放到那里，已有的留在原处。安卓引擎不这样：播放缓存在系统可能清理的缓存目录里，下载默认放在应用在共享存储上的目录（`Android/data/<应用>/files/downloads`），两者不共用文件。
 - **空间**：磁盘剩余少于 `reserveBytes`（500 MB）时停下并失败；HLS 下了几段之后按已下的大小估算整集，放不下也提前停下；直链开始前就按文件大小检查。
 - 下载完成后文件被删（用户清了目录）时，`/play/resolve` 发现后把它标成失败（"下载的文件不见了"），改走网络。
 
