@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
@@ -9,6 +10,38 @@ import 'engine_client.dart';
 import 'models.dart';
 
 bool get supported => Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+
+bool get canShare => Platform.isAndroid;
+
+/// Android's side: client/android/.../engine/AndroidChannel.kt.
+const _android = MethodChannel('yingzhou/android');
+
+Future<DownloadExportResult> saveExportToDownloads(EngineClient client, String id) async {
+  if (!Platform.isAndroid) {
+    final path = await saveExport(client, id);
+    return DownloadExportResult(path: path, bytes: await File(path).length(), format: path.substring(path.lastIndexOf('.') + 1));
+  }
+  try {
+    final r = await _android.invokeMapMethod<String, Object?>('saveExport', {'url': client.downloadExportUri(id).toString(), 'token': client.token});
+    final path = r?['path'] as String? ?? '';
+    return DownloadExportResult(
+      path: path,
+      bytes: (r?['bytes'] as num?)?.toInt() ?? 0,
+      format: path.contains('.') ? path.substring(path.lastIndexOf('.') + 1) : '',
+      uri: r?['uri'] as String? ?? '',
+    );
+  } on PlatformException catch (e) {
+    throw EngineException('EXPORT_FAILED', e.message ?? e.code);
+  }
+}
+
+Future<void> share(String uri, String title) async {
+  try {
+    await _android.invokeMethod<void>('share', {'uri': uri, 'title': title});
+  } on PlatformException catch (e) {
+    throw EngineException('SHARE_FAILED', e.message ?? e.code);
+  }
+}
 
 Future<String> saveExport(EngineClient client, String id, {void Function(int bytes)? onProgress}) async {
   final folder = await getDownloadsDirectory() ?? Directory('${Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? '.'}/Downloads');

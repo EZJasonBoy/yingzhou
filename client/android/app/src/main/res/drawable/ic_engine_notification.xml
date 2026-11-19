@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status bar icon of the engine's foreground service (downloads, LAN sharing): a sail over a hull, one colour. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,2L12,15L5,15ZM13.5,5L19,15L13.5,15ZM3,17L21,17L18,21L6,21Z" />
+</vector>

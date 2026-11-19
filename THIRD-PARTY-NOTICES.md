@@ -84,6 +84,7 @@ SOFTWARE.
 - path_provider (Flutter, client) — BSD-3-Clause
 - file_selector (`file_selector` and its platform packages, flutter.dev; picking a subtitle or danmaku file in the client) — BSD-3-Clause
 - JmDNS (`org.jmdns:jmdns`, mDNS announcement of a shared engine) — Apache-2.0
+- AndroidX Core (`androidx.core:core`, the Android app's `FileProvider` for sharing exported downloads) — Apache-2.0
 - bonsoir (`bonsoir`, `bonsoir_platform_interface`, `bonsoir_android`, `bonsoir_darwin`, `bonsoir_linux`, `bonsoir_windows`; finding engines on the LAN in the client), Copyright (c) 2019 Hugo DELAUNAY "Skyost" — MIT
 
 ## Downloaded only when the user asks

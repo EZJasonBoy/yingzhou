@@ -99,7 +99,7 @@ class _DownloadsTabState extends State<DownloadsTab> {
           '把《${d.title}》${d.episodeName}存成一个视频文件，可以拷走或用别的播放器看。\n\n'
           '${d.kind == 'file' ? '直链下载的文件原样导出。' : 'HLS 视频的分片会按顺序拼成一个 .ts 文件（加密的分片先解密），大多数播放器都能播。分片是 fMP4 的拼成 .mp4。'}\n'
           '想转成普通的 .mp4 需要 ffmpeg：映舟没有附带 ffmpeg，也不会替你安装。\n\n'
-          '${local ? '保存到这台电脑的「下载」文件夹。' : '从引擎传到这台设备的「下载」文件夹。'}',
+          '${DownloadFiles.canShare ? '保存到这台设备的「下载/映舟」文件夹，之后可以分享给别的应用。' : local ? '保存到这台电脑的「下载」文件夹。' : '从引擎传到这台设备的「下载」文件夹。'}',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
@@ -110,12 +110,30 @@ class _DownloadsTabState extends State<DownloadsTab> {
     if (ok != true || !mounted) return;
     _say('正在导出…');
     try {
-      final path = local ? (await client.exportDownload(d.id)).path : await DownloadFiles.saveExport(client, d.id);
+      // Android: the engine (or this device, for an engine elsewhere) puts it into the system's Downloads.
+      final DownloadExportResult result = local
+          ? await client.exportDownload(d.id)
+          : DownloadFiles.canShare
+          ? await DownloadFiles.saveExportToDownloads(client, d.id)
+          : DownloadExportResult(path: await DownloadFiles.saveExport(client, d.id), bytes: 0, format: '');
+      final path = result.path;
+      if (result.uri.isNotEmpty && DownloadFiles.canShare) {
+        _say('已导出：$path', action: SnackBarAction(label: '分享', onPressed: () => _share(result.uri, d)));
+        return;
+      }
       _say('已导出：$path', action: DownloadFiles.supported ? SnackBarAction(label: '打开文件夹', onPressed: () => DownloadFiles.reveal(path)) : null);
     } on EngineException catch (e) {
       _say('导出失败：${e.message}');
     } catch (e) {
       _say('导出失败：$e');
+    }
+  }
+
+  Future<void> _share(String uri, DownloadItem d) async {
+    try {
+      await DownloadFiles.share(uri, title: '《${d.title}》${d.episodeName}');
+    } on EngineException catch (e) {
+      _say('分享失败：${e.message}');
     }
   }
 
@@ -134,7 +152,7 @@ class _DownloadsTabState extends State<DownloadsTab> {
           ? StatusView(icon: Icons.cloud_off, message: '加载失败\n${_watcher.error}', actionLabel: '重试', onAction: _watcher.refresh)
           : const LoadingView();
     }
-    if (!available) return const StatusView(icon: Icons.download_for_offline_outlined, message: '这台引擎不能下载\n（安卓 App 内置的引擎没有下载功能，可以连接电脑或 NAS 上的引擎）');
+    if (!available) return const StatusView(icon: Icons.download_for_offline_outlined, message: '这台引擎不能下载\n（引擎版本太旧，请更新它，或者连接别的引擎）');
     final items = _watcher.items;
     if (items.isEmpty) return const StatusView(icon: Icons.download_for_offline_outlined, message: '还没有下载\n在详情页点 ↓ 下载剧集，下载完不用网络也能看');
 

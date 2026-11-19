@@ -43,6 +43,8 @@ object EmbeddedEngine {
         HostBridge.port = PORT
         // Created on the main thread, before any activity resumes, so it knows which activity can host its WebView.
         val sniffer = WebViewSniffer(app as android.app.Application)
+        // The same goes for the foreground service's keeper (it asks for the notification permission in an activity).
+        EngineKeeper.init(app)
         thread(name = "embedded-engine", isDaemon = true) {
             try {
                 run(app, sniffer)
@@ -78,6 +80,8 @@ object EmbeddedEngine {
             ),
         )
         val jar = DexSpiderRuntime(app, JarRepository(client, locator, File(app.cacheDir, "jar")), port = { PORT })
+        // The HLS stream cache, in the app's cache folder: 1 GB by default, and it gives way when the device runs low.
+        val streamCache = AndroidStorage.streamCache(app, client, data)
         val engine = Engine(
             info = EngineInfo(
                 name = "tvbox-engine",
@@ -94,17 +98,30 @@ object EmbeddedEngine {
             sniffer = sniffer,
             githubProxy = githubProxy,
             network = network,
+            streamCache = streamCache,
         )
+        // Episodes downloaded for offline viewing (see AndroidStorage); they keep the engine alive (EngineKeeper).
+        val downloads = AndroidStorage.downloads(app, client, data, engine, local)
+        engine.downloads = downloads
         // AList / WebDAV drives; folders of the device are not offered here.
         val drives = tvbox.engine.core.drive.DriveService(JsonFileStore(data), client, local, localFolders = false, log = { Log.w(TAG, it) })
-        server = embeddedServer(CIO, port = PORT, host = "127.0.0.1") {
-            engineModule(engine, tvbox.engine.api.EngineModuleOptions(drives = drives))
-        }.start(wait = false)
+        // Pairing, tokens and signed addresses, as on desktop: other devices get in only while LAN sharing is on.
+        val access = tvbox.engine.api.access.AccessControl(JsonFileStore(data), supported = true)
+        val module: io.ktor.server.application.Application.() -> Unit = {
+            engineModule(engine, tvbox.engine.api.EngineModuleOptions(access = access, drives = drives))
+        }
+        server = embeddedServer(CIO, port = PORT, host = "127.0.0.1", module = module).start(wait = false)
         Log.i(TAG, "listening on $local")
+        // LAN sharing (off by default): more listeners on the LAN addresses, mDNS, the foreground service.
+        val lan = AndroidLan(app, access, PORT, module)
+        EngineKeeper.attach(downloads, access, lan)
+        lan.start()
         runBlocking {
             engine.restore()
                 ?.onSuccess { Log.i(TAG, "restored ${it.url}: ${it.sites} sites") }
                 ?.onFailure { Log.w(TAG, "could not restore the subscription: ${it.message}") }
         }
+        // Downloads that were running when the app was stopped carry on, now that episodes can be resolved.
+        downloads.start()
     }
 }
