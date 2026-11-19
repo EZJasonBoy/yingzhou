@@ -79,6 +79,43 @@ void main() {
     expect(outside, isNot(DeviceForm.tv));
   });
 
+  testWidgets('tests can say what a widget without a scope is; a scope still wins', (tester) async {
+    final before = DeviceFormScope.debugFormWithoutScope;
+    addTearDown(() => DeviceFormScope.debugFormWithoutScope = before);
+    DeviceFormScope.debugFormWithoutScope = DeviceForm.desktop;
+    late DeviceForm outside;
+    late DeviceForm inside;
+    late bool outsideReadsTv;
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Column(
+          children: [
+            Builder(
+              builder: (context) {
+                outside = DeviceFormScope.of(context);
+                outsideReadsTv = DeviceFormScope.readIsTv(context);
+                return const SizedBox();
+              },
+            ),
+            DeviceFormScope.fixed(
+              DeviceForm.tv,
+              child: Builder(
+                builder: (context) {
+                  inside = DeviceFormScope.of(context);
+                  return const SizedBox();
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    expect(outside, DeviceForm.desktop);
+    expect(outsideReadsTv, isFalse);
+    expect(inside, DeviceForm.tv);
+  });
+
   test('without the Android side the info is the default', () async {
     expect((await DeviceInfo.load()).isTv, isFalse);
     expect(kIsWeb, isFalse);

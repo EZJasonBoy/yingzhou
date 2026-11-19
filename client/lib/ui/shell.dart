@@ -59,10 +59,10 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
-  /// Phones, tablets and TVs: the system's back on another tab goes to 首页 first; on 首页 it leaves the app. Live TV in
-  /// full screen handles back itself (it leaves full screen).
+  /// Phones and tablets: the system's back on another tab goes to 首页 first; on 首页 it leaves the app. Live TV in full
+  /// screen handles back itself (it leaves full screen). TVs have their own back in TvShell.
   Widget _backToHome(Widget child) {
-    if (isDesktop(context)) return child;
+    if (!isTouch(context)) return child;
     // The status and navigation bars are see-through, their icons following the theme (pages with an app bar set
     // their own).
     final dark = Theme.of(context).brightness == Brightness.dark;
