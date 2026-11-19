@@ -119,7 +119,7 @@ fun Route.downloadRoutes(engine: Engine) {
 private const val PING_MS = 15_000L
 private const val EVENT_GAP_MS = 400L
 
-private fun Engine.required(): DownloadManager = downloads ?: throw EngineException.Unsupported("这台引擎不能下载（安卓 App 内置的引擎没有下载功能）")
+private fun Engine.required(): DownloadManager = downloads ?: throw EngineException.Unsupported("这台引擎不能下载（版本太旧）")
 
 private fun RoutingCall.id(): String = parameters["id"].orEmpty()
 

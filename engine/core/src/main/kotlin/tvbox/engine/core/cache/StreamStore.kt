@@ -11,14 +11,30 @@ import java.io.File
  * left alone and does not count. That is what a download for offline viewing is meant to be: a pinned stream that has
  * all its files. The time a file was last used is its modification time, so the order survives a restart.
  *
+ * With a [reserveBytes] (a phone may be low on space) the store also gives way to the disk: it never fills the disk
+ * beyond leaving that much free, trimming below its cap when it has to, and [lowOnSpace] tells the cache to stop
+ * keeping anything new.
+ *
  * Only `java.io` is used (the engine also runs on Android 7). Safe to call from any thread.
  */
 class StreamStore(
     val root: File,
     maxBytes: Long = DEFAULT_MAX_BYTES,
+    /** The disk is left at least this much free; 0: free space is not looked at (only the cap counts). */
+    val reserveBytes: Long = 0,
+    private val freeSpace: (File) -> Long = { it.usableSpace },
     private val now: () -> Long = System::currentTimeMillis,
 ) {
-    class Stats(val bytes: Long, val files: Int, val streams: Int, val pinnedBytes: Long, val maxBytes: Long)
+    class Stats(
+        val bytes: Long,
+        val files: Int,
+        val streams: Int,
+        val pinnedBytes: Long,
+        val maxBytes: Long,
+        /** Free space on the disk the store is on; -1 when the store does not look at it (no [reserveBytes]). */
+        val freeBytes: Long = -1,
+        val reserveBytes: Long = 0,
+    )
 
     private class Entry(@Volatile var size: Long, @Volatile var usedAt: Long)
 
@@ -209,7 +225,41 @@ class StreamStore(
             streams = all.count { !it.pinned && it.files.isNotEmpty() },
             pinnedBytes = all.filter { it.pinned }.sumOf { s -> s.files.values.sumOf { it.size } },
             maxBytes = maxBytes,
+            freeBytes = if (reserveBytes > 0) free(fresh = true) else -1,
+            reserveBytes = reserveBytes,
         )
+    }
+
+    /**
+     * True when even deleting everything of the cache would leave hardly any room above [reserveBytes] (a tenth of
+     * it): nothing new should be kept then. Always false without a reserve. Deletes nothing itself.
+     */
+    fun lowOnSpace(): Boolean {
+        if (reserveBytes <= 0) return false
+        val free = free()
+        if (free < 0) return false
+        return total + free - reserveBytes < reserveBytes / 10
+    }
+
+    @Volatile private var freeAt = 0L
+    @Volatile private var freeSeen = -1L
+
+    /** Free space on the store's disk (looked up at most once a second unless [fresh]); -1 unknown. */
+    private fun free(fresh: Boolean = false): Long {
+        val t = now()
+        if (!fresh && freeSeen >= 0 && t - freeAt in 0 until FREE_EVERY_MS) return freeSeen
+        root.mkdirs()
+        freeSeen = runCatching { freeSpace(root) }.getOrDefault(-1L)
+        freeAt = t
+        return freeSeen
+    }
+
+    /** What the store may hold now: the cap, or less when the disk would otherwise have less than the reserve left. */
+    private fun limit(): Long {
+        if (reserveBytes <= 0) return maxBytes
+        val free = free()
+        if (free < 0) return maxBytes
+        return minOf(maxBytes, (total + free - reserveBytes).coerceAtLeast(0))
     }
 
     /**
@@ -231,12 +281,16 @@ class StreamStore(
         freed
     }
 
-    /** Brings the store back under the cap (a little below it, so that it does not trim on every file). */
+    /**
+     * Brings the store back under the cap (a little below it, so that it does not trim on every file); with a
+     * [reserveBytes], under what the disk has room for.
+     */
     fun trim(keep: (stream: String, name: String) -> Boolean = { _, _ -> false }) {
         synchronized(lock) {
             load()
-            if (total <= maxBytes) return
-            val target = maxBytes - maxBytes / 10
+            val cap = limit()
+            if (total <= cap) return
+            val target = cap - cap / 10
             val oldest = streams.entries.filter { !it.value.pinned }
                 .flatMap { (id, s) -> s.files.entries.map { Triple(id, it.key, it.value) } }
                 .sortedBy { it.third.usedAt }
@@ -252,7 +306,7 @@ class StreamStore(
         }
     }
 
-    private fun overCap(): Boolean = synchronized(lock) { total > maxBytes }
+    private fun overCap(): Boolean = synchronized(lock) { total > limit() }
 
     private fun dirOf(stream: String): File = File(root, stream).also { it.mkdirs() }
 
@@ -292,5 +346,6 @@ class StreamStore(
         private const val PART = ".part"
         private const val PIN = "_pinned"
         private const val TOUCH_EVERY_MS = 60_000L
+        private const val FREE_EVERY_MS = 1_000L
     }
 }

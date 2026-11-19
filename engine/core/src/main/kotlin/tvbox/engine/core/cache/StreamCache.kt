@@ -256,9 +256,12 @@ class StreamCache(
                 pump(s)
                 return Answer.Stored(it, typeOf(r, null))
             }
+            // The disk is nearly full (a phone): what is not on its way already is not kept; the player goes to the source.
+            val low = r.start < 0 && store.lowOnSpace()
             val leaving: Download? = synchronized(lock) {
                 if (s.bypass || !enabled || now() - (refusedAt[path] ?: 0) < REFUSED_MS) return fallback(r)
                 val known = downloads[path]
+                if (known == null && low) return fallback(r)
                 if (known != null && known.cancelled) {
                     known
                 } else {
@@ -332,6 +335,8 @@ class StreamCache(
     /** Starts what should run now: what players wait for, then the read-ahead, within [connections]. */
     private fun pump(s: Session) {
         if (!enabled) return
+        // No reading ahead while the disk is nearly full.
+        val low = store.lowOnSpace()
         val starting = ArrayList<Download>()
         var again = 0L
         synchronized(lock) {
@@ -370,7 +375,7 @@ class StreamCache(
                 again = s.jumpAt + GATE_MS - now()
             } else if (inOrder && urgent) {
                 // The line is the player's for the moment; reading ahead carries on when it has its segment.
-            } else if (s.head >= 0 && !s.bypass) {
+            } else if (s.head >= 0 && !s.bypass && !low) {
                 // Reading ahead begins when the player has gone on from one segment to the next twice, and reaches
                 // further the longer it goes on: a player that only looks at the start of a stream — every quality
                 // of a master playlist is looked at like that — does not set off minutes of downloads.

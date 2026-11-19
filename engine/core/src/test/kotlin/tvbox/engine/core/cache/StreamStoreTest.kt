@@ -129,4 +129,50 @@ class StreamStoreTest {
         assertEquals(250, store.stats().bytes)
         assertEquals(1, store.stats().files)
     }
+
+    @Test
+    fun `without a reserve free space is not looked at`() {
+        var asked = 0
+        val store = StreamStore(dir, 1_000_000, freeSpace = { asked++; 0L }) { now }
+        store.put("s", "a", 300)
+        assertFalse(store.lowOnSpace())
+        assertEquals(-1, store.stats().freeBytes)
+        assertEquals(0, asked)
+    }
+
+    @Test
+    fun `with a reserve the store gives way to the disk, and says when nothing new can be kept`() {
+        // A small phone: 20 000 bytes of disk, of which the cache leaves 5 000 free; its own cap is far away.
+        val disk = 20_000L
+        fun used() = dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        val store = StreamStore(dir, 1_000_000, reserveBytes = 5_000, freeSpace = { disk - used() }) { now }
+        store.put("a", "1", 4000)
+        store.put("a", "2", 4000)
+        store.put("b", "3", 4000)
+        assertEquals(12_000, store.stats().bytes)
+        assertEquals(disk - used(), store.stats().freeBytes)
+        assertEquals(5_000, store.stats().reserveBytes)
+        assertFalse(store.lowOnSpace())
+
+        // The next file would leave only 4 000 free: the oldest goes, although the cap is nowhere near.
+        store.put("b", "4", 4000)
+        assertFalse(store.has("a", "1"), "the file used longest ago made room")
+        assertTrue(store.has("a", "2") && store.has("b", "3") && store.has("b", "4"))
+        assertTrue(disk - used() >= 5_000)
+
+        // A download (a pinned stream) takes the disk: the cache gives way, the download is never touched.
+        store.pin("dl", true)
+        store.put("dl", "x", 7000)
+        store.put("dl", "y", 6000)
+        assertTrue(store.has("dl", "x") && store.has("dl", "y"))
+        assertTrue(disk - used() >= 5_000 || store.stats().bytes == 0L, "the cache gave up its files first")
+        store.put("dl", "z", 4000)
+        assertEquals(0, store.stats().bytes, "nothing of the cache is left")
+        assertTrue(store.lowOnSpace(), "and the disk is still below the reserve: nothing new is kept")
+
+        // The download is deleted: room again.
+        store.remove("dl")
+        now += 1000
+        assertFalse(store.lowOnSpace())
+    }
 }

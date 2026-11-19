@@ -19,7 +19,9 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import tvbox.engine.core.cache.StreamStore
+import tvbox.engine.core.model.DownloadExportResult
 import tvbox.engine.core.model.DownloadItem
+import tvbox.engine.core.model.DownloadLocation
 import tvbox.engine.core.model.DownloadRequest
 import tvbox.engine.core.model.DownloadSettingsUpdate
 import tvbox.engine.core.model.PlayInfo
@@ -499,6 +501,48 @@ class DownloadManagerTest {
         assertNotNull(m.offlinePlay(PlayRequest("s", "线路", "/film/index.m3u8?token={token}")))
         assertTrue(runCatching { m.updateSettings(DownloadSettingsUpdate(dir = "relative/path")) }.isFailure)
         assertEquals(store.root.absolutePath, m.updateSettings(DownloadSettingsUpdate(dir = "")).path)
+    }
+
+    @Test
+    fun `a device without folders of its own - locations to choose from, and exports handed to the system`(): Unit = runBlocking {
+        val card = File(dir, "card").also { it.mkdirs() }
+        val published = ArrayList<String>()
+        val m = DownloadManager(
+            OkHttpClient(), store, File(dir, "downloads.json"), resolver = { resolve(it) }, localBase = "http://127.0.0.1:1",
+            exportDir = { File(dir, "exports") }, reserveBytes = 1_000, freeSpace = { 5_000_000 },
+            locations = {
+                listOf(
+                    DownloadLocation("内部存储", "", store.root.absolutePath, freeBytes = 5_000_000),
+                    DownloadLocation("SD 卡", card.absolutePath, card.absolutePath, freeBytes = 1_000, removable = true),
+                )
+            },
+            publish = { export ->
+                val out = java.io.ByteArrayOutputStream()
+                val bytes = export.write(out)
+                published += export.fileName
+                DownloadExportResult("Download/映舟/${export.fileName}", bytes, export.format, uri = "content://media/downloads/1")
+            },
+        ).also { managers += it; it.start() }
+        val info = m.settings()
+        assertEquals(listOf("内部存储", "SD 卡"), info.locations.map { it.name })
+        assertTrue(info.locations[1].removable)
+        // Choosing a location is choosing its folder.
+        assertEquals(card.absolutePath, m.updateSettings(DownloadSettingsUpdate(dir = info.locations[1].dir)).path)
+        assertEquals(store.root.absolutePath, m.updateSettings(DownloadSettingsUpdate(dir = info.locations[0].dir)).path)
+
+        val id = m.add(listOf(request("/film/index.m3u8?token={token}"))).single().id
+        assertEquals("done", m.finished(id).state)
+        // No path: the system gets it; a path still writes the file there.
+        val shared = m.export(id)
+        assertEquals("content://media/downloads/1", shared.uri)
+        assertEquals("Download/映舟/" + published.single(), shared.path)
+        assertTrue(published.single().startsWith("片名") && published.single().endsWith(".ts"))
+        assertEquals(film.sumOf { it.size }.toLong(), shared.bytes)
+        assertFalse(File(dir, "exports").exists(), "nothing written into a folder of the engine's own")
+        val folder = File(dir, "out").also { it.mkdirs() }
+        val file = m.export(id, folder.absolutePath)
+        assertEquals("", file.uri)
+        assertTrue(File(file.path).isFile)
     }
 
     /** The folder of the one download in the store at [root] (for looking at its files). */

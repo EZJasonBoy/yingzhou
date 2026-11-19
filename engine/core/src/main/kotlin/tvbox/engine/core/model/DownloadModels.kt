@@ -56,7 +56,7 @@ data class DownloadItem(
 
 @Serializable
 data class DownloadList(
-    /** False when this engine cannot download (the engine inside the Android app). */
+    /** False when this engine cannot download (an engine from before 0.2.0 that was built without it). */
     val available: Boolean,
     val items: List<DownloadItem> = emptyList(),
 )
@@ -86,6 +86,26 @@ data class DownloadSettingsInfo(
     val reserveBytes: Long = 0,
     /** Everything downloaded, wherever it is. */
     val bytes: Long = 0,
+    /**
+     * The folders to choose from on a device where no other folder can be written (Android: the app's folder on the
+     * internal storage and on each SD card / USB drive). Empty: any folder of the engine's machine can be given.
+     */
+    val locations: List<DownloadLocation> = emptyList(),
+)
+
+/** A folder offered for downloads (see [DownloadSettingsInfo.locations]). */
+@Serializable
+data class DownloadLocation(
+    /** For people, e.g. 「内部存储」「SD 卡」. */
+    val name: String,
+    /** What to send as `dir`; "" is the default location. */
+    val dir: String,
+    /** The folder, on the engine's device. */
+    val path: String,
+    val freeBytes: Long = -1,
+    val totalBytes: Long = -1,
+    /** An SD card or USB drive: downloads there are gone while it is out. */
+    val removable: Boolean = false,
 )
 
 @Serializable
@@ -101,4 +121,9 @@ data class DownloadExportResult(
     val bytes: Long,
     /** "ts", "mp4", or a direct file's own extension. */
     val format: String,
+    /**
+     * Android: a `content://` address of the file, which the app on the same device can hand to the share sheet;
+     * "" elsewhere. [path] is then where people find it (e.g. `Download/映舟/…`).
+     */
+    val uri: String = "",
 )

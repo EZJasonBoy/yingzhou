@@ -76,7 +76,7 @@ fun Route.streamCacheRoutes(engine: Engine) {
 private fun info(cache: StreamCache?): StreamCacheInfo {
     if (cache == null) return StreamCacheInfo(available = false)
     val stats = cache.store.stats()
-    return StreamCacheInfo(available = true, enabled = cache.enabled, bytes = stats.bytes, files = stats.files, streams = stats.streams, maxBytes = stats.maxBytes, path = cache.store.root.absolutePath, pinnedBytes = stats.pinnedBytes)
+    return StreamCacheInfo(available = true, enabled = cache.enabled, bytes = stats.bytes, files = stats.files, streams = stats.streams, maxBytes = stats.maxBytes, path = cache.store.root.absolutePath, pinnedBytes = stats.pinnedBytes, freeBytes = stats.freeBytes, reserveBytes = stats.reserveBytes)
 }
 
 /** The settings a client sent laid over the current ones: fields the client does not know (or left out) stay as they are. */
