@@ -29,6 +29,7 @@ COPY api api
 COPY server server
 COPY runtime-js runtime-js
 COPY runtime-jar runtime-jar
+COPY runtime-py runtime-py
 COPY jar-host jar-host
 RUN --mount=type=cache,target=/root/.gradle/caches \
     ./gradlew :server:installDist --no-daemon --console=plain -q \

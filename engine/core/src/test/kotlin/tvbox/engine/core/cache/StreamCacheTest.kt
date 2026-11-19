@@ -362,6 +362,8 @@ class StreamCacheTest {
         val a = cache.open(id, 20) as Answer.Arriving
         val b = cache.open(id, 21) as Answer.Arriving
         val c = cache.open(id, 22) as Answer.Arriving
+        // Wait for the pieces rather than a fixed time: a slow machine (the CI runner) takes longer to send them.
+        eventually("the segment jumped to is asked for in four pieces") { origin.of("seg20.ts").size >= 4 }
         delay(200)
         assertEquals(setOf("seg20.ts"), origin.paths().toSet())
         assertEquals(4, origin.of("seg20.ts").size, "in four pieces")
