@@ -32,6 +32,10 @@ interface EngineStore {
     /** Engine settings; a store that does not keep them answers the defaults. */
     fun loadSettings(): EngineSettings = EngineSettings()
     fun saveSettings(settings: EngineSettings) {}
+
+    /** LAN sharing and paired devices; a store that does not keep them answers "off, nobody paired". */
+    fun loadAccess(): AccessState = AccessState()
+    fun saveAccess(state: AccessState) {}
 }
 
 /** Keeps everything in memory (tests, demo mode). */
@@ -50,6 +54,10 @@ class MemoryStore : EngineStore {
     @Volatile private var settings = EngineSettings()
     override fun loadSettings() = settings
     override fun saveSettings(settings: EngineSettings) { this.settings = settings }
+
+    @Volatile private var access = AccessState()
+    override fun loadAccess() = access
+    override fun saveAccess(state: AccessState) { access = state }
 }
 
 /**
@@ -72,6 +80,8 @@ class JsonFileStore(private val dir: File) : EngineStore {
     override fun saveFavorites(entries: List<FavoriteEntry>) = write("favorites.json", FavoritesFile.serializer(), FavoritesFile(entries))
     override fun loadSettings() = read("settings.json", EngineSettings.serializer()) ?: EngineSettings()
     override fun saveSettings(settings: EngineSettings) = write("settings.json", EngineSettings.serializer(), settings)
+    override fun loadAccess() = read("access.json", AccessState.serializer()) ?: AccessState()
+    override fun saveAccess(state: AccessState) = write("access.json", AccessState.serializer(), state)
 
     private fun <T> read(name: String, serializer: KSerializer<T>): T? = synchronized(lock) {
         val file = File(dir, name)

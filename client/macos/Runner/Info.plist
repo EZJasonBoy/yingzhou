@@ -30,5 +30,12 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<!-- Finding engines on the LAN (mDNS) and reaching them: macOS asks the user once. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>查找并连接局域网里的映舟引擎</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_tvbox-engine._tcp</string>
+	</array>
 </dict>
 </plist>

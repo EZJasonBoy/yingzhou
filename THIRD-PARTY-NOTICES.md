@@ -46,6 +46,8 @@ SOFTWARE.
 - ASM — BSD-3-Clause
 - OkHttp, Gson, Jsoup, Ktor, kotlinx — Apache-2.0 / MIT
 - quickjs-kt — Apache-2.0; QuickJS — MIT
+- JmDNS (`org.jmdns:jmdns`, mDNS announcement of a shared engine) — Apache-2.0
+- bonsoir (`bonsoir`, `bonsoir_platform_interface`, `bonsoir_android`, `bonsoir_darwin`, `bonsoir_linux`, `bonsoir_windows`; finding engines on the LAN in the client), Copyright (c) 2019 Hugo DELAUNAY "Skyost" — MIT
 
 ## Tools
 

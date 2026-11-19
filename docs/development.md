@@ -55,7 +55,15 @@ flutter test                                # 单元 / 组件测试（用 test/f
 flutter run -d windows                      # 没有引擎在 9978 上时会自己拉起上面 installDist 的引擎
 ```
 
-引擎参数：`--port`、`--lan`（监听局域网）、`--data <目录>`（默认 `~/.tvbox-next/engine`）、`--subscribe <地址>`、`--demo`、`--dev-cors`、`--exit-with-stdin`。
+引擎参数：`--port`、`--lan`（监听 0.0.0.0，局域网共享始终开启，配对码打印在标准输出）、`--name <名字>`（局域网里显示的名字，默认"映舟 · 计算机名"）、`--data <目录>`（默认 `~/.tvbox-next/engine`）、`--subscribe <地址>`、`--demo`、`--dev-cors`、`--exit-with-stdin`。
+
+### 局域网共享与鉴权
+
+- 代码：`engine/api/src/main/kotlin/tvbox/engine/api/access/`（`AccessControl` 配对码、令牌、签名；`AccessPlugin` 拦截器、`/pair`、`/lan`、给响应里的引擎地址签名），`engine/server/.../lan/LanSharing.kt`（按地址另起监听、JmDNS）。客户端：`client/lib/engine/lan.dart`、`discovery*.dart`、`lib/ui/pairing_dialog.dart`、`lib/pages/lan_section.dart`。协议见 [protocol.md](protocol.md)"鉴权与配对"。
+- `EngineModuleOptions(access = …)` 不传时是"只有本机"（安卓内置引擎就是这样）。新加的路由不用做任何事就受保护；返回引擎地址的新接口，返回 `PlayInfo` / `LiveList` 会自动签名，其他形状自己调 `AccessControl.sign`。
+- 测试：`engine/api/src/test/.../AccessTest.kt`。测试宿主的请求来自回环地址，"别的设备"用外来的 `Host` 头模拟；有一个用例在本机的局域网地址上起真实的 CIO 监听，从非回环地址访问。这些都还是同一台机器，**没有跨真实网络测过**；mDNS 通告只确认了注册不报错，没有用另一台设备搜到过。客户端用 `test/fake_lan_engine.dart` 模拟要令牌的远程引擎。
+- 手动试：`--demo --port 19984` 启动后 `curl -X PUT -H 'Content-Type: application/json' -d '{"enabled":true}' http://127.0.0.1:19984/api/v1/lan`，返回里有地址和配对码；用局域网地址访问 `/api/v1/sites` 应得 401。试完记得关掉（`{"enabled":false}`）或停掉引擎。
+- Git Bash 传给 Java 的中文参数会乱码（`--name 测试引擎`），测试时用英文名。
 
 ## 4. 演示引擎
 

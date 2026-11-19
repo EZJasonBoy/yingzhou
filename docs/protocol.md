@@ -2,12 +2,12 @@
 
 客户端与引擎之间的唯一接口。本机内置引擎和远程引擎使用同一套协议。
 
-> 标了 **（未实现）** 的是已定下形状但还没写的接口：鉴权与 `/pair`、mDNS、`/config/reload`、`/events`、`/danmaku`。其余都已实现并有测试。
+> 标了 **（未实现）** 的是已定下形状但还没写的接口：`/config/reload`、`/events`、`/danmaku`。其余都已实现并有测试。
 
 ## 约定
 
 - 基础路径：`/api/v1`。JSON 使用 UTF-8，字段名 camelCase。
-- 鉴权 **（未实现）**：`Authorization: Bearer <token>`。本机回环地址上的内置客户端可免令牌。目前引擎不校验令牌，默认只监听 `127.0.0.1`。
+- 鉴权：`Authorization: Bearer <token>`，令牌由配对得到（见下面"鉴权与配对"）。本机的调用方不需要令牌。
 - 错误：HTTP 状态码 + `{"error": {"code": "SITE_TIMEOUT", "message": "…"}}`。
 - 流式结果用 **SSE**（`text/event-stream`）；引擎主动推送的事件用 **WebSocket** `/api/v1/events` **（未实现）**。
 - 版本：`GET /api/v1/info` 返回 `protocol` 版本号，不兼容的改动升主版本。
@@ -17,9 +17,58 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/info` | `{name, version, protocol, platform, capabilities: {jar, js, py, sniff}}`，无需令牌 |
-| POST | `/pair` | **（未实现）** `{code}` → `{token}`；配对码由引擎界面或日志显示 |
+| POST | `/pair` | `{code, name}` → `{token, deviceId, name}`，无需令牌；`name` 是设备给自己起的名字 |
 
-局域网发现 **（未实现）**：mDNS 服务类型 `_tvbox-engine._tcp`，TXT 记录含 `protocol` 与 `name`。
+局域网发现：开启局域网共享时，引擎在每个局域网地址上用 mDNS 通告服务 `_tvbox-engine._tcp`，TXT 记录含 `protocol` 与 `name`。
+
+### 鉴权与配对
+
+**谁算本机**：对方地址是回环地址（127.0.0.1、::1），**并且**请求的 `Host` 是 `127.0.0.1` / `localhost` / `[::1]`（带不带端口都行）。后一半挡住本机浏览器里借 DNS 重绑定用自己的域名访问 127.0.0.1 的网页，和 `/file/` 的规则一样。本机调用方什么都不需要；经反向代理把 `Host` 改成 127.0.0.1 转发进来的请求也会被当成本机，不要这样配置。
+
+**检查顺序**（一个拦截器挡在所有路由前面，之后新加的路由自动受保护，默认拒绝）：
+
+1. 公开：`GET /api/v1/info`、`POST /api/v1/pair`；演示引擎（`--demo`）的 `/demo/` 也公开，因为它代表的是第三方站点，别的引擎（模拟器里的安卓引擎）要不带令牌地取它。
+2. 本机 → 放行。
+3. GET / HEAD、路径不在 `/api/` 下、带有效的 `tvsig` 签名 → 只放行这一个地址（见下面"签名地址"）。
+4. 局域网共享关闭 → `403 LAN_SHARING_OFF`（带令牌也一样）。
+5. 有效的 `Authorization: Bearer <token>` → 放行（`/api/v1/lan` 除外，它只认本机）。
+6. 其余 → `401 UNAUTHORIZED`，响应头 `WWW-Authenticate: Bearer`。客户端收到 401 就回到配对。
+
+**配对码**：6 位数字，一次有效，10 分钟过期。没有界面的引擎把它打印在标准输出里；本机的应用经 `GET /api/v1/lan` 读取。`POST /pair` 带空的 `code` 不算一次尝试：没有有效的码时引擎会生成一个（并打印），回答 `400 PAIR_CODE_REQUIRED`——客户端打开配对窗口时就发这个请求。
+
+| 回答 | 含义 |
+|---|---|
+| `200 {token, deviceId, name}` | 配对成功，码作废 |
+| `400 PAIR_CODE_REQUIRED` | 没填码；引擎上现在有一个 |
+| `403 PAIR_CODE_WRONG` | 码不对或已过期，消息里有剩余次数 |
+| `429 PAIR_LOCKED` + `Retry-After` | 连错 5 次：码作废，所有人的配对锁定 1 分钟，再错翻倍，最长 15 分钟；锁定期间正确的码也不行 |
+| `403 LAN_SHARING_OFF` | 局域网共享没开 |
+
+**令牌**：`<设备 id>.<32 字节随机数的 base64url>`。引擎只保存随机部分的 SHA-256（`access.json`，在引擎数据目录里），比较用恒定时间。每台设备一个令牌，可单独撤销；撤销后它的令牌和它拿到的签名地址立即失效。
+
+**签名地址**：播放器（libmpv、ExoPlayer）带不上我们的请求头，而播放器会把 `PlayInfo.headers` 发给每个地址（包括 CDN），所以令牌绝不能放进播放器的请求头。引擎改为在交给客户端的引擎地址上加签名参数：
+
+```
+tvsig=<过期时间，秒，36 进制>.<设备 id 或 local>.<HMAC-SHA256 前 16 字节，base64url>
+```
+
+- HMAC 的内容是 `tvsig1\n<主体>\n<过期>\n<规范形式>`。规范形式：路径的每一段与每个查询参数先百分号解码成字节，再严格编码（只有 `A-Z a-z 0-9 - . _ ~` 原样保留），去掉 `tvsig`，参数按名字稳定排序（同名参数保持原顺序）。所以改值、换路径、追加参数（例如给 `/proxy` 多塞一个 `siteKey`）都会让签名失效，参数换顺序不影响。
+- 密钥：设备签名用该设备令牌的哈希；`local` 签名用引擎每次启动随机生成的内存密钥，且只认来自回环地址的请求（本机播放器有时会带着 CDN 的 `Host` 头来请求引擎地址，靠它通过）。
+- 只用于 GET / HEAD，路径第一段不能是 `api`（不分大小写），不能含 `.` / `..` 段。设备签名还要求局域网共享开着、设备没被撤销。
+- 有效期：`/play/resolve` 返回的 24 小时；直播列表里的 30 天（客户端整次运行都用同一份列表）；经签名地址取到的播放列表里的地址继承那个签名的过期时间。
+- 签名发生在响应出去之前（Ktor 发送管道）：`PlayInfo.url`、`sniff.pageUrl`、直播列表里的频道地址，以及 HLS 播放列表正文里的地址。被签的是指向引擎自己的地址：`http://127.0.0.1:<端口>/`、`http://localhost:<端口>/`、`http://<请求的 Host>/`。HLS 正文里请求的 `Host` 可能来自播放器（可能是 CDN 的名字），所以那里按 `Host` 只签 `/m3u8?` 和 `/proxy?`。
+- 新加返回引擎地址的接口：返回 `PlayInfo` / `LiveList` 会自动签名；别的形状要自己调用 `AccessControl.sign(url, call.accessGrant.subject, 过期时间)`。
+
+### 局域网共享（只限本机）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/lan` | `{supported, enabled, forced, listening, name, port, addresses, discoverable, error, code, codeExpiresAt, lockedUntil, devices: [{id, name, createdAt, lastSeenAt, lastAddress}]}`；共享开着时总有一个有效的 `code` |
+| PUT | `/lan` | `{enabled}`：打开或关闭，立即生效并保存，返回同上 |
+| POST | `/lan/code` | 换一个配对码 |
+| DELETE | `/lan/devices/{id}` | 撤销一台设备 |
+
+这四个接口每次都在处理函数里再检查一次"本机"，不是本机一律 `403 LOCAL_ONLY`，带令牌也不行。`supported=false`：这个引擎不能共享（安卓内置引擎），或者是没有网络监听能力的测试环境。`forced=true`：以 `--lan` 启动，开关不起作用。
 
 ## 订阅与配置
 
@@ -120,7 +169,9 @@ event: end       data: {"sites":40,"ms":9120}
 | `/file/<路径>` | 仅桌面引擎、仅本机访问：本机文件，供 `clan://localhost/`、`file://` 和本机路径的订阅及其 `./` 引用使用 |
 | `/m3u8?url=&h=` | HLS 去广告：引擎拉取播放列表（`h` 为请求头 JSON 的 URL 安全 base64），把相对地址改成绝对地址，按配置 `rules` 的广告规则和保守的分片路径启发式去掉广告片段；主播放列表的各码率也指回这里。拉取失败时 302 到原地址 |
 
-`/play/resolve` 返回的 HLS 地址默认包成 `/m3u8?…`（`headers` 照样返回，播放器拿去请求分片）。引擎为自己生成的地址（`/m3u8`、蜘蛛 `/proxy`）用 `127.0.0.1`；局域网里的其他设备请求时，按它访问引擎用的地址（请求的 `Host`）改写，所以电视连 NAS 引擎也能直接播。
+`/play/resolve` 返回的 HLS 地址默认包成 `/m3u8?…`（`headers` 照样返回，播放器拿去请求分片）。引擎为自己生成的地址（`/m3u8`、蜘蛛 `/proxy`）用 `127.0.0.1`；局域网里的其他设备请求时，按它访问引擎用的地址（请求的 `Host`）改写，所以电视连 NAS 引擎也能直接播。这些地址都带 `tvsig` 签名（见"鉴权与配对"），播放器不需要令牌。
+
+这些兼容端点和 API 一样受鉴权保护：其他设备要么带令牌，要么用引擎签过名的地址。jar 蜘蛛在引擎进程里访问 `127.0.0.1` 上的 `/proxy`，属于本机，不受影响。
 
 ## 数据模型
 

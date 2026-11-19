@@ -14,6 +14,7 @@ dex2jar = "2.4.39"
 asm = "9.11.1"
 android-json = "0.0.20131108.vaadin1"
 androidx-collection = "1.5.0"
+jmdns = "3.6.5"
 
 [libraries]
 coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -28,6 +29,7 @@ asm-tree = { module = "org.ow2.asm:asm-tree", version.ref = "asm" }
 android-json = { module = "com.vaadin.external.google:android-json", version.ref = "android-json" }
 androidx-collection = { module = "androidx.collection:collection-jvm", version.ref = "androidx-collection" }
 gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
+jmdns = { module = "org.jmdns:jmdns", version.ref = "jmdns" }
 ktor-server-core = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
 ktor-server-cio = { module = "io.ktor:ktor-server-cio", version.ref = "ktor" }
 ktor-server-content-negotiation = { module = "io.ktor:ktor-server-content-negotiation", version.ref = "ktor" }

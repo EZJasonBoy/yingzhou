@@ -210,6 +210,9 @@ class EngineModuleTest {
                     else -> MockResponse().setResponseCode(404)
                 }
             }
+            // The LAN client below is a paired device.
+            val access = tvbox.engine.api.access.AccessControl(tvbox.engine.core.store.MemoryStore(), supported = true).also { it.setSharing(true) }
+            val token = (access.pair(access.newCode().code, "tv", "x") as tvbox.engine.api.access.AccessControl.PairResult.Paired).token
             testApplication {
                 // The engine's own urls use the port it listens on (80 in the test host).
                 application {
@@ -220,6 +223,7 @@ class EngineModuleTest {
                             SiteHttp(OkHttpClient()),
                             proxyBase = "http://127.0.0.1:80/proxy?",
                         ),
+                        EngineModuleOptions(access = access),
                     )
                 }
                 val created = client.post("/api/v1/subscriptions") {
@@ -241,6 +245,7 @@ class EngineModuleTest {
                 val lan = EngineJson.parseToJsonElement(client.post("/api/v1/play/resolve") {
                     contentType(ContentType.Application.Json)
                     header(HttpHeaders.Host, "192.168.1.5:9978")
+                    header(HttpHeaders.Authorization, "Bearer $token")
                     setBody("""{"site":"cms","line":"x","episodeId":"https://cdn.test/a/index.m3u8"}""")
                 }.bodyAsText()).jsonObject
                 assertTrue(lan["url"]!!.jsonPrimitive.content.startsWith("http://192.168.1.5:9978/m3u8?url="), lan.toString())

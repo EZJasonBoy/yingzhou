@@ -1,5 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
+import 'engine_image.dart';
+
 /// Centered status message with an optional action, for empty / error states.
 class StatusView extends StatelessWidget {
   const StatusView({super.key, required this.icon, required this.message, this.actionLabel, this.onAction});
@@ -58,7 +60,7 @@ class NetImage extends StatelessWidget {
     return Image.network(
       url,
       fit: fit,
-      headers: headers,
+      headers: headers ?? engineImageHeaders(context, url),
       gaplessPlayback: true,
       frameBuilder: (context, child, frame, wasSync) => wasSync
           ? child

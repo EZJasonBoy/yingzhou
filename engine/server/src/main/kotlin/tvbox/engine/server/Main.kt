@@ -40,14 +40,16 @@ import java.util.concurrent.TimeUnit
 /**
  * Standalone engine (desktop sidecar / Docker).
  *
- *   tvbox-engine [--port 9978] [--lan] [--data <dir>] [--subscribe <url>] [--demo] [--dev-cors] [--exit-with-stdin]
+ *   tvbox-engine [--port 9978] [--lan] [--data <dir>] [--name <name>] [--subscribe <url>] [--demo] [--dev-cors] [--exit-with-stdin]
  *   tvbox-engine --check [<subscription or file or folder>...] [--only cms,js,jar,live] [--play] [--max-sites N] [--max-configs N]
  *                [--report <file.md>] [--strict]
  *
  * - --exit-with-stdin: exit when stdin closes. The desktop client starts the engine with a pipe on stdin, so the
  *   engine goes away with the client even when the client crashes.
  * - Port 9978 is the TVBox default; jar spiders look for their host on 9978..9999.
- * - Without --lan the engine only listens on 127.0.0.1.
+ * - Without --lan the engine only listens on 127.0.0.1, unless LAN sharing was switched on in the app (kept in
+ *   the data dir; then it also listens on this machine's LAN addresses, see LanSharing). --lan listens on 0.0.0.0 with
+ *   sharing always on. Other devices pair with a code the engine prints; --name sets the name they see.
  * - --data is where subscriptions, history and favorites are kept (default ~/.tvbox-next/engine).
  * - --demo serves a fake site under /demo and subscribes to it; it keeps data in memory unless --data is given.
  * - --dev-cors lets pages on http://localhost:* call the engine (Flutter web during development).
@@ -123,15 +125,23 @@ fun main(args: Array<String>) {
         githubProxy = githubProxy,
     )
     val demo = if ("--demo" in args) DemoSite() else null
+    // Who may use the engine from other devices: pairing, tokens, signed media addresses (see AccessControl).
+    val access = tvbox.engine.api.access.AccessControl(store, supported = !check, forced = "--lan" in args)
+    // The demo site stands in for a third-party site, which other engines (an emulator's) fetch without a token.
+    if (demo != null) access.publicPrefixes = listOf("/demo/")
 
-    val server = embeddedServer(CIO, port = port, host = host) {
-        engineModule(engine, EngineModuleOptions(allowLocalhostCors = "--dev-cors" in args))
+    val serverModule: io.ktor.server.application.Application.() -> Unit = {
+        engineModule(engine, EngineModuleOptions(allowLocalhostCors = "--dev-cors" in args, access = access))
         routing {
             localFileRoutes()
             if (demo != null) demoRoutes(demo)
         }
-    }.start(wait = false)
+    }
+    val server = embeddedServer(CIO, port = port, host = host, module = serverModule).start(wait = false)
     println("tvbox-engine listening on http://$host:$port" + (dataDir?.let { ", data in ${it.absolutePath}" } ?: ", data in memory"))
+    val lan = if (check) null else tvbox.engine.server.lan.LanSharing(
+        access, port, argValue(args, "--name") ?: tvbox.engine.server.lan.LanSharing.defaultName(), boundToAll = "--lan" in args, module = serverModule,
+    ).also { it.start() }
     println(if (sniffer != null) "sniffing with " + CdpSniffer.findBrowser() else "sniffing unavailable: no Edge/Chrome/Chromium found (set TVBOX_BROWSER)")
 
     if (check) {
@@ -186,6 +196,7 @@ fun main(args: Array<String>) {
 
     Runtime.getRuntime().addShutdownHook(Thread {
         ChildProcesses.killAll()
+        lan?.stop()
         server.stop(500, 2000)
     })
     Thread.currentThread().join()

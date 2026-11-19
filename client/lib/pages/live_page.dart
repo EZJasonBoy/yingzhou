@@ -11,6 +11,7 @@ import '../desktop/desktop_window.dart';
 import '../engine/engine_client.dart';
 import '../engine/live_models.dart';
 import '../settings.dart';
+import '../ui/engine_image.dart';
 import 'browse_page.dart' show errorText;
 
 /// Live TV: the config's `lives` as sources, channel groups, a player and the programme guide.
@@ -791,7 +792,7 @@ class _Logo extends StatelessWidget {
     return SizedBox(
       width: 48,
       height: 32,
-      child: url.isEmpty ? fallback : Image.network(url, fit: BoxFit.contain, errorBuilder: (_, _, _) => fallback),
+      child: url.isEmpty ? fallback : Image.network(url, fit: BoxFit.contain, headers: engineImageHeaders(context, url), errorBuilder: (_, _, _) => fallback),
     );
   }
 }

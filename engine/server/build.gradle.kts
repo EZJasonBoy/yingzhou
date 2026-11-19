@@ -8,6 +8,8 @@ dependencies {
     implementation(project(":runtime-js"))
     implementation(project(":runtime-jar"))
     implementation(libs.ktor.server.cio)
+    // mDNS announcement while LAN sharing is on (desktop / NAS only; the Android app never shares).
+    implementation(libs.jmdns)
     runtimeOnly(libs.logback)
 }
 

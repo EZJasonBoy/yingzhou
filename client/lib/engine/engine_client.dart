@@ -13,7 +13,12 @@ class EngineClient {
 
   /// e.g. `http://127.0.0.1:9978`
   final Uri baseUrl;
-  final String? token;
+
+  /// The token from pairing with a remote engine (`Authorization: Bearer`); null for the engine on this machine.
+  String? token;
+
+  /// Called when the engine refuses the token (none, wrong or revoked): the app goes back to pairing.
+  void Function(EngineException error)? onUnauthorized;
   final http.Client _http;
 
   static const timeout = Duration(seconds: 60);
@@ -163,8 +168,12 @@ class EngineClient {
   }
 
   void _auth(http.BaseRequest request) {
-    if (token != null) request.headers['Authorization'] = 'Bearer $token';
+    final t = token;
+    if (t != null && t.isNotEmpty) request.headers['Authorization'] = 'Bearer $t';
   }
+
+  /// A request to any `/api/v1/<path>`, for API groups kept in their own files (see `lan.dart`).
+  Future<dynamic> send(String method, String path, {Object? body, Map<String, String>? query}) => _send(method, path, body: body, query: query);
 
   Future<dynamic> _send(String method, String path, {Object? body, Map<String, String>? query}) async {
     final request = http.Request(method, _uri(path, query));
@@ -189,6 +198,12 @@ class EngineClient {
   }
 
   EngineException _error(int status, String text) {
+    final e = _parseError(status, text);
+    if (status == 401) onUnauthorized?.call(e);
+    return e;
+  }
+
+  EngineException _parseError(int status, String text) {
     try {
       final error = (jsonDecode(text) as Map<String, dynamic>)['error'] as Map<String, dynamic>;
       return EngineException(error['code'] as String, error['message'] as String, statusCode: status);
