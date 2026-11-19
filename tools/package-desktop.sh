@@ -65,6 +65,7 @@ if [ "$os" = windows ]; then
   echo "== installer"
   # Inno Setup's compiler: $ISCC, or on PATH (scoop install inno-setup), or where its own installer puts it.
   iscc="${ISCC:-$(command -v iscc || true)}"
+  [ -n "$iscc" ] && iscc="$(cygpath -u "$iscc")"
   for dir in "/c/Program Files (x86)/Inno Setup 6" "/c/Program Files/Inno Setup 7" "/c/Program Files (x86)/Inno Setup 7"; do
     [ -z "$iscc" ] && [ -f "$dir/ISCC.exe" ] && iscc="$dir/ISCC.exe"
   done
