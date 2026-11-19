@@ -90,6 +90,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Type: filesandordirs; Name: "{app}\engine"
 Type: filesandordirs; Name: "{app}\data"
 
+[UninstallDelete]
+; The client's poster cache (path_provider's application cache folder). A cache, not the user's data: always removed.
+Type: filesandordirs; Name: "{localappdata}\Yingzhou"
+
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
