@@ -6,7 +6,7 @@
 
 ### 2026-11-18
 
-- **名字定为映舟（Yingzhou）**，新 logo：帆是播放键的小船（docs/brand）。Windows 程序改为 yingzhou.exe、包名 yingzhou-windows-x64.zip，macOS 为 Yingzhou.app，窗口标题、安卓与网页图标同步更换。图标由 tools/brand/render-icons.mjs 从 SVG 生成。客户端本地设置（窗口位置、音量）随 Windows 程序名换了存放位置；引擎数据目录 ~/.tvbox-next 不变。
+- **名字定为映舟（Yingzhou）**，新 logo：帆是播放键的小船，暮光配色（低饱和靛紫底、珊瑚色船身、三色水波；docs/brand）。Windows 程序改为 yingzhou.exe、包名 yingzhou-windows-x64.zip，macOS 为 Yingzhou.app，窗口标题、安卓与网页图标同步更换。图标由 tools/brand/render-icons.mjs 从 SVG 生成。客户端本地设置（窗口位置、音量）随 Windows 程序名换了存放位置；引擎数据目录 ~/.tvbox-next 不变。
 - **GitHub 加速代理改成开关，默认关闭**（「源」页 → 网络）。很多订阅把 `gh-proxy` 之类的代理写死在 GitHub 地址前面，代理一失效整个订阅就 404（gh-proxy.org 现在就是这样）。关闭时引擎直连 GitHub，并把订阅里写的代理前缀去掉；打开后才经你填的代理获取，代理失败再直连。对配置、jar、脚本、直播列表都生效。新增 `/api/v1/settings`，「当前配置」里会显示实际访问的地址。
 
 ### 2026-11-16
