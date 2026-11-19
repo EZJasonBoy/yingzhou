@@ -37,6 +37,10 @@ public class OkDns implements Dns {
 
     @Override
     public List<InetAddress> lookup(String hostname) throws UnknownHostException {
-        return Dns.SYSTEM.lookup(get(hostname));
+        // TVBoxOS asks its DoH client or the system here. The engine's client resolves with the active config's
+        // `hosts` and the user's DNS choice (tvbox.engine.core.net.ConfigNetwork), so that is who is asked.
+        okhttp3.OkHttpClient base = tvbox.engine.jarhost.HostBridge.baseClient;
+        Dns next = base != null ? base.dns() : Dns.SYSTEM;
+        return next.lookup(get(hostname));
     }
 }

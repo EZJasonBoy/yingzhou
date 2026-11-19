@@ -36,7 +36,10 @@ public class OkHttp {
     public static synchronized OkHttpClient client() {
         if (client != null) return client;
         OkHttpClient base = HostBridge.baseClient;
-        if (base != null) return client = base.newBuilder().dns(dns()).build();
+        // Built from the engine's client: its interceptors apply and its DNS (the config's hosts, the user's DoH
+        // choice) is what OkDns asks. Spiders keep TVBox's timeouts, and a dispatcher of their own so that a spider
+        // calling cancelAll() stops spiders' requests only.
+        if (base != null) return client = base.newBuilder().dns(dns()).dispatcher(new okhttp3.Dispatcher()).connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS).readTimeout(TIMEOUT, TimeUnit.MILLISECONDS).writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS).build();
         OkHttpClient.Builder builder = new OkHttpClient.Builder().dns(dns()).connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS).readTimeout(TIMEOUT, TimeUnit.MILLISECONDS).writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS);
         setOkHttpSsl(builder);
         return client = builder.build();

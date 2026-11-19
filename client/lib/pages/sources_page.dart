@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
 import '../engine/models.dart';
+import 'network_settings.dart';
 
 /// 源：engine connection, subscription import, repository switch and the site list.
 class SourcesPage extends StatefulWidget {
@@ -142,6 +143,7 @@ class _SourcesPageState extends State<SourcesPage> {
                               ),
                             ],
                           ),
+                        const NetworkSettings(),
                       ],
                     ),
                   ),

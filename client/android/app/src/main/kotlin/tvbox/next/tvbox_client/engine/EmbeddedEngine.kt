@@ -56,12 +56,15 @@ object EmbeddedEngine {
         val local = "http://127.0.0.1:$PORT"
         val data = File(app.filesDir, "engine")
         val githubProxy = tvbox.engine.core.net.GithubProxy()
+        // The active config's hosts / headers and the user's DNS choice, for everything built from this client.
+        val network = tvbox.engine.core.net.ConfigNetwork(log = { Log.w(TAG, it) })
         val client = tvbox.engine.core.net.LenientTls.apply(
-            OkHttpClient.Builder()
+            network.install(OkHttpClient.Builder())
                 .addInterceptor(githubProxy)
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS),
         ).build()
+        HostBridge.baseClient = client
         val locator = ConfigLocator("$local/file/")
         val js = JsRuntime(
             JsEnvironment(
@@ -87,6 +90,7 @@ object EmbeddedEngine {
             runtimes = listOf(jar, js),
             sniffer = sniffer,
             githubProxy = githubProxy,
+            network = network,
         )
         server = embeddedServer(CIO, port = PORT, host = "127.0.0.1") { engineModule(engine) }.start(wait = false)
         Log.i(TAG, "listening on $local")

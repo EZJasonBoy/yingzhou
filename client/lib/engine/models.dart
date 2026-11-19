@@ -61,19 +61,30 @@ class RepoInfo {
 
 /// Engine-wide settings (`/api/v1/settings`).
 class EngineSettings {
-  const EngineSettings({this.githubProxy = false, this.githubProxyPrefix = ''});
+  const EngineSettings({this.githubProxy = false, this.githubProxyPrefix = '', this.doh = ''});
 
   /// Off: files on GitHub come from GitHub, and a proxy a subscription put in front of them is taken off.
   /// On: they are fetched through [githubProxyPrefix].
   final bool githubProxy;
   final String githubProxyPrefix;
 
+  /// The url of the DNS-over-HTTPS server names are looked up with; empty (default) for the system's DNS.
+  final String doh;
+
   factory EngineSettings.fromJson(Map<String, dynamic> json) => EngineSettings(
     githubProxy: json['githubProxy'] as bool? ?? false,
     githubProxyPrefix: json['githubProxyPrefix'] as String? ?? '',
+    doh: json['doh'] as String? ?? '',
   );
 
-  Map<String, dynamic> toJson() => {'githubProxy': githubProxy, 'githubProxyPrefix': githubProxyPrefix};
+  Map<String, dynamic> toJson() => {'githubProxy': githubProxy, 'githubProxyPrefix': githubProxyPrefix, 'doh': doh};
+
+  /// The settings are saved as a whole: change one through this, so the others go back as they were.
+  EngineSettings copyWith({bool? githubProxy, String? githubProxyPrefix, String? doh}) => EngineSettings(
+    githubProxy: githubProxy ?? this.githubProxy,
+    githubProxyPrefix: githubProxyPrefix ?? this.githubProxyPrefix,
+    doh: doh ?? this.doh,
+  );
 }
 
 class ConfigSummary {

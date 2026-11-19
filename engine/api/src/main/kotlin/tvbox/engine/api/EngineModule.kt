@@ -157,6 +157,8 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
 
             get("/settings") { call.respond(engine.settings()) }
             put("/settings") { call.respond(engine.updateSettings(call.receive<tvbox.engine.core.model.EngineSettings>())) }
+            // What the active config's hosts / headers / doh / ads and the DNS setting do to the engine's requests.
+            get("/network") { call.respond(engine.network()) }
             get("/sites") { call.respond(engine.sites()) }
 
             route("/sites/{site}") {

@@ -79,6 +79,8 @@ class Engine(
     sniffer: Sniffer? = null,
     /** The interceptor on the engine's http client that the GitHub proxy setting drives; null when there is none. */
     private val githubProxy: tvbox.engine.core.net.GithubProxy? = null,
+    /** The active config's `hosts` / `headers` / `doh` / `ads`, installed on the engine's http client; null when there is none. */
+    private val network: tvbox.engine.core.net.ConfigNetwork? = null,
 ) {
     /** Capabilities are derived from the runtimes actually present. */
     val info: EngineInfo = info.copy(
@@ -166,9 +168,29 @@ class Engine(
         return currentSettings
     }
 
+    /** What the active config's `hosts` / `headers` / `doh` / `ads` and the DNS setting do to requests. */
+    fun network(): tvbox.engine.core.model.NetworkInfo = network?.info() ?: tvbox.engine.core.model.NetworkInfo()
+
+    private val playlistPrefix = proxyBase.substringBefore("/proxy") + "/m3u8?"
+
+    /** The config's `headers` for the media host, added to what the player is told to send. */
+    private fun playerHeaders(info: PlayInfo): PlayInfo {
+        val net = network?.takeIf { it.hasHeaders && info.kind == "direct" } ?: return info
+        return info.copy(headers = net.playerHeaders(info.url, info.headers, wrapper = playlistPrefix))
+    }
+
+    private fun playerHeaders(list: LiveList): LiveList {
+        val net = network?.takeIf { it.hasHeaders } ?: return list
+        return list.copy(groups = list.groups.map { g ->
+            g.copy(channels = g.channels.map { c -> c.copy(urls = c.urls.map { u -> u.copy(headers = net.playerHeaders(u.url, u.headers)) }) })
+        })
+    }
+
     private fun applySettings(settings: tvbox.engine.core.model.EngineSettings) {
         val prefix = tvbox.engine.core.net.GithubProxy.normalize(settings.githubProxyPrefix).ifEmpty { tvbox.engine.core.net.GithubProxy.DEFAULT_PREFIX }
         currentSettings = settings.copy(githubProxyPrefix = prefix)
+        // Which DNS answers is the user's choice as well; kept as the url the choice is compared by.
+        currentSettings = currentSettings.copy(doh = network?.setDoh(settings.doh) ?: tvbox.engine.core.net.ConfigNetwork.normalizeDoh(settings.doh))
         githubProxy?.let {
             it.prefix = prefix
             it.enabled = settings.githubProxy
@@ -194,6 +216,7 @@ class Engine(
     suspend fun removeSubscription(id: String) {
         lock.withLock {
             subscriptions.remove(id) ?: throw EngineException.NotFound("subscription $id")
+            if (active?.subscriptionId == id) network?.onConfig(null)
             if (active?.subscriptionId == id) active = null
             if (savedActiveId == id) {
                 savedActiveId = null
@@ -288,6 +311,7 @@ class Engine(
             liveSpiders.values.forEach { runCatching { it.destroy() } }
             liveSpiders.clear()
             runtimes.forEach { it.onConfig(config) }
+            network?.onConfig(config)
             live.onConfig(config.livesJson)
             active = loaded
             savedActiveId = id
@@ -345,7 +369,7 @@ class Engine(
         return live.sources()
     }
 
-    suspend fun liveList(index: Int, refresh: Boolean = false): LiveList = liveCall { live.list(index, refresh) }
+    suspend fun liveList(index: Int, refresh: Boolean = false): LiveList = liveCall { playerHeaders(live.list(index, refresh)) }
 
     suspend fun epg(index: Int, channel: String, date: String): EpgDay = liveCall { live.epg(index, channel, date) }
 
@@ -390,7 +414,7 @@ class Engine(
         val a = current()
         val raw = siteCall(request.site) { it.play(request.line, request.episodeId) }
         return try {
-            playResolver.resolve(raw, a.config)
+            playerHeaders(playResolver.resolve(raw, a.config))
         } catch (e: PlayResolveException) {
             throw EngineException.SiteFailed("PLAY_FAILED", e.message ?: "play failed")
         } catch (e: Exception) {

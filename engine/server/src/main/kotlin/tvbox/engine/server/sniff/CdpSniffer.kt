@@ -51,6 +51,8 @@ class CdpSniffer(
     private val http: OkHttpClient,
     private val idleMillis: Long = 5 * 60_000,
     private val log: (String) -> Unit = { System.err.println(it) },
+    /** The active config's `hosts` (the browser resolves names the same way) and `ads` (those requests are blocked). */
+    private val network: tvbox.engine.core.net.ConfigNetwork? = null,
 ) : Sniffer {
     private val mutex = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -59,13 +61,19 @@ class CdpSniffer(
     private var idleJob: Job? = null
 
     override suspend fun sniff(request: SniffRequest, isMedia: (String) -> Boolean): SniffResult? {
+        // `hosts` reach the browser as a start option, so one started under other rules is replaced.
+        val rules = network?.hostResolverRules().orEmpty()
         val s = mutex.withLock {
             idleJob?.cancel()
             busy.incrementAndGet()
-            session?.takeIf { it.isAlive } ?: withContext(Dispatchers.IO) { start() }.also { session = it }
+            session?.takeIf { it.isAlive && it.resolverRules == rules } ?: run {
+                session?.close()
+                withContext(Dispatchers.IO) { start(rules) }.also { session = it }
+            }
         }
         try {
-            return s.sniff(request, isMedia)
+            // TVBox never takes a request to one of the config's ad hosts for the video, and does not let it load.
+            return s.sniff(request, { url -> network?.isAd(url) != true && isMedia(url) }, blocked = network?.ads.orEmpty())
         } finally {
             if (busy.decrementAndGet() == 0) scheduleIdleClose()
         }
@@ -93,13 +101,16 @@ class CdpSniffer(
         session = null
     }
 
-    private suspend fun start(): CdpSession {
+    private suspend fun start(resolverRules: String = ""): CdpSession {
         profileDir.mkdirs()
         val portFile = File(profileDir, "DevToolsActivePort")
         closeLeftover(portFile)
         portFile.delete()
+        // The config's `hosts`, e.g. "MAP a.example b.example, MAP c.example 1.2.3.4".
+        val hostRules = if (resolverRules.isEmpty()) emptyArray() else arrayOf("--host-resolver-rules=$resolverRules")
         val process = ProcessBuilder(
             browser.absolutePath,
+            *hostRules,
             "--headless=new",
             "--remote-debugging-port=0",
             "--user-data-dir=${profileDir.absolutePath}",
@@ -133,7 +144,7 @@ class CdpSniffer(
                 Thread.sleep(100)
             }
             if (lines.size < 2) throw IOException("${browser.name} did not open its DevTools port")
-            val session = CdpSession(launcher, "ws://127.0.0.1:${lines[0].trim()}${lines[1].trim()}", http)
+            val session = CdpSession(launcher, "ws://127.0.0.1:${lines[0].trim()}${lines[1].trim()}", http, resolverRules)
             // The process that actually serves DevTools, so it can be shut down with the engine.
             browserProcess = session.browserProcess()
             browserProcess?.let(ChildProcesses::register)
@@ -205,7 +216,13 @@ class CdpSniffer(
 }
 
 /** One browser process and its DevTools connection. */
-internal class CdpSession(launcher: ProcessHandle, wsUrl: String, http: OkHttpClient) {
+internal class CdpSession(
+    launcher: ProcessHandle,
+    wsUrl: String,
+    http: OkHttpClient,
+    /** The `--host-resolver-rules` this browser was started with. */
+    val resolverRules: String = "",
+) {
     @Volatile private var process: ProcessHandle = launcher
     private val nextId = AtomicInteger()
     private val pending = ConcurrentHashMap<Int, CompletableDeferred<JsonObject>>()
@@ -286,7 +303,7 @@ internal class CdpSession(launcher: ProcessHandle, wsUrl: String, http: OkHttpCl
         return msg["result"] as? JsonObject ?: JsonObject(emptyMap())
     }
 
-    suspend fun sniff(request: SniffRequest, isMedia: (String) -> Boolean): SniffResult? {
+    suspend fun sniff(request: SniffRequest, isMedia: (String) -> Boolean, blocked: List<String> = emptyList()): SniffResult? {
         val ua = request.headers.header("User-Agent") ?: defaultUserAgent()
         val targetId = call("Target.createTarget", obj("url" to JsonPrimitive("about:blank"))).string("targetId")
             ?: throw IOException("could not open a tab")
@@ -318,6 +335,11 @@ internal class CdpSession(launcher: ProcessHandle, wsUrl: String, http: OkHttpCl
             listeners += listener
             try {
                 call("Network.enable", sessionId = sessionId)
+                if (blocked.isNotEmpty()) {
+                    // Urls containing one of the config's ad hosts do not load. A browser that does not know the
+                    // command still sniffs; such requests are then only kept from being taken for the video.
+                    runCatching { call("Network.setBlockedURLs", obj("urls" to JsonArray(blocked.map { JsonPrimitive("*$it*") })), sessionId) }
+                }
                 call("Network.setUserAgentOverride", obj("userAgent" to JsonPrimitive(ua)), sessionId)
                 val extra = request.headers.filterKeys { !it.equals("User-Agent", true) && !it.equals("Referer", true) }
                 if (extra.isNotEmpty()) {

@@ -74,13 +74,21 @@
 - 引擎 `live` 包：`LiveSourceSpec` 解析 `lives` 的几种写法，`LivePlaylistParser` 解析 TXT / M3U，`Epg` 处理模板接口与 XMLTV 和频道名规整，`LiveService` 负责缓存（列表半小时、模板节目单半小时、XMLTV 6 小时）。不用 `java.time`，Android 7 也能跑。
 - 客户端「直播」页：宽屏为 分组 | 频道（带当前节目和进度）| 播放器 + 节目单；窄屏上下堆叠。↑/↓ 换台（跨分组）、←/→ 换线路、PageUp/PageDown 换分组、F 或双击全屏（频道列表变成浮层）、M 静音、滚轮音量。线路报错或 15 秒没有画面就自动换下一条；记住上次看的频道；离开该页即停止播放，播放器在第一次打开该页时才创建。
 - 蜘蛛直播（`type: 3` + `api`）：向 jar 蜘蛛要 `liveContent(url)`，按同样的格式解析。列表也可以是 JSON。指向 TVBox 内置服务（`127.0.0.1:9978/proxy`）的地址改指本引擎。
-- 尚未支持：JS / Python 蜘蛛直播、回看（`catchup`）、`hosts` / `headers` 配置项。
+- 尚未支持：JS / Python 蜘蛛直播、回看（`catchup`）。
 
 ### 2.7 配置体检（已实现）
 
 `tvbox-engine --check <订阅…>`（`tools/check-configs.sh`）用同一个引擎把订阅里的每个仓库、站点、直播源走一遍并出报告，失败按"引擎兼容 / 不支持 / 网络 / 站点报错"归类。`--demo --check --strict` 是自检：打包脚本在裁剪完 Java 运行时后用它跑一遍演示配置（采集站、JS、jar、嗅探、直播），不通过就不出包——精简运行时缺模块（曾经漏了 `jdk.zipfs`，导致所有 jar 蜘蛛失败）会在这里被拦下。
 
 HTTPS 与 TVBox 一致，不校验证书（`LenientTls`），`--strict-tls` 恢复校验。
+
+### 2.8 配置的网络项与 DNS（已实现）
+
+`core/net/ConfigNetwork` 持有当前配置的 `hosts` / `headers` / `doh` / `ads` 和使用者选的 DoH 服务器，并把三样东西装到引擎唯一的 OkHttp 客户端上（`install`）：一个 `Dns`（先按 `hosts` 换名字，目标是 IP 就直接用；选了 DoH 就问它，问不到退回系统 DNS）、一个网络拦截器（按域名加 `headers`，重定向后的请求也经过）、一个自己的连接池（规则一变就清掉空闲连接，新规则不必等旧连接过期）。引擎里所有发请求的地方——`ConfigLoader`、`SiteHttp`、`JsHttp`、`JsModules`、`JarRepository`——都从这个客户端派生，所以不用逐处接。jar 蜘蛛的宿主类 `com.github.catvod.net.OkHttp` 通过 `HostBridge.baseClient` 也从它派生（保留 TVBox 的 30 秒超时，用单独的 `Dispatcher`，免得蜘蛛 `cancelAll()` 连带取消引擎的请求），`OkDns` 先查蜘蛛自己加的表，再问引擎的 `Dns`。
+
+`Engine.activate` 在新配置生效的同一处调用 `onConfig`；DoH 的选择是 `EngineSettings.doh`，引擎启动时在取任何东西之前就应用。交给播放器的请求头（`PlayInfo.headers`、直播线路）在 `Engine` 里按媒体地址的域名补上。`CdpSniffer` 把 `hosts` 作为 `--host-resolver-rules` 传给浏览器（规则变了就重启浏览器），`ads` 用 `Network.setBlockedURLs` 屏蔽。
+
+播放器自己发的请求不经过引擎，所以 `hosts` 和 DoH 管不到媒体流；要管到，需要让媒体经引擎转发（或给 mpv 配一个由引擎提供的 HTTP 代理），还没做。
 
 ## 3. 仓库结构
 

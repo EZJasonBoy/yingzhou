@@ -64,6 +64,11 @@ data class EngineSettings(
     val githubProxy: Boolean = false,
     /** E.g. `https://ghfast.top/`; the GitHub address is appended to it. */
     val githubProxyPrefix: String = tvbox.engine.core.net.GithubProxy.DEFAULT_PREFIX,
+    /**
+     * The DNS-over-HTTPS server names are looked up with: the url of one of the choices `/api/v1/network` lists.
+     * Empty (default): the system's DNS. A config can offer servers but never turns one on.
+     */
+    val doh: String = "",
 )
 
 @Serializable

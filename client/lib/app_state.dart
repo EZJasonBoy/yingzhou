@@ -158,7 +158,7 @@ class AppState extends ChangeNotifier {
   Future<void> setGithubProxy({required bool enabled, String? prefix}) => _run(() async {
     final current = engineSettings ?? const EngineSettings();
     engineSettings = await client.updateSettings(
-      EngineSettings(githubProxy: enabled, githubProxyPrefix: prefix ?? current.githubProxyPrefix),
+      current.copyWith(githubProxy: enabled, githubProxyPrefix: prefix),
     );
     final active = summary;
     if (active == null) {
@@ -168,6 +168,13 @@ class AppState extends ChangeNotifier {
     }
     summary = await client.activate(active.subscriptionId, repo: active.repos.isEmpty ? null : active.url);
     await _loadSites();
+  });
+
+  /// Chooses the DNS-over-HTTPS server the engine looks names up with ('' for the system's DNS). It applies from
+  /// the next request on; a subscription that did not load, perhaps because of the DNS, is tried again.
+  Future<void> setDoh(String url) => _run(() async {
+    engineSettings = await client.updateSettings((engineSettings ?? const EngineSettings()).copyWith(doh: url));
+    if (summary == null) await _loadConfig();
   });
 
   /// True while the engine loads the active subscription (right after it starts, it loads the last one again).

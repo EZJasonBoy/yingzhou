@@ -8,6 +8,10 @@ Yingzhou (映舟) is licensed under AGPL-3.0 (see `LICENSE`). It includes code a
 - `engine/runtime-js/src/main/java/**` and the JS spider bootstrap: TVBox's JS spider host (crypto, html parsing rules, module rules).
 - `engine/core/.../play/PlayResolver.kt`, `PlayRules`, `M3u8Cleaner.kt`: the parse chain, `rules` handling and m3u8 ad rules follow TVBoxOS and Box (takagen99, AGPL-3.0), which credit FongMi/TV.
 
+- `engine/core/.../net/ConfigNetwork.kt`: how `hosts`, `doh` and `ads` behave follows TVBoxOS (`OkGoHelper.CustomDns`,
+  its DoH list and `ips` bootstrap, the fallback to the system's DNS, `AdBlocker`) and Box (the longer DoH list); the
+  `*` in `hosts` names and the top-level `headers` list follow FongMi/TV (GPL-3.0), described from its behaviour.
+
 ## Win-box — MIT
 
 `engine/runtime-jar/src/main/java/android/**`, `androidx/**` and `dalvik/**` started from Win-box's Android stubs
@@ -44,7 +48,7 @@ SOFTWARE.
 - android-json (`com.vaadin.external.google:android-json`, AOSP's org.json) — Apache-2.0
 - AndroidX Collection — Apache-2.0
 - ASM — BSD-3-Clause
-- OkHttp, Gson, Jsoup, Ktor, kotlinx — Apache-2.0 / MIT
+- OkHttp (with `okhttp-dnsoverhttps`), Gson, Jsoup, Ktor, kotlinx — Apache-2.0 / MIT
 - quickjs-kt — Apache-2.0; QuickJS — MIT
 
 ## Tools

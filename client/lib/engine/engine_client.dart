@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'library_models.dart';
 import 'live_models.dart';
 import 'models.dart';
+import 'network_models.dart';
 import 'vod_models.dart';
 
 /// Client for engine protocol v1. The same client talks to the built-in engine and to remote ones.
@@ -41,6 +42,9 @@ class EngineClient {
 
   Future<EngineSettings> updateSettings(EngineSettings settings) async =>
       EngineSettings.fromJson(await _send('PUT', 'settings', body: settings.toJson()));
+
+  /// The DoH servers to choose from and the active config's hosts / headers / ads.
+  Future<NetworkInfo> network() async => NetworkInfo.fromJson(await _send('GET', 'network'));
 
   Future<List<SiteInfo>> sites() async => [for (final s in await _send('GET', 'sites') as List<dynamic>) SiteInfo.fromJson(s as Map<String, dynamic>)];
 

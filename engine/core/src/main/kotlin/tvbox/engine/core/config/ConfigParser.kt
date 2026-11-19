@@ -65,6 +65,7 @@ object ConfigParser {
         livesJson = root.arrayOrNull("lives")?.toString() ?: "",
         rulesJson = root.arrayOrNull("rules")?.toString() ?: "",
         dohJson = root.arrayOrNull("doh")?.toString() ?: "",
+        headersJson = root.arrayOrNull("headers")?.toString() ?: "",
     )
 
     /** Entries without key, type or api are skipped, as in TVBox. */

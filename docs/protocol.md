@@ -36,8 +36,26 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/settings` | `{githubProxy, githubProxyPrefix}` |
-| PUT | `/settings` | 同样的对象；保存并立即生效，返回规整后的值。当前配置不会自动重新加载，客户端随后重新 `activate` |
+| GET | `/settings` | `{githubProxy, githubProxyPrefix, doh}` |
+| PUT | `/settings` | 同样的对象（整体保存，没带的字段回到默认值，所以先 GET 再改）；保存并立即生效，返回规整后的值。当前配置不会自动重新加载，改了 GitHub 代理后客户端随后重新 `activate` |
+| GET | `/network` | 当前配置的网络项和 DNS 选择，见下 |
+
+`doh` 是所选 DNS-over-HTTPS 服务器的地址，空串（默认）表示用系统 DNS；不是 http(s) 地址的值会被存成空串。改了之后从下一个请求起生效。
+
+`/network`：
+
+```json
+{
+  "doh": "",                       // 同 settings.doh
+  "dohOptions": [{"name": "阿里", "url": "https://dns.alidns.com/dns-query", "ips": [], "source": "builtin"}],
+  "dohStatus": "",                 // 还没用过为空；之后是 "ok" 或 "failed: <原因>"（此时由系统 DNS 应答）
+  "hosts": {"a.example": "1.2.3.4"},
+  "headerHosts": ["media.example"],
+  "ads": ["ads.example"]
+}
+```
+
+`dohOptions` 的 `source`：`builtin` 引擎内置，`config` 当前配置的 `doh` 提供，`saved` 之前选的、现在两边都不再列出。`hosts` / `headerHosts` / `ads` 是当前配置里被采用的条目（写错的条目不在其中），语义见 [compatibility.md](compatibility.md) 第 2 节。
 
 `githubProxy` 为 `false`（默认）时，GitHub 上的文件（`raw.githubusercontent.com`、`github.com` 等）直接向 GitHub 取，地址前面被订阅写上的代理（`https://<代理>/https://raw.githubusercontent.com/…`，带不带内层的 `https://` 都认）会被去掉；为 `true` 时改经 `githubProxyPrefix` 取，失败再直连。`/config` 的 `url` 始终是订阅里写的原样，`fetchedUrl` 是实际访问的地址。
 
@@ -87,7 +105,7 @@ event: end       data: {"sites":40,"ms":9120}
 }
 ```
 
-引擎尽量自己走完解析链（直链 / JSON 解析接口 / `jx` / 网页嗅探）。网页嗅探：桌面与 NAS 引擎用无头 Edge/Chrome（CDP，浏览器装在非标准位置时设 `TVBOX_BROWSER`），Android 内置引擎用 WebView；判定规则同 TVBox（配置 `rules` 的 `host`/`rule`/`filter`，再加内置视频地址正则），返回的 `headers` 带上页面实际使用的 Referer / User-Agent / Cookie。`/info` 的 `capabilities.sniff` 表示引擎能否嗅探；不能时才返回 `kind: "sniff"`，由客户端自行嗅探（或提示换线路）。
+引擎尽量自己走完解析链（直链 / JSON 解析接口 / `jx` / 网页嗅探）。网页嗅探：桌面与 NAS 引擎用无头 Edge/Chrome（CDP，浏览器装在非标准位置时设 `TVBOX_BROWSER`），Android 内置引擎用 WebView；判定规则同 TVBox（配置 `rules` 的 `host`/`rule`/`filter`，再加内置视频地址正则），返回的 `headers` 带上页面实际使用的 Referer / User-Agent / Cookie。配置的顶层 `headers` 里有播放地址所在域名的条目时，它的请求头也并进 `headers`（同名覆盖）；直播线路的 `headers` 同理。`/info` 的 `capabilities.sniff` 表示引擎能否嗅探；不能时才返回 `kind: "sniff"`，由客户端自行嗅探（或提示换线路）。
 
 ## 直播
 

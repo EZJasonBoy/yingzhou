@@ -14,6 +14,9 @@ public final class HostBridge {
     public static volatile Context context;
     public static volatile int port = 9978;
 
-    /** When null, com.github.catvod.net.OkHttp builds TVBox's lenient client (30 s timeouts, trust-all TLS). */
+    /**
+     * The engine's http client; spiders' requests through com.github.catvod.net.OkHttp are built from it and resolve
+     * names with its DNS. When null, that class builds TVBox's lenient client (30 s timeouts, trust-all TLS).
+     */
     public static volatile OkHttpClient baseClient;
 }

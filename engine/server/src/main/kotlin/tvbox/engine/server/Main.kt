@@ -77,7 +77,10 @@ fun main(args: Array<String>) {
 
     // Whether GitHub is reached directly or through a proxy is the user's setting (see GithubProxy).
     val githubProxy = GithubProxy()
+    // The active config's hosts / headers and the user's DNS choice, for everything built from this client.
+    val network = tvbox.engine.core.net.ConfigNetwork(log = { System.err.println(it) })
     val client = OkHttpClient.Builder()
+        .let { network.install(it) }
         .addInterceptor(githubProxy)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -85,6 +88,8 @@ fun main(args: Array<String>) {
         .let { if ("--strict-tls" in args) it else LenientTls.apply(it) }
         .build()
     val locator = ConfigLocator("$local/file/")
+    // What jar spiders request through the host's classes (com.github.catvod.net.OkHttp) follows the same rules.
+    tvbox.engine.jarhost.HostBridge.baseClient = client
     val jsRuntime = JsRuntime(
         JsEnvironment(
             modules = JsModules(client, locator, cacheDir = dataDir?.let { File(it, "js-cache") }, log = { System.err.println(it) }),
@@ -103,7 +108,7 @@ fun main(args: Array<String>) {
         cacheDir = File(work, "cache/d2j"),
     )
     // Web page sniffing in a headless Edge/Chrome, when one is installed.
-    val sniffer = CdpSniffer.findBrowser()?.let { CdpSniffer(it, File(work, "sniff-profile"), client) }
+    val sniffer = CdpSniffer.findBrowser()?.let { CdpSniffer(it, File(work, "sniff-profile"), client, network = network) }
     val engine = Engine(
         info = EngineInfo(
             name = "tvbox-engine",
@@ -121,6 +126,7 @@ fun main(args: Array<String>) {
         runtimes = listOf(jarRuntime, jsRuntime).filter { checkOnly == null || it.kind in checkOnly },
         sniffer = sniffer,
         githubProxy = githubProxy,
+        network = network,
     )
     val demo = if ("--demo" in args) DemoSite() else null
 
