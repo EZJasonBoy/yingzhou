@@ -93,6 +93,8 @@ dependencies {
     implementation("com.google.code.gson:gson:2.13.2")
     implementation("org.jsoup:jsoup:1.24.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // FileProvider: the share sheet for exports on Android 9 and earlier (already in the APK through Flutter's embedding).
+    implementation("androidx.core:core:1.13.1")
 }
 
 kotlin {

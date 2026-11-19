@@ -70,6 +70,18 @@ void main() {
     expect(tester.widget<OutlinedButton>(find.byKey(const Key('stream-cache-clear'))).onPressed, isNull, reason: 'nothing left to empty');
   });
 
+  testWidgets('an engine that watches its disk (Android) says how much room is left; others say nothing of it', (tester) async {
+    await openSources(tester, cache: holding());
+    expect(find.byKey(const Key('stream-cache-free')), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+
+    await openSources(tester, cache: {...holding(), 'freeBytes': 3 * 1024 * 1024 * 1024, 'reserveBytes': 500 * 1024 * 1024});
+    expect(
+      tester.widget<Text>(find.byKey(const Key('stream-cache-free'))).data,
+      '设备剩余空间 3 GB。剩余空间不到 500 MB 时，缓存会先删掉自己的旧内容，再不够就不缓存、不预读。',
+    );
+  });
+
   testWidgets('an engine without a stream cache shows no such section', (tester) async {
     await openSources(tester);
     expect(find.text('播放缓存'), findsNothing);

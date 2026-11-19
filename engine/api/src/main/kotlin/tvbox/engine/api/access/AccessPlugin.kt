@@ -45,7 +45,7 @@ data class LanUpdate(val enabled: Boolean)
 /** `GET /api/v1/lan`: the LAN sharing switch and what goes with it. Only for callers on the engine's machine. */
 @Serializable
 data class LanStatus(
-    /** False where the engine cannot share (the Android app). */
+    /** False where the engine cannot share (no host to listen on the network with). */
     val supported: Boolean,
     val enabled: Boolean,
     /** Started with `--lan`: always on, the switch does nothing. */

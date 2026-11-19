@@ -42,7 +42,7 @@ data class LanHostStatus(
  */
 class AccessControl(
     private val store: EngineStore = MemoryStore(),
-    /** False where the engine never listens on the network (the Android app): nobody else gets in. */
+    /** False where the engine never listens on the network (a check, tests): nobody else gets in. */
     val supported: Boolean = false,
     /** `--lan`: sharing is on whatever the saved switch says. */
     val forced: Boolean = false,

@@ -2,6 +2,15 @@
     <!-- The client talks to an engine over HTTP: the built-in one on 127.0.0.1 or one on the LAN. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- The engine keeps running in a foreground service while it downloads or shares itself with the LAN
+         (EngineService), with a notification (asked for on Android 13+ when first needed), CPU and Wi-Fi awake. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Required on Android 14+ for a connectedDevice service (LAN sharing). -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 
     <!-- Runs on phones, tablets and Android TV boxes (no touchscreen required). -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -38,6 +47,21 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Keeps the embedded engine alive while downloads run (dataSync) or LAN sharing is on (connectedDevice). -->
+        <service
+            android:name=".engine.EngineService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|connectedDevice" />
+        <!-- Exports on Android 9 and earlier, for the share sheet. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.exports"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/engine_exports" />
+        </provider>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

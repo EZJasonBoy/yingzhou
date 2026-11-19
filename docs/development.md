@@ -60,8 +60,9 @@ flutter run -d windows                      # 没有引擎在 9978 上时会自�
 
 ### 局域网共享与鉴权
 
-- 代码：`engine/api/src/main/kotlin/tvbox/engine/api/access/`（`AccessControl` 配对码、令牌、签名；`AccessPlugin` 拦截器、`/pair`、`/lan`、给响应里的引擎地址签名），`engine/server/.../lan/LanSharing.kt`（按地址另起监听、JmDNS）。客户端：`client/lib/engine/lan.dart`、`discovery*.dart`、`lib/ui/pairing_dialog.dart`、`lib/pages/lan_section.dart`。协议见 [protocol.md](protocol.md)"鉴权与配对"。
-- `EngineModuleOptions(access = …)` 不传时是"只有本机"（安卓内置引擎就是这样）。新加的路由不用做任何事就受保护；返回引擎地址的新接口，返回 `PlayInfo` / `LiveList` 会自动签名，其他形状自己调 `AccessControl.sign`。
+- 代码：`engine/api/src/main/kotlin/tvbox/engine/api/access/`（`AccessControl` 配对码、令牌、签名；`AccessPlugin` 拦截器、`/pair`、`/lan`、给响应里的引擎地址签名；`LanListeners` 按地址另起监听、地址变化、通告——桌面和安卓共用），`engine/server/.../lan/LanSharing.kt`（桌面：CIO + JmDNS），安卓 `client/android/.../engine/AndroidLan.kt`（CIO + `NsdManager`，见 architecture.md 2.2）。客户端：`client/lib/engine/lan.dart`、`discovery*.dart`、`lib/ui/pairing_dialog.dart`、`lib/pages/lan_section.dart`。协议见 [protocol.md](protocol.md)"鉴权与配对"。
+- `EngineModuleOptions(access = …)` 不传时是"只有本机"。新加的路由不用做任何事就受保护；返回引擎地址的新接口，返回 `PlayInfo` / `LiveList` 会自动签名，其他形状自己调 `AccessControl.sign`。
+- 测试：`engine/api/src/test/.../LanListenersTest.kt`（开关、地址变化、监听失败、`--lan`；最后一个用例在本机局域网地址上起真实监听，经 `PUT /api/v1/lan` 打开后配对）。
 - 测试：`engine/api/src/test/.../AccessTest.kt`。测试宿主的请求来自回环地址，"别的设备"用外来的 `Host` 头模拟；有一个用例在本机的局域网地址上起真实的 CIO 监听，从非回环地址访问。这些都还是同一台机器，**没有跨真实网络测过**；mDNS 通告只确认了注册不报错，没有用另一台设备搜到过。客户端用 `test/fake_lan_engine.dart` 模拟要令牌的远程引擎。
 - 手动试：`--demo --port 19984` 启动后 `curl -X PUT -H 'Content-Type: application/json' -d '{"enabled":true}' http://127.0.0.1:19984/api/v1/lan`，返回里有地址和配对码；用局域网地址访问 `/api/v1/sites` 应得 401。试完记得关掉（`{"enabled":false}`）或停掉引擎。
 - Git Bash 传给 Java 的中文参数会乱码（`--name 测试引擎`），测试时用英文名。
@@ -174,6 +175,27 @@ flutter test integration_test/seek_test.dart -d windows --dart-define=ENGINE_URL
 ```bash
 flutter test integration_test/download_test.dart -d windows --dart-define=ENGINE_URL=http://127.0.0.1:19988 --dart-define=SHOT_DIR=<目录>
 ```
+
+## 5a. 在安卓模拟器上跑和测内置引擎
+
+内置引擎的安卓部分（前台服务、通知、MediaStore 导出、`NsdManager`、只在 Wi-Fi / 有线网络上监听）只能在设备或模拟器上看。别用存着自己真实订阅的那个 AVD，另建一个：
+
+```bash
+# Windows 上 avdmanager 是 .bat
+echo no | avdmanager.bat create avd -n yz-test -k "system-images;android-34;google_apis;x86_64" -d pixel_6
+emulator -avd yz-test -port 5560 -no-window -gpu swiftshader_indirect -no-snapshot-save -no-boot-anim -no-audio
+adb -s emulator-5560 wait-for-device
+cd client && flutter build apk --debug && adb -s emulator-5560 install -r build/app/outputs/flutter-apk/app-debug.apk
+```
+
+- **演示引擎在电脑上**：`--demo --port 19992`（别用 9978，模拟器里的 App 自己占着 9978），模拟器里用 `http://10.0.2.2:19992/demo/config.json` 订阅。演示站的地址按请求的 Host 生成，所以都是 `10.0.2.2`。`adb shell input text` 打英文网址时会被输入法自动纠正，订阅更省事的办法是走接口（见下）。
+- **从电脑访问模拟器里的引擎**：`adb -s emulator-5560 forward tcp:29978 tcp:9978`（先确认电脑上这个端口空着：别的会话、别的引擎可能占着相邻的端口），然后 `curl http://127.0.0.1:29978/api/v1/info`。经 `adb forward` 进来的请求来自模拟器的回环地址，引擎当它是"本机"，不用配对；要模拟局域网里的另一台设备，加一个不是回环的 `Host` 头（`-H "Host: 10.0.2.18:9978"`），这时 `/api/v1/sites` 得 401，`POST /api/v1/pair` 带上配对码换到令牌后得 200。Git Bash 里 curl 的 `-d '{"line":"慢…"}'` 会被改坏，JSON 写进文件用 `--data-binary @文件`。
+- **局域网监听本身**：模拟器的 `wlan0`（如 `10.0.2.18`）是 Wi-Fi，`eth0`（`10.0.2.15`）是模拟的移动网络。打开共享后引擎只在 `wlan0` 上监听；电脑连不到 `wlan0`（模拟器的 `redir` 只通 `eth0`），要从非回环地址访问就在模拟器里用 `nc`：把一段 `printf 'GET /api/v1/sites HTTP/1.1\r\nHost: …\r\n…' | nc -w 5 10.0.2.18 9978` 写成脚本 `adb push` 进去再 `adb shell sh` 运行（直接写在 `adb shell` 命令行里转义会乱）。
+- **mDNS**：两个模拟器各有各的虚拟网络，互相发现不了，也连不上。能做的是在同一个模拟器的 App 里「源 → 局域网 → 搜索」，应该能找到自己（"映舟 · sdk_gphone64_x86_64"），说明 `NsdManager` 的注册、类型和 TXT 都对。
+- **前台服务和通知**：`adb shell dumpsys activity services io.github.sa1koro.yingzhou` 看 `isForeground=true` 和 `types=`（`1` = dataSync 下载，`10` = connectedDevice 共享，`11` = 两者）；`adb shell cmd statusbar expand-notifications` 拉下通知栏再截图（`adb exec-out screencap -p > x.png`），`cmd statusbar collapse` 收起；`adb shell uiautomator dump /sdcard/ui.xml` 后读出来能拿到通知按钮的坐标（Git Bash 里先 `export MSYS_NO_PATHCONV=1`，否则 `/sdcard/…` 会被改成 Windows 路径）。后台时进程的状态：`dumpsys activity processes <包名>` 里 `curProcState=4` 就是前台服务。
+- **日志**：`adb logcat -s EmbeddedEngine EngineLan EngineKeeper EngineStorage EngineService`。
+- **数据在哪**：引擎数据 `/data/user/0/io.github.sa1koro.yingzhou/files/engine`，播放缓存 `…/cache/stream`，下载 `/storage/emulated/0/Android/data/io.github.sa1koro.yingzhou/files/downloads`，导出到 `Download/映舟/`。
+- **已知问题**：本机上用 `-gpu swiftshader_indirect` 时，模拟器进程会不定时崩溃（退出码 139，没有日志），播放视频时几乎必然：播放器一开始就崩。所以视频播放在模拟器上测不了，下载后的离线播放只在接口层面看（`/play/resolve` 给出 `/dl/…`、播放列表和分片能取到），播放器那一步靠桌面的 `integration_test/download_test.dart`。
 
 ## 6. 打包
 

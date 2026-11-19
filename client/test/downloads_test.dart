@@ -317,6 +317,34 @@ void main() {
     expect(find.text('恢复默认'), findsOneWidget);
   });
 
+  testWidgets('an engine on a device without folders to type in (Android) offers its storage to choose from', (tester) async {
+    final e = _DownloadEngine();
+    e.settings = {
+      ...e.settings,
+      'path': '/storage/emulated/0/Android/data/app/files/downloads',
+      'defaultPath': '/storage/emulated/0/Android/data/app/files/downloads',
+      'locations': [
+        {'name': '内部存储', 'dir': '', 'path': '/storage/emulated/0/Android/data/app/files/downloads', 'freeBytes': 20 * 1024 * 1024 * 1024},
+        {'name': 'SD 卡 / U 盘', 'dir': '/storage/1234-5678/Android/data/app/files/downloads', 'path': '/storage/1234-5678/Android/data/app/files/downloads', 'freeBytes': 60 * 1024 * 1024 * 1024, 'removable': true},
+      ],
+    };
+    await openApp(tester, e);
+    await tester.tap(find.text('源'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('download-folder')), findsNothing, reason: 'no path to type in');
+    expect(find.text('内部存储（剩余 20.0 GB）'), findsOneWidget);
+    expect(find.textContaining('卸载 App 时会一起删掉'), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const Key('download-location')));
+    await tester.tap(find.byKey(const Key('download-location')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('SD 卡 / U 盘（剩余 60.0 GB）').last);
+    await tester.pumpAndSettle();
+    expect(lastBody('PUT', '/api/v1/downloads/settings'), {'dir': '/storage/1234-5678/Android/data/app/files/downloads'});
+    expect(find.textContaining('拔出期间这些下载看不了'), findsOneWidget);
+    expect(find.textContaining('现在：/storage/1234-5678/'), findsOneWidget);
+  });
+
   testWidgets('an engine that does not download shows none of it', (tester) async {
     await openApp(tester, _DownloadEngine(available: false));
     await openDetail(tester);

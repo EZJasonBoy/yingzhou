@@ -656,4 +656,27 @@ class StreamCacheTest {
         eventually("stored") { stored(id, 0) }
         assertArrayEquals(bytes.copyOfRange(99_000, 100_000), read(cache.open(id, 0), 99_000))
     }
+
+    @Test
+    fun `with the disk nearly full nothing new is kept and players go to the source`() = runBlocking {
+        var free = 1_000_000L
+        val small = StreamCache(OkHttpClient(), StreamStore(File(dir, "small"), reserveBytes = 500_000, freeSpace = { free }))
+        try {
+            val id = open(text(6), on = small)
+            assertArrayEquals(origin.bytes("seg0.ts"), read(small.open(id, 0)))
+            eventually("stored") { small.isStored(id, 0) }
+            // What is on disk is still served; what is not goes to the source, and nothing is read ahead.
+            free = 100_000
+            delay(1100) // the store looks at the free space at most once a second
+            assertTrue(small.open(id, 0) is Answer.Stored)
+            val asked = origin.asked.size
+            val next = answer(id, 1, on = small)
+            assertTrue(next is Answer.Redirect, "sent to the source: $next")
+            assertEquals(origin.size.toLong(), small.store.stats().bytes)
+            delay(300)
+            assertEquals(asked, origin.asked.size, "the engine itself fetched nothing")
+        } finally {
+            small.close()
+        }
+    }
 }

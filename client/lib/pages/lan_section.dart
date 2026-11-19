@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -213,14 +214,16 @@ class _LanSectionState extends State<LanSection> {
             status.forced
                 ? '引擎以 --lan 启动，始终共享'
                 : status.enabled
-                ? '同一网络里的其他设备配对后可以使用这台电脑的引擎（订阅、历史、收藏都是同一份）'
-                : '已关闭：只有这台电脑能用这个引擎',
+                ? '同一网络里的其他设备配对后可以使用$_thisDevice的引擎（订阅、历史、收藏都是同一份）'
+                : '已关闭：只有$_thisDevice能用这个引擎',
           ),
           value: status.enabled,
           onChanged: _working || status.forced ? null : (on) => _do(() => state.client.setLanSharing(on)),
         ),
         if (status.enabled) ...[
           if (status.error.isNotEmpty) Text(status.error, style: TextStyle(color: scheme.error, fontSize: 12)),
+          // Android: the engine runs in a foreground service while it shares (see EngineService).
+          if (_android) Text('共享期间通知栏里有「局域网共享中」，设备不会休眠（更耗电）；不用时关掉。', style: small),
           Text(
             status.addresses.isEmpty ? '没有找到局域网地址' : '其他设备连接：${status.addresses.join('  ')}${status.discoverable ? '（可被自动发现）' : ''}',
             style: small,
@@ -277,6 +280,11 @@ class _LanSectionState extends State<LanSection> {
       ],
     );
   }
+
+  /// The engine shares from a phone, tablet or TV box rather than a computer.
+  static bool get _android => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  static String get _thisDevice => _android ? '这台设备' : '这台电脑';
 
   static String _hm(int ms) {
     final t = DateTime.fromMillisecondsSinceEpoch(ms);

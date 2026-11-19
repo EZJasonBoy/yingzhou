@@ -120,6 +120,10 @@ class _DownloadSettingsState extends State<DownloadSettings> {
                 ],
               ),
               const SizedBox(height: 8),
+              // An engine whose device has no folders to type in (Android) offers its storage volumes instead.
+              if (info.locations.isNotEmpty)
+                _locations(context, info)
+              else
               Row(
                 children: [
                   Expanded(
@@ -146,13 +150,47 @@ class _DownloadSettingsState extends State<DownloadSettings> {
               ),
               const SizedBox(height: 8),
               Text(
-                '默认和播放缓存放在一起（看过的部分不用再下载，清空缓存也不会删掉下载）。换位置只影响以后的下载，已经下载的留在原处。',
+                info.locations.isNotEmpty
+                    ? '下载存在映舟自己的文件夹里，卸载 App 时会一起删掉；想留下来就在「我的 → 下载」里导出。换位置只影响以后的下载，已经下载的留在原处。'
+                    : '默认和播放缓存放在一起（看过的部分不用再下载，清空缓存也不会删掉下载）。换位置只影响以后的下载，已经下载的留在原处。',
                 style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  /// The engine's storage volumes as a choice, each with its free space.
+  Widget _locations(BuildContext context, DownloadSettingsInfo info) {
+    final scheme = Theme.of(context).colorScheme;
+    final current = info.locations.where((l) => l.dir == info.dir).firstOrNull;
+    String label(DownloadLocation l) => '${l.name}${l.freeBytes >= 0 ? '（剩余 ${formatBytes(l.freeBytes)}）' : ''}';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            const Text('下载到'),
+            DropdownButton<String>(
+              key: const Key('download-location'),
+              value: current?.dir,
+              // The folder chosen before is not among them (its card was taken out); the path is shown below.
+              hint: current == null ? Text(info.dir.isEmpty ? '默认位置' : '选过的位置（现在不在了）') : null,
+              items: [for (final l in info.locations) DropdownMenuItem(value: l.dir, child: Text(label(l)))],
+              onChanged: _saving ? null : (dir) => dir == null || dir == info.dir ? null : _save(dir: dir),
+            ),
+          ],
+        ),
+        if (current?.removable ?? false)
+          Text('存在可以拔出的存储上：拔出期间这些下载看不了。', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
+        if (_error != null) Text(_error!, style: TextStyle(color: scheme.error, fontSize: 12)),
+        Text('现在：${info.path}', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
+      ],
     );
   }
 }

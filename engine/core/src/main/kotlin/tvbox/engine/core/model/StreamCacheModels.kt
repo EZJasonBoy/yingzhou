@@ -19,6 +19,10 @@ data class StreamCacheInfo(
     val path: String = "",
     /** Downloads kept in the same folder (pinned streams): not in [bytes], never removed to make room. */
     val pinnedBytes: Long = 0,
+    /** Free space on that disk; -1 when the engine does not watch it (only the Android engine does). */
+    val freeBytes: Long = -1,
+    /** The cache gives way before the disk has less than this left; 0: it only keeps to [maxBytes]. */
+    val reserveBytes: Long = 0,
 )
 
 /** `GET /api/v1/stream-cache/coverage?key=`: the parts of a film that are in the cache, as `[startMs, endMs]` pairs in order. */

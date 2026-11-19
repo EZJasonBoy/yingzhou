@@ -142,6 +142,7 @@ class DownloadSettingsInfo {
     this.freeBytes = -1,
     this.reserveBytes = 0,
     this.bytes = 0,
+    this.locations = const [],
   });
 
   final bool available;
@@ -160,6 +161,10 @@ class DownloadSettingsInfo {
   /// Everything downloaded.
   final int bytes;
 
+  /// The folders to choose from where no other folder can be written (an Android engine: internal storage, SD
+  /// cards, USB drives). Empty: any folder of the engine's machine can be typed in.
+  final List<DownloadLocation> locations;
+
   factory DownloadSettingsInfo.fromJson(Map<String, dynamic> j) => DownloadSettingsInfo(
     available: j['available'] as bool? ?? false,
     dir: j['dir'] as String? ?? '',
@@ -170,25 +175,59 @@ class DownloadSettingsInfo {
     freeBytes: (j['freeBytes'] as num?)?.toInt() ?? -1,
     reserveBytes: (j['reserveBytes'] as num?)?.toInt() ?? 0,
     bytes: (j['bytes'] as num?)?.toInt() ?? 0,
+    locations: [for (final l in j['locations'] as List? ?? const []) DownloadLocation.fromJson(l as Map<String, dynamic>)],
+  );
+}
+
+/// A folder an engine offers for downloads (`DownloadSettingsInfo.locations`).
+class DownloadLocation {
+  const DownloadLocation({required this.name, required this.dir, required this.path, this.freeBytes = -1, this.totalBytes = -1, this.removable = false});
+
+  /// For people: 内部存储, SD 卡…
+  final String name;
+
+  /// What to send as the downloads folder; empty for the default.
+  final String dir;
+  final String path;
+  final int freeBytes;
+  final int totalBytes;
+
+  /// An SD card or USB drive: its downloads are gone while it is out.
+  final bool removable;
+
+  factory DownloadLocation.fromJson(Map<String, dynamic> j) => DownloadLocation(
+    name: j['name'] as String? ?? '',
+    dir: j['dir'] as String? ?? '',
+    path: j['path'] as String? ?? '',
+    freeBytes: (j['freeBytes'] as num?)?.toInt() ?? -1,
+    totalBytes: (j['totalBytes'] as num?)?.toInt() ?? -1,
+    removable: j['removable'] as bool? ?? false,
   );
 }
 
 /// What `POST /api/v1/downloads/{id}/export` wrote.
 class DownloadExportResult {
-  const DownloadExportResult({required this.path, required this.bytes, required this.format});
+  const DownloadExportResult({required this.path, required this.bytes, required this.format, this.uri = ''});
 
-  /// On the engine's machine.
+  /// On the engine's machine (Android: where people find it, e.g. `Download/映舟/…`).
   final String path;
   final int bytes;
   final String format;
 
-  factory DownloadExportResult.fromJson(Map<String, dynamic> j) =>
-      DownloadExportResult(path: j['path'] as String? ?? '', bytes: (j['bytes'] as num?)?.toInt() ?? 0, format: j['format'] as String? ?? '');
+  /// Android: a `content://` address of the file for the share sheet; empty elsewhere.
+  final String uri;
+
+  factory DownloadExportResult.fromJson(Map<String, dynamic> j) => DownloadExportResult(
+    path: j['path'] as String? ?? '',
+    bytes: (j['bytes'] as num?)?.toInt() ?? 0,
+    format: j['format'] as String? ?? '',
+    uri: j['uri'] as String? ?? '',
+  );
 }
 
 /// The downloads part of the engine's API.
 extension DownloadsApi on EngineClient {
-  /// Whether the engine downloads at all (the one inside the Android app does not), and its list.
+  /// Whether the engine downloads at all (engines before 0.2.0 do not), and its list.
   Future<(bool, List<DownloadItem>)> downloads() async {
     final j = await send('GET', 'downloads') as Map<String, dynamic>;
     return (j['available'] as bool? ?? false, [for (final i in j['items'] as List? ?? const []) DownloadItem.fromJson(i as Map<String, dynamic>)]);

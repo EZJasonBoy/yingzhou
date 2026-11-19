@@ -24,6 +24,7 @@ import tvbox.engine.core.EngineException
 import tvbox.engine.core.cache.StreamStore
 import tvbox.engine.core.model.DownloadExportResult
 import tvbox.engine.core.model.DownloadItem
+import tvbox.engine.core.model.DownloadLocation
 import tvbox.engine.core.model.DownloadRequest
 import tvbox.engine.core.model.DownloadSettingsInfo
 import tvbox.engine.core.model.DownloadSettingsUpdate
@@ -81,6 +82,16 @@ class DownloadManager(
     /** Downloads stop before the disk has less than this left. */
     private val reserveBytes: Long = DEFAULT_RESERVE,
     private val freeSpace: (File) -> Long = { it.usableSpace },
+    /**
+     * The folders this device offers for downloads (Android: the app's folder on internal storage and on each SD card
+     * or USB drive), shown as a choice instead of a path; empty where any folder can be typed in (desktop, NAS).
+     */
+    private val locations: () -> List<DownloadLocation> = { emptyList() },
+    /**
+     * Where an export goes when no path is given and the device has no folder of its own for it (Android: the
+     * system's Downloads through MediaStore); null: into [exportDir].
+     */
+    private val publish: ((Export) -> DownloadExportResult)? = null,
     private val now: () -> Long = System::currentTimeMillis,
     private val log: (String) -> Unit = {},
 ) {
@@ -213,6 +224,7 @@ class DownloadManager(
             freeBytes = runCatching { freeSpace(path) }.getOrDefault(-1),
             reserveBytes = reserveBytes,
             bytes = synchronized(lock) { entries.values.sumOf { it.bytes.get() } },
+            locations = runCatching { locations() }.getOrDefault(emptyList()),
         )
     }
 
@@ -303,6 +315,7 @@ class DownloadManager(
     fun export(id: String, path: String = ""): DownloadExportResult {
         val export = exportOf(id)
         val wanted = path.trim()
+        publish?.let { if (wanted.isEmpty()) return it(export) }
         // A path that names a video file is the file; any other is a folder (made when it is not there).
         val namesFile = wanted.isNotEmpty() && !File(wanted).isDirectory && wanted.substringAfterLast('.', "").lowercase() in VIDEO_EXT
         val target = when {

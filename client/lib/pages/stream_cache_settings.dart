@@ -141,6 +141,14 @@ class _StreamCacheSettingsState extends State<StreamCacheSettings> {
                 '放满后自动删掉最久没看的部分。位置（在引擎所在的设备上）：${info.path}',
                 style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
               ),
+              // An engine that watches the disk (Android): it gives way before the device runs out of space.
+              if (info.reserveBytes > 0)
+                Text(
+                  '${info.freeBytes >= 0 ? '设备剩余空间 ${StreamCacheSettings.size(info.freeBytes)}。' : ''}'
+                  '剩余空间不到 ${StreamCacheSettings.size(info.reserveBytes)} 时，缓存会先删掉自己的旧内容，再不够就不缓存、不预读。',
+                  key: const Key('stream-cache-free'),
+                  style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+                ),
             ],
           ),
         ),

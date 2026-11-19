@@ -48,6 +48,24 @@
 - 引擎代码不用 `java.util.Base64`（Android 8.0 才有），统一走 `Base64Compat`，最低支持 Android 7.0（API 24）。
 - 开发用演示 jar：`engine/server/demo-jar/build.sh`（javac + d8），演示引擎在 `/demo/spider.jar` 提供，演示站的链接按请求的 Host 生成，模拟器通过 10.0.2.2 访问。
 
+和桌面引擎的对照（`EmbeddedEngine.kt` 对 `engine/server/.../Main.kt`）：
+
+| 功能 | 桌面 / NAS | 安卓内置引擎 |
+|---|---|---|
+| 采集站、JS、jar 蜘蛛、嗅探、解析、直播、回看、数据缓存、字幕、弹幕、网盘 | 有 | 有（同一套路由；网盘没有"本机文件夹"） |
+| 播放缓存（`StreamCache`） | 数据目录，默认 2 GB | 应用缓存目录 `cache/stream`，默认 1 GB，并给磁盘留 500 MB（见下） |
+| 离线下载（`DownloadManager`） | 和播放缓存同一个库，导出到「下载」文件夹 | 应用在共享存储上的目录，导出交给系统（见下） |
+| 局域网共享、配对、令牌、签名地址 | `LanSharing`（JmDNS） | `AndroidLan`（同一个 `LanListeners`，`NsdManager` 通告） |
+| Python 蜘蛛 | 有 | 没有：不注册 Python 运行时，`capabilities.py=false`，也没有 `/python` 接口 |
+| `/file/` 本机文件、`--check` 体检、CDP 嗅探 | 有 | 没有（安卓用 WebView 嗅探） |
+
+代码在 `client/android/app/src/main/kotlin/tvbox/next/tvbox_client/engine/`：
+
+- **播放缓存**（`AndroidStorage.streamCache`）：`StreamStore` 带 `reserveBytes = 500 MB`。它算容量时还看磁盘剩余：快放不下时先删自己最旧的文件（不到上限也删）；删光了剩余也不够时 `lowOnSpace()`，`StreamCache` 不再缓存新分片、不预读，播放器要的分片 302 到片源。放在 `cacheDir` 里，系统清理缓存时删掉的文件，`StreamStore.file` 会发现并当作没缓存。这一版之前安卓没有播放缓存，所以第一次启动时把设置里没人改过的 2048 MB 改成 1024 MB（`files/engine/.android-cache-default` 标记只做一次）。
+- **离线下载**（`AndroidStorage.downloads`）：下载库在 `getExternalFilesDir(null)/downloads`（`Android/data/<应用>/files/downloads`，不要权限，卸载时一起删），和播放缓存分开（缓存目录会被系统清理）。没有能随便填的路径，所以 `DownloadManager` 的 `locations` 列出各个存储卷上应用自己的目录（内部存储、SD 卡、U 盘，`getExternalFilesDirs`），客户端给下拉框。导出不给路径时走 `publish`：`AndroidExports` 在 Android 10 起用 MediaStore 写进 `Download/映舟/`（`IS_PENDING` 写完再公开，重名时用系统给的名字），更早的版本写进 `Android/data/<应用>/files/Download/` 并用 `FileProvider`（`${applicationId}.exports`）给出 `content://` 地址；返回的 `uri` 由客户端经 `yingzhou/android` 通道交给分享面板（`AndroidChannel`）。连的是别的设备上的引擎时，`saveExport` 由原生代码直接把 `/dl/<id>/export` 流进 MediaStore，不经过临时文件。
+- **前台服务**（`EngineKeeper` + `EngineService`）：安卓会杀后台进程。`EngineKeeper` 盯着两件事——有排队或正在下的下载（`DownloadManager.changes`）、局域网共享开着（`LanListeners` 的 `onSharing`）——有活时启动前台服务，没活时服务自己停掉。服务类型：下载 `dataSync`，共享 `connectedDevice`（Android 14 要求声明类型和对应的 `FOREGROUND_SERVICE_*` 权限；`connectedDevice` 还要 `CHANGE_NETWORK_STATE`）。通知：下载进度条、速度，「暂停 / 取消」（多集时「全部暂停 / 全部取消」，取消会删掉没下完的文件）；共享时「局域网共享中」、地址、配对码（`VISIBILITY_PRIVATE`，锁屏上不显示内容）和「停止共享」。通知最多每秒更新一次。服务运行期间持有 `PARTIAL_WAKE_LOCK` 和 Wi-Fi 锁，息屏后下载和其他设备的请求不断。Android 13+ 第一次需要服务时（第一次下载或第一次打开共享）在当前 Activity 上请求 `POST_NOTIFICATIONS`，只问一次；不给权限服务照样运行，只是看不到通知。Android 12+ 不允许后台启动前台服务（例如 App 不在前台时配对设备远程加了下载）：这时只记一行日志，进程活着就照常下载。Android 15 的 `dataSync` 每天 6 小时上限到了（`onTimeout`）时，只剩共享就改成只有 `connectedDevice`，否则停掉服务。后台播放不在此列。
+- **局域网共享**（`AndroidLan`）：`AccessControl(supported = true)` 加上 `LanListeners`（与桌面共用，`engine/api/.../access/LanListeners.kt`）：打开后在每个局域网 IPv4 地址上各起一个 CIO 监听（端口 9978，路由相同），关闭就全部停掉，`127.0.0.1` 上的监听不受影响。地址只取 Wi-Fi 和以太网（`ConnectivityManager`），手机不会在移动数据网络上监听。网络变化（`registerDefaultNetworkCallback`）和每 15 秒重新检查地址。mDNS 用系统的 `NsdManager`（`NsdAnnouncer`：`_tvbox-engine._tcp`，TXT `protocol=1`、`name`；一个注册覆盖所有接口，地址变了重新注册，失败了下一轮再试）。名字是"映舟 · 设备名"（`Settings.Global.DEVICE_NAME`，没有就用型号）。共享开关保存在引擎数据里，App 下次启动时照样打开。
+
 ### 2.3 jar 蜘蛛（Android 与桌面共用，已实现）
 
 - `engine/jar-host/java/com/github/catvod/`：jar 编译时依赖的 TVBox 宿主类（`crawler.Spider`、`SpiderApi`、`net.OkHttp`、`Proxy` 等），包名与签名必须保持一致；`tvbox.engine.jarhost.HostBridge` 给它们提供 Context 与端口。
@@ -104,7 +122,7 @@
   - `StreamStore` 的约定：`<流>/<文件>` 是完整文件，`.part` 是没取完的（重启时清掉），最近使用时间记在文件的修改时间上，超过上限从最久没用的删起。被"钉住"的流不参与清理、不计入上限——以后做离线下载时，一个下载就是一个取全了并且钉住的流，播放时走同一条 `/hls` 路径。只用 `java.io`，Android 7 也能跑（Windows 上不能给打开着的文件改名，所以读者没关之前文件一直以 `.part` 的形式供应）。
 - **客户端**。进度条（`pages/seek_bar.dart`）松手才跳、只跳一次，拖动时显示落点时间，并画出已缓冲的范围（播放器自己持有的，加上向引擎问来的 `/stream-cache/coverage`）。`PlayerCache` 在每次打开视频前按来源配置 libmpv：经引擎缓存的流只在内存里留前 24 MB、后 8 MB（之前是各 32 MB）；其他网络视频（直链 mp4 / flv、引擎不缓存的流）在桌面上把缓存放进临时文件（`cache-on-disk` + `demuxer-cache-dir`；media_kit 默认开了 `cache-on-disk` 却没给目录，实际一直在用内存），读过的部分在这一集关闭之前都能跳回去，预读五分钟，文件超过 4 GB 就在原位置重新打开一次。
 
-没做的：不是 HLS 的直链没有经引擎做分块缓存（那样才能跨次保留、多连接预读），目前只靠播放器的缓存文件；安卓内置引擎没有接流缓存（要先定小存储设备上的容量策略）。
+没做的：不是 HLS 的直链没有经引擎做分块缓存（那样才能跨次保留、多连接预读），目前只靠播放器的缓存文件。安卓内置引擎的容量策略见 2.2。
 
 #### 离线下载（已实现）
 
@@ -117,7 +135,7 @@
 - **离线播放**：`resolvePlay` 在问站点之前先问 `DownloadManager.offlinePlay`：同一集有完成的下载、文件都还在，就返回 `/dl/<id>/index.m3u8`（下载时把改写后的播放列表连同文件清单存在流目录的 `_download.json` 里，地址处是占位符，请求时换成请求者用的引擎地址）。`/dl/` 不在 `/api/` 下，和 `/hls/` 一样由 `AccessPlugin` 给局域网播放器签名。整个过程不碰网络，启动和拖动都只读磁盘。
 - **队列**：`downloads.json`（引擎数据目录）存下载列表和设置，状态变化时立即写，下载中每 5 秒写一次进度；`--demo` 不带 `--data` 时只在内存里。引擎启动时，上次在下载的回到排队，等订阅恢复（`Engine.config()`）后再开始。最多同时 `concurrency` 个下载（默认 2），每个下载 4 个连接。进度和速度在内存里算，`/downloads/events`（SSE）在有变化时推送整张列表，客户端也可以轮询 `/downloads`。
 - **导出**（`DownloadExport`）：按保存的播放列表把文件顺序拼起来——MPEG-TS 分片拼成 `.ts`（AES-128 用 `javax.crypto` 解密，IV 按 HLS 的规则），fMP4 拼成 `.mp4`（初始化段在前）。写之前先检查每个分片的开头（加密的只解第一个块），不是 0x47 就整个拒绝，不会写出半截文件。转成普通 mp4 要 ffmpeg，不附带、不安装。
-- 安卓内置引擎没有接下载（`Engine.downloads` 为 null，接口回答 `available: false`）。
+- 安卓内置引擎也能下载，存储位置、导出和保活见 2.2。
 
 没做的：多音轨 / 字幕轨单独成流的 HLS 只下视频那一档；直链没有多连接分块下载；下载之间没有优先级（按加入顺序）。
 
