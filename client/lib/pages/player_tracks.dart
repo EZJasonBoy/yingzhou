@@ -9,6 +9,7 @@ import '../engine/engine_client.dart';
 import '../engine/media_extras_api.dart';
 import '../engine/vod_models.dart';
 import '../settings.dart';
+import '../ui/tv/tv_focus.dart';
 
 /// A player that takes libmpv properties by name. The real one is media_kit's `NativePlayer`; a test's fake player
 /// implements this to see what the page set.
@@ -576,7 +577,8 @@ class PlayerSidePanel extends StatelessWidget {
               // A Material of its own: list tiles and switches in the panel draw their ink on it.
               child: Material(
                 color: scheme.surfaceContainer.withValues(alpha: 0.96),
-                child: SizedBox(width: width, child: SafeArea(child: child)),
+                // On a TV the remote's focus goes into the panel when it opens.
+                child: SizedBox(width: width, child: SafeArea(child: TvAutofocus(child: child))),
               ),
             ),
           ),
