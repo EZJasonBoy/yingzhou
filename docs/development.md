@@ -254,6 +254,9 @@ PLAY=1 MAX_SITES=20 tools/check-configs.sh          # 加上播放解析；每�
 - `dart format` 的行宽在 `analysis_options.yaml` 里定为 160，别用默认值重排整个目录。
 
 - Flutter 在 Windows 上默认用 Impeller，会多占两百多 MB 提交内存；`windows/runner/main.cpp` 里已关闭。JVM 不带 `-Xms` 时按物理内存的比例预留堆，引擎的启动参数里已限定。实测数字见 [tech-choices.md](tech-choices.md) 第 4 节。
+- 安卓模拟器（`-gpu swiftshader_indirect`）上 libmpv 的 OpenGL 输出建不起上下文（logcat：`eglCreateContext: EGL_BAD_ATTRIBUTE`），media_kit 默认的 `vo=gpu` 只有声音、画面全黑。所以模拟器上换成 `vo=mediacodec_embed`（`player_backend.dart`）。模拟器解码 1080p 很慢，1080p 的网络片源（演示里的 mux 测试流）在模拟器上常常要等很久，换台时 libmpv 的 `stop` 也会跟着卡住；在模拟器上试播放用演示网盘的文件或低分辨率的频道。
+- 视频组件（media_kit 的 `Video`）换了父节点就会被重建，在安卓上新建的那个是黑的。播放页和直播页的画面因此挂在 `GlobalKey` 下面，竖屏 / 全屏 / 画中画之间切换时只是挪位置。
+- flutter_test 把平台报成安卓。`test/flutter_test_config.dart` 让所有测试默认按桌面跑；测手机 / 平板 / 电视的测试自己设 `FormFactors.debugOverride`，在 `tearDown` 里改回 `FormFactor.desktop`。
 
 ## 10. 名字与图标
 
@@ -310,3 +313,13 @@ docker buildx build --platform linux/amd64,linux/arm64 -t yingzhou-engine .   # 
 没有检查：镜像能否构建（Gradle 在容器里、Debian 的 `chromium` 包、arm64 下 QEMU 里的 jlink）、容器里 Chromium 能否嗅探、健康检查、卷的权限、host 网络下的 mDNS。CI 的冒烟测试覆盖前四项中的 amd64 部分。
 
 基础镜像只固定到系列（`eclipse-temurin:21-jdk`、`debian:bookworm-slim`），每次构建会拿到当时的安全更新；需要可重复构建时用 `--build-arg JDK_IMAGE=…@sha256:…` 固定摘要。
+
+## 13. 手机与平板（安卓）
+
+设计见 [architecture.md](architecture.md) 第 4 节"手机与平板"。代码：`lib/ui/form_factor.dart`（设备形态，电视也用它）、`lib/mobile/playback_host.dart` 与 `android/.../PlaybackChannel.kt`（亮度、媒体音量、常亮、画中画）、`android/.../DeviceChannel.kt`、`lib/pages/touch_gestures.dart`（画面上的手势）、`lib/pages/player_mobile.dart`（全屏与转屏、锁、竖屏的选集区、触屏控制条），以及 `player_page.dart` / `live_page.dart` 里只在 `FormFactors.isMobile` 时走的分支；外壳、海报墙、详情页的窄屏布局在 `ui/shell.dart`、`ui/poster.dart`、`pages/detail_page.dart`。
+
+- **在桌面上看手机布局**：`flutter run -d windows --dart-define=FORM_FACTOR=phone --dart-define=ENGINE_URL=http://127.0.0.1:<演示引擎端口>`（或 `tablet`、`tv`），把窗口拉窄就是手机竖屏。手势用鼠标拖也能试；亮度、媒体音量、画中画、转屏这些只有安卓上才有（桌面上这些调用什么也不做）。这条路没有专门测过，以模拟器为准。
+- **组件测试**：`test/phone_layout_test.dart`（各尺寸下的导航、每个页签不溢出、海报列数、详情页的触控尺寸、返回回首页）、`test/touch_player_test.dart`（播放页和直播页：竖屏 / 横屏布局、全屏与方向、返回、单击、双击、拖动跳转、亮度音量、长按倍速、锁、常亮、画中画、切后台暂停、平板、桌面不变），`test/downloads_test.dart` 最后一个用例是手机上的下载面板。手机一侧（`yingzhou/playback`、`SystemChrome`）在测试里是假的，测试检查发给它的调用。
+- **模拟器**：建一个手机 AVD（`avdmanager create avd -n <名字> -k "system-images;android-34;google_apis;x86_64" -d pixel_7`），无窗口启动（`emulator -avd <名字> -port <端口> -no-window -gpu swiftshader_indirect -no-snapshot-save`），装调试包（`flutter build apk --debug`，`adb -s emulator-<端口> install -r build/app/outputs/flutter-apk/app-debug.apk`）。在电脑上起演示引擎（`--demo --port <端口>`），应用里订阅 `http://10.0.2.2:<端口>/demo/config.json`；网盘可以添加 WebDAV `http://10.0.2.2:<端口>/demo/dav/`（账号 `demo` / `demo`），它的文件是引擎现做的、在模拟器上播放和跳转都快。截图 `adb -s emulator-<端口> exec-out screencap -p > shot.png`；转屏 `adb shell settings put system accelerometer_rotation 0` 再 `settings put system user_rotation 1`（0 竖、1 横）；深色模式 `adb shell cmd uimode night yes`。
+- `adb shell input` 每条命令要几百毫秒，两次点击之间超过双击的时限，点不出双击；双击靠组件测试。拖动用 `input swipe x1 y1 x2 y2 <毫秒>`（起点终点相同就是长按），放到后台跑、中途截图能看到拖动中的提示。
+- 只有真机能确认的：硬件解码实际选了什么（`hwdec-current`）、发热和掉帧、亮度在屏幕上的效果、刘海和挖孔屏、各家系统对画中画的处理。
