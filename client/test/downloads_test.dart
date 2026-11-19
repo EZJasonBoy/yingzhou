@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:tvbox_client/app_state.dart';
 import 'package:tvbox_client/engine/engine_client.dart';
 import 'package:tvbox_client/main.dart';
+import 'package:tvbox_client/ui/form_factor.dart';
 
 import 'fake_engine.dart';
 import 'fake_player.dart';
@@ -331,5 +332,37 @@ void main() {
     await tester.tap(find.text('源'));
     await tester.pumpAndSettle();
     expect(find.text('离线下载'), findsNothing);
+  });
+
+  testWidgets('on a phone: the download sheet and 我的 → 下载 fit, with touch-sized episodes', (tester) async {
+    FormFactors.debugOverride = FormFactor.phone;
+    addTearDown(() => FormFactors.debugOverride = FormFactor.desktop);
+    tester.view.physicalSize = const Size(360, 740) * 3;
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    engine = _DownloadEngine(items: [
+      {'id': 'r', 'episodeId': '${ep}1.m3u8', 'episodeName': '第1集', 'episodeIndex': 0, 'state': 'running', 'progress': 0.42, 'bytes': 13 * 1024 * 1024, 'speed': 1536 * 1024, 'createdAt': 5},
+    ]);
+    player = FakePlayer();
+    await tester.pumpWidget(TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url, httpClient: engine), playerBackend: () => player.backend())));
+    await tester.pumpAndSettle();
+    await openDetail(tester);
+    await tester.tap(find.byKey(const Key('download-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('下载 · 片名'), findsOneWidget);
+    expect(tester.getSize(find.byKey(const Key('download-pick-2'))).height, greaterThanOrEqualTo(48));
+    await tester.tap(find.byKey(const Key('download-pick-2')));
+    await tester.pumpAndSettle();
+    expect(find.text('下载 1 集'), findsOneWidget);
+    await tester.tapAt(const Offset(180, 40));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(Tab, '下载'));
+    await pass(tester, const Duration(seconds: 1));
+    expect(tester.widget<Text>(find.byKey(const Key('download-status-r'))).data, startsWith('下载中 42%'));
+    await tester.pumpWidget(const SizedBox());
   });
 }

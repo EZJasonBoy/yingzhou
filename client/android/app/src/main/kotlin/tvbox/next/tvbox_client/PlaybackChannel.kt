@@ -1,5 +1,6 @@
 package tvbox.next.tvbox_client
 
+import android.annotation.TargetApi
 import android.app.Activity
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
@@ -129,8 +130,8 @@ class PlaybackChannel(private val activity: Activity, messenger: BinaryMessenger
         }
     }
 
-    private fun pipParams(): PictureInPictureParams? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+    @TargetApi(Build.VERSION_CODES.O)
+    private fun pipParams(): PictureInPictureParams {
         val builder = PictureInPictureParams.Builder().setAspectRatio(pipAspect).setActions(listOf(playPauseAction()))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setAutoEnterEnabled(pipEnabled)
@@ -140,6 +141,7 @@ class PlaybackChannel(private val activity: Activity, messenger: BinaryMessenger
         return builder.build()
     }
 
+    @TargetApi(Build.VERSION_CODES.O)
     private fun playPauseAction(): RemoteAction {
         val intent = Intent(pipAction).setPackage(activity.packageName).putExtra(EXTRA_ACTION, "toggle")
         val pending = PendingIntent.getBroadcast(activity, 1, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
@@ -149,18 +151,18 @@ class PlaybackChannel(private val activity: Activity, messenger: BinaryMessenger
     }
 
     private fun updatePipParams() {
-        if (!pipSupported) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !pipSupported) return
         try {
-            pipParams()?.let { activity.setPictureInPictureParams(it) }
+            activity.setPictureInPictureParams(pipParams())
         } catch (e: Exception) {
             Log.w(TAG, "picture-in-picture params: $e")
         }
     }
 
     private fun enterPip(): Boolean {
-        if (!pipSupported) return false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !pipSupported) return false
         return try {
-            pipParams()?.let { activity.enterPictureInPictureMode(it) } ?: false
+            activity.enterPictureInPictureMode(pipParams())
         } catch (e: Exception) {
             Log.w(TAG, "picture-in-picture: $e")
             false

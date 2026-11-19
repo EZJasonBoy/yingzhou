@@ -1216,7 +1216,7 @@ class _PlayerPageState extends State<PlayerPage> {
           buffered: buffered,
           onSeek: _seekTo,
           onInteraction: _pokeControls,
-          height: 44,
+          height: 48,
         ),
       ),
     );
