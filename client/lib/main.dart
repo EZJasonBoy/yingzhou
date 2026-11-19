@@ -49,7 +49,7 @@ class _TvboxAppState extends State<TvboxApp> {
     return AppScope(
       state: widget.state,
       child: MaterialApp(
-        title: 'TVBox Next',
+        title: '映舟',
         debugShowCheckedModeBanner: false,
         themeMode: ThemeMode.dark,
         theme: buildLightTheme(),

@@ -88,8 +88,8 @@ flutter test integration_test/live_test.dart -d windows --dart-define=SHOT_DIR=<
 tools/package-desktop.sh
 ```
 
-- Windows（Git Bash）：`dist/tvbox-next-windows-x64.zip`，解压后运行 `tvbox_client.exe`。未压缩的目录在 `client/build/windows/x64/runner/Release`。
-- macOS：`dist/tvbox-next-macos-<arm64|x86_64>.dmg`。JRE 跟构建机的 CPU 走；默认临时签名，设 `SIGN_IDENTITY` 用开发者证书。
+- Windows（Git Bash）：`dist/yingzhou-windows-x64.zip`，解压后运行 `yingzhou.exe`。未压缩的目录在 `client/build/windows/x64/runner/Release`。
+- macOS：`dist/yingzhou-macos-<arm64|x86_64>.dmg`（应用是 `Yingzhou.app`，显示名"映舟"）。JRE 跟构建机的 CPU 走；默认临时签名，设 `SIGN_IDENTITY` 用开发者证书。
 - 没有 Mac：推到 GitHub 后手动触发或打 `v*` 标签，`.github/workflows/desktop.yml` 出三个包。
 
 包里有：Flutter 应用、`engine/lib`（引擎 jar）、`engine/jre`（jlink 裁出的运行时）。用户不用装 Java。
@@ -132,7 +132,12 @@ PLAY=1 MAX_SITES=20 tools/check-configs.sh          # 加上播放解析；每�
 
 - Flutter 在 Windows 上默认用 Impeller，会多占两百多 MB 提交内存；`windows/runner/main.cpp` 里已关闭。JVM 不带 `-Xms` 时按物理内存的比例预留堆，引擎的启动参数里已限定。实测数字见 [tech-choices.md](tech-choices.md) 第 4 节。
 
-## 10. 约定
+## 10. 名字与图标
+
+- 名字：映舟（Yingzhou）。用户看得到的地方用"映舟"；文件名、可执行文件、包名等用 `yingzhou`（Windows `yingzhou.exe`，macOS `Yingzhou.app`）。Dart 包名 `tvbox_client`、仓库目录 `tvbox-next`、引擎数据目录 `~/.tvbox-next` 暂不改。
+- 图标源文件在 `docs/brand/`：`yingzhou-logo.svg`（标准）、`yingzhou-logo-small.svg`（16–32 px 用，去掉水波、放大帆和船身）。改了之后运行 `node tools/brand/render-icons.mjs`，它用无头 Edge/Chrome 按每个尺寸矢量渲染，生成 Windows `.ico`、macOS AppIcon、安卓启动图标和网页图标。
+
+## 11. 约定
 
 - 提交信息用英文，一句话说清做了什么；每个迭代一次提交。
 - 移植自其他项目的代码，在 [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) 里登记来源和许可证。

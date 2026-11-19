@@ -4,8 +4,8 @@
 
 ## 1. 安装与启动
 
-1. 解压 `tvbox-next-windows-x64.zip` 到任意目录（路径里最好没有特殊字符）。
-2. 运行 `tvbox_client.exe`。
+1. 解压 `yingzhou-windows-x64.zip` 到任意目录（路径里最好没有特殊字符）。
+2. 运行 `yingzhou.exe`。
 
 不需要另装 Java 或播放器，引擎、Java 运行时、libmpv 都在包里。启动时界面会显示"正在启动内置引擎…"，几秒后进入首页。关闭窗口时引擎一起退出。
 

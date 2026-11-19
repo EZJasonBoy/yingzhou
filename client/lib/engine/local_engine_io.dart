@@ -79,7 +79,7 @@ class DesktopEngine implements LocalEngine {
   Directory? _findEngineDir() {
     final exeDir = File(Platform.resolvedExecutable).parent;
     final s = Platform.pathSeparator;
-    // Windows: next to the exe. macOS: TVBox Next.app/Contents/Resources/engine (the exe is in Contents/MacOS).
+    // Windows: next to the exe. macOS: Yingzhou.app/Contents/Resources/engine (the exe is in Contents/MacOS).
     for (final packaged in [Directory('${exeDir.path}${s}engine'), Directory('${exeDir.parent.path}${s}Resources${s}engine')]) {
       if (Directory('${packaged.path}${s}lib').existsSync()) return packaged;
     }

@@ -8,7 +8,7 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
     <application
-        android:label="TVBox Next"
+        android:label="映舟"
         android:name=".TvboxApplication"
         android:icon="@mipmap/ic_launcher"
         android:banner="@mipmap/ic_launcher"

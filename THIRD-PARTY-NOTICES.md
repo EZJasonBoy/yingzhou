@@ -1,6 +1,6 @@
 # Third-party notices
 
-TVBox Next is licensed under AGPL-3.0 (see `LICENSE`). It includes code adapted from the projects below.
+Yingzhou (映舟) is licensed under AGPL-3.0 (see `LICENSE`). It includes code adapted from the projects below.
 
 ## TVBoxOS — AGPL-3.0
 

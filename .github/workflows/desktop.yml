@@ -13,14 +13,14 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            artifact: tvbox-next-windows-x64
-            path: dist/tvbox-next-windows-x64.zip
+            artifact: yingzhou-windows-x64
+            path: dist/yingzhou-windows-x64.zip
           - os: macos-14 # Apple Silicon
-            artifact: tvbox-next-macos-arm64
-            path: dist/tvbox-next-macos-arm64.dmg
+            artifact: yingzhou-macos-arm64
+            path: dist/yingzhou-macos-arm64.dmg
           - os: macos-13 # Intel
-            artifact: tvbox-next-macos-x86_64
-            path: dist/tvbox-next-macos-x86_64.dmg
+            artifact: yingzhou-macos-x86_64
+            path: dist/yingzhou-macos-x86_64.dmg
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

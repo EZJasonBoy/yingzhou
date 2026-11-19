@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>映舟 Yingzhou</title>
+  <!-- A boat whose sail is a play button: one engine carrying video to every screen. -->
+  <rect width="1024" height="1024" rx="230" fill="#0F766E"/>
+  <polygon points="420,236 420,560 694,398" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="56" stroke-linejoin="round"/>
+  <path d="M216 636 H808 Q770 806 512 806 Q254 806 216 636 Z" fill="#A7F3D0"/>
+  <path d="M262 892 q50 -34 100 0 t100 0 t100 0 t100 0 t100 0" fill="none" stroke="#A7F3D0" stroke-width="30" stroke-linecap="round"/>
+</svg>

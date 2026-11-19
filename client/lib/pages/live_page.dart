@@ -262,7 +262,7 @@ class _LivePageState extends State<LivePage> {
       _status = ch.urls.length > 1 ? '正在打开 线路 ${_line + 1}/${ch.urls.length}…' : '正在打开…';
     });
     _settings.setString(_lastKey, '$_source\t${list.groups[group].name}\t${ch.name}');
-    _window.title = '${ch.name} - TVBox Next';
+    _window.title = '${ch.name} - 映舟';
     _loadEpg(ch.name);
     if (changed && _immersive) _showOverlay();
     final url = ch.urls[_line];

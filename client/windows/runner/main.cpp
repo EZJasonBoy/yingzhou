@@ -32,7 +32,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project);
   Win32Window::Point origin(80, 60);
   Win32Window::Size size(1360, 860);
-  if (!window.Create(L"TVBox Next", origin, size)) {
+  // The app's name (Yingzhou in Chinese), as escapes so the source stays ASCII.
+  if (!window.Create(L"\u6620\u821f", origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

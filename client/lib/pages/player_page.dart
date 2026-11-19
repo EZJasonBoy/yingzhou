@@ -122,7 +122,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _volumeSave?.cancel();
     _settings.setString(_volumeKey, _player.state.volume.toStringAsFixed(0));
     if (_window.isFullScreen) _window.fullScreen = false;
-    _window.title = 'TVBox Next';
+    _window.title = '映舟';
     _saveProgress();
     for (final s in _subs) {
       s.cancel();
@@ -170,7 +170,7 @@ class _PlayerPageState extends State<PlayerPage> {
     });
     if (!isFirst) _pendingSeek = null;
     if (_pendingSeek == null) _saveProgress(episodeStart: true);
-    _window.title = '${widget.detail.name} · ${_currentEpisode.name} - TVBox Next';
+    _window.title = '${widget.detail.name} · ${_currentEpisode.name} - 映舟';
     _opening = true;
     await _player.stop();
     try {

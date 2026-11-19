@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "tvbox.next" "\0"
-            VALUE "FileDescription", "tvbox_client" "\0"
+            VALUE "CompanyName", "Yingzhou" "\0"
+            VALUE "FileDescription", "映舟" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "tvbox_client" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 tvbox.next. All rights reserved." "\0"
-            VALUE "OriginalFilename", "tvbox_client.exe" "\0"
-            VALUE "ProductName", "tvbox_client" "\0"
+            VALUE "InternalName", "yingzhou" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Yingzhou contributors. AGPL-3.0." "\0"
+            VALUE "OriginalFilename", "yingzhou.exe" "\0"
+            VALUE "ProductName", "Yingzhou" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

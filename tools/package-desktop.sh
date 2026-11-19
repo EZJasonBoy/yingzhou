@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Builds a self-contained desktop package: the Flutter client plus the engine and a trimmed Java runtime.
 #
-#   tools/package-desktop.sh     # Windows (Git Bash): dist/tvbox-next-windows-x64.zip
-#                                # macOS:             dist/tvbox-next-macos-<arm64|x86_64>.dmg
+#   tools/package-desktop.sh     # Windows (Git Bash): dist/yingzhou-windows-x64.zip
+#                                # macOS:             dist/yingzhou-macos-<arm64|x86_64>.dmg
 #
 # Needs JDK 21 (JAVA_HOME) and Flutter; on Windows Visual Studio with the C++ desktop workload, on macOS Xcode.
 # The Java runtime is jlinked from the JDK running the build, so a macOS package only runs on that CPU type
@@ -53,7 +53,7 @@ if [ "$os" = windows ]; then
   cp -r "$jre" "$out/engine/jre"
 
   echo "== zip"
-  zip="$root/dist/tvbox-next-windows-x64.zip"
+  zip="$root/dist/yingzhou-windows-x64.zip"
   rm -f "$zip"
   powershell.exe -NoProfile -Command "Compress-Archive -Path '$(cygpath -w "$out")\\*' -DestinationPath '$(cygpath -w "$zip")'"
   echo "done: $zip ($(du -h "$zip" | cut -f1)), folder: $out ($(du -sh "$out" | cut -f1))"
@@ -62,7 +62,7 @@ fi
 
 echo "== client"
 (cd "$root/client" && flutter build macos --release)
-app="$root/client/build/macos/Build/Products/Release/TVBox Next.app"
+app="$root/client/build/macos/Build/Products/Release/Yingzhou.app"
 # The client looks for the engine in Contents/Resources/engine (see lib/engine/local_engine_io.dart).
 res="$app/Contents/Resources/engine"
 rm -rf "$res"
@@ -85,10 +85,10 @@ stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 cp -R "$app" "$stage/"
 ln -s /Applications "$stage/Applications"
-dmg="$root/dist/tvbox-next-macos-$arch.dmg"
+dmg="$root/dist/yingzhou-macos-$arch.dmg"
 rm -f "$dmg"
-hdiutil create -volname "TVBox Next" -srcfolder "$stage" -ov -format UDZO "$dmg" >/dev/null
+hdiutil create -volname "Yingzhou" -srcfolder "$stage" -ov -format UDZO "$dmg" >/dev/null
 echo "done: $dmg ($(du -h "$dmg" | cut -f1))"
 if [ "$identity" = "-" ]; then
-  echo "note: ad-hoc signed; a downloaded copy needs right-click > Open the first time (or: xattr -dr com.apple.quarantine \"/Applications/TVBox Next.app\")"
+  echo "note: ad-hoc signed; a downloaded copy needs right-click > Open the first time (or: xattr -dr com.apple.quarantine \"/Applications/Yingzhou.app\")"
 fi
