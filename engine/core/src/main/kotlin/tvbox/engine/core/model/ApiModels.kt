@@ -89,6 +89,14 @@ data class ConfigSummary(
     val lives: Int,
     val spider: String,
     val wallpaper: String,
+    /** When the config in use was downloaded (epoch milliseconds); 0 when unknown. */
+    val fetchedAt: Long = 0,
+    /** True when the engine started from the copy it kept of the last download and the network has not confirmed it (yet). */
+    val stored: Boolean = false,
+    /** True while that copy is being checked against the network; ask again in a moment. */
+    val refreshing: Boolean = false,
+    /** Why the last download failed while the config in use was kept; empty when it did not fail. */
+    val refreshError: String = "",
 )
 
 @Serializable

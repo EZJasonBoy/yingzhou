@@ -2,6 +2,7 @@ package tvbox.engine.core
 
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
@@ -81,6 +82,8 @@ class Engine(
     private val githubProxy: tvbox.engine.core.net.GithubProxy? = null,
     /** The active config's `hosts` / `headers` / `doh` / `ads`, installed on the engine's http client; null when there is none. */
     private val network: tvbox.engine.core.net.ConfigNetwork? = null,
+    /** Copies of configs, site answers, `ext` files and live lists (the same instance the [loader] keeps copies in); null: nothing is kept. */
+    private val cache: tvbox.engine.core.cache.DataCache? = null,
 ) {
     /** Capabilities are derived from the runtimes actually present. */
     val info: EngineInfo = info.copy(
@@ -99,11 +102,28 @@ class Engine(
         val repos: List<RepoEntry>,
         val config: TvboxConfig,
         val sources: Map<String, SiteSource>,
-    )
+        /** What was loaded to get here: address and text hash of the subscription, the groups on the way, the config. */
+        val trace: List<Pair<String, String>> = emptyList(),
+        /** When the texts in use were downloaded; 0 when unknown. */
+        @Volatile var fetchedAt: Long = 0,
+        /** True while the config comes from the kept copies and the network has not confirmed it yet. */
+        @Volatile var stored: Boolean = false,
+        /** Why the last refresh of a stored config failed; empty when it did not. */
+        @Volatile var refreshError: String = "",
+    ) {
+        /** Site answers are kept under this: another subscription, entry or text is another scope. */
+        val scope: String = tvbox.engine.core.cache.DataCache.hash(subscriptionId + "\n" + url + "\n" + trace.joinToString("\n") { it.second })
+    }
+
+    private val background = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+    private val siteData = cache?.let { tvbox.engine.core.cache.SiteDataCache(it, background) }
+
+    /** True while a config that was started from its kept copy is being checked against the network. */
+    @Volatile private var refreshing = false
 
     private val lock = Mutex()
     private val subscriptions = LinkedHashMap<String, Subscription>()
-    private val ext = ExtResolver(http)
+    private val ext = ExtResolver(http, cache)
     private val playResolver = PlayResolver(
         http = http,
         proxyBase = proxyBase,
@@ -243,7 +263,7 @@ class Engine(
         return restoreLock.withLock {
             if (restoreRuns != seen) return@withLock lastRestore
             val id = savedActiveId
-            val result = if (id == null) null else runCatching { activate(id, savedActiveRepo) }
+            val result = if (id == null) null else runCatching { fromCopies(id, savedActiveRepo) ?: activate(id, savedActiveRepo) }
             lastRestore = result
             restoreRuns++
             result
@@ -278,7 +298,68 @@ class Engine(
      * loads the first of its entries that works; its entries then show up in [ConfigSummary.repos].
      * When the choice was not the user's (no [repoUrl], or a group), a dead entry is skipped for the next one.
      */
-    suspend fun activate(id: String, repoUrl: String? = null): ConfigSummary {
+    suspend fun activate(id: String, repoUrl: String? = null): ConfigSummary =
+        kotlinx.coroutines.withContext(tvbox.engine.core.cache.LoadTrace()) { activateTraced(id, repoUrl) }
+
+    /**
+     * The config as it was last downloaded, from the kept copies: no network, so a start does not wait for the
+     * subscription's server. Null when a copy is missing or no longer parses. The network is asked afterwards, in
+     * the background: nothing changes when it gives the same texts, the config is replaced when they differ, and
+     * the copies stay in use (with the reason in the summary) when it cannot be reached.
+     */
+    private suspend fun fromCopies(id: String, repoUrl: String?): ConfigSummary? {
+        if (cache == null || lock.withLock { subscriptions[id] }?.let { loader.hasCopy(it.url) } != true) return null
+        val summary = try {
+            kotlinx.coroutines.withContext(tvbox.engine.core.cache.LoadTrace(stored = true)) { activateTraced(id, repoUrl) }
+        } catch (e: EngineException) {
+            return null
+        }
+        refreshing = true
+        background.launch { refreshStored() }
+        return summary.copy(refreshing = true)
+    }
+
+    private suspend fun refreshStored() {
+        val a = active ?: return
+        try {
+            val trace = tvbox.engine.core.cache.LoadTrace()
+            kotlinx.coroutines.withContext(trace) { a.trace.forEach { (url, _) -> load(url) } }
+            if (active !== a) return
+            if (trace.loaded.toList() == a.trace) {
+                a.fetchedAt = trace.fetchedAt
+                a.stored = false
+            } else {
+                activate(a.subscriptionId, if (a.repos.isEmpty()) null else a.url)
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            a.refreshError = e.message ?: e.toString()
+        } finally {
+            refreshing = false
+        }
+    }
+
+    /** Downloads the active config again (`POST /config/reload`). When that fails the config in use stays. */
+    suspend fun reloadConfig(): ConfigSummary {
+        val a = active ?: return config()
+        return try {
+            activate(a.subscriptionId, if (a.repos.isEmpty()) null else a.url)
+        } catch (e: EngineException) {
+            a.refreshError = e.message ?: e.code
+            throw e
+        }
+    }
+
+    fun cacheInfo(): tvbox.engine.core.cache.CacheInfo = cache?.info() ?: tvbox.engine.core.cache.CacheInfo()
+
+    /** Empties the data cache. The active config stays loaded; its copy is written again by the next download. */
+    fun clearCache(): tvbox.engine.core.cache.CacheInfo {
+        cache?.clear()
+        return cacheInfo()
+    }
+
+    private suspend fun activateTraced(id: String, repoUrl: String?): ConfigSummary {
         val sub = lock.withLock { subscriptions[id] } ?: throw EngineException.NotFound("subscription $id")
         val first = load(sub.url)
         val (url, repos, config) = when (val doc = first.document) {
@@ -304,7 +385,11 @@ class Engine(
             }
         }
         ext.clear()
-        val loaded = Active(id, url, repos, config, config.sites.associate { it.key to createSource(it, config) })
+        val trace = kotlin.coroutines.coroutineContext[tvbox.engine.core.cache.LoadTrace]
+        val loaded = Active(
+            id, url, repos, config, config.sites.associate { it.key to createSource(it, config) },
+            trace = trace?.loaded?.toList().orEmpty(), fetchedAt = trace?.fetchedAt ?: 0, stored = trace?.stored == true,
+        )
         lock.withLock {
             // Spiders of the previous config are released before the new ones take over.
             active?.sources?.values?.forEach { (it as? SpiderSource)?.destroy() }
@@ -343,7 +428,24 @@ class Engine(
     // ---- browsing ----
 
     /** A site's `categories` (TVBox) keeps only those classes, in that order. */
-    suspend fun home(site: String): HomeResult = siteCall(site) { src ->
+    suspend fun home(site: String, refresh: Boolean = false): HomeResult =
+        kept(site, "home", refresh, HOME_LIFETIME, HomeResult.serializer(), { it.classes.isNotEmpty() || it.list.isNotEmpty() }) { homeNow(site) }
+
+    /**
+     * A site answer through the data cache: served from it while young, served stale while a fresh one is fetched,
+     * fetched now with [refresh]. The scope in the key keeps configs apart, the site keeps sites apart.
+     */
+    private suspend fun <T> kept(
+        site: String, what: String, refresh: Boolean, lifetimeMs: Long,
+        serializer: kotlinx.serialization.KSerializer<T>, worthKeeping: (T) -> Boolean, fetch: suspend () -> T,
+    ): T {
+        val data = siteData ?: return fetch()
+        val a = current()
+        if (site !in a.sources) throw EngineException.NotFound("site $site")
+        return data.get(a.scope + "|" + site + "|" + what, lifetimeMs, refresh, serializer, worthKeeping, fetch)
+    }
+
+    private suspend fun homeNow(site: String): HomeResult = siteCall(site) { src ->
         val home = src.home()
         val wanted = src.bean.categories
         if (wanted.isEmpty()) home else home.copy(classes = wanted.mapNotNull { name -> home.classes.firstOrNull { it.name == name } })
@@ -369,7 +471,13 @@ class Engine(
         return live.sources()
     }
 
-    suspend fun liveList(index: Int, refresh: Boolean = false): LiveList = liveCall { playerHeaders(live.list(index, refresh)) }
+    suspend fun liveList(index: Int, refresh: Boolean = false): LiveList = liveCall { playerHeaders(liveKept(index, refresh)) }
+
+    /** The list from the source; when that fails, the list as it was last received. */
+    private suspend fun liveKept(index: Int, refresh: Boolean): LiveList {
+        val data = siteData ?: return live.list(index, refresh)
+        return data.orStored(tvbox.engine.core.cache.DataCache.LIVE, current().scope + "|" + index, LiveList.serializer()) { live.list(index, refresh) }
+    }
 
     suspend fun epg(index: Int, channel: String, date: String): EpgDay = liveCall { live.epg(index, channel, date) }
 
@@ -392,10 +500,13 @@ class Engine(
         }
     }
 
-    suspend fun category(site: String, classId: String, page: Int, filters: Map<String, String>): VodPage =
-        siteCall(site) { it.category(classId, page.coerceAtLeast(1), filters) }
+    suspend fun category(site: String, classId: String, page: Int, filters: Map<String, String>, refresh: Boolean = false): VodPage =
+        kept(site, "category|$classId|${page.coerceAtLeast(1)}|${filters.toSortedMap()}", refresh, CATEGORY_LIFETIME, VodPage.serializer(), { it.list.isNotEmpty() }) {
+            siteCall(site) { it.category(classId, page.coerceAtLeast(1), filters) }
+        }
 
-    suspend fun detail(site: String, id: String): VodDetail = siteCall(site) { it.detail(id) }
+    suspend fun detail(site: String, id: String, refresh: Boolean = false): VodDetail =
+        kept(site, "detail|$id", refresh, DETAIL_LIFETIME, VodDetail.serializer(), { it.lines.isNotEmpty() }) { siteCall(site) { it.detail(id) } }
 
     suspend fun search(site: String, keyword: String, page: Int): VodPage =
         siteCall(site) { it.search(keyword, quick = false, page = page.coerceAtLeast(1)) }
@@ -483,7 +594,8 @@ class Engine(
     }
 
     private suspend fun load(url: String): ConfigLoader.Result = try {
-        loader.load(url)
+        val trace = kotlin.coroutines.coroutineContext[tvbox.engine.core.cache.LoadTrace]
+        loader.load(url, stored = trace?.stored == true).also { trace?.add(url, it.text, it.fetchedAt) }
     } catch (e: ConfigLoader.LoadException) {
         throw EngineException.ConfigLoadFailed(e.message ?: "load failed")
     }
@@ -556,6 +668,10 @@ class Engine(
         lives = countJsonArray(a.config.livesJson),
         spider = a.config.spider,
         wallpaper = a.config.wallpaper,
+        fetchedAt = a.fetchedAt,
+        stored = a.stored,
+        refreshing = refreshing && a.stored,
+        refreshError = a.refreshError,
     )
 
     private fun countJsonArray(json: String): Int =
@@ -567,6 +683,11 @@ class Engine(
 
         /** How many entries are tried when the choice of entry is the engine's. */
         const val MAX_REPO_TRIES = 6
+
+        /** How long a kept site answer is served without asking the site again; older ones are served while a new one is fetched. */
+        const val HOME_LIFETIME = 15 * 60_000L
+        const val CATEGORY_LIFETIME = 15 * 60_000L
+        const val DETAIL_LIFETIME = 60 * 60_000L
     }
 }
 

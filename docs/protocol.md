@@ -2,7 +2,7 @@
 
 客户端与引擎之间的唯一接口。本机内置引擎和远程引擎使用同一套协议。
 
-> 标了 **（未实现）** 的是已定下形状但还没写的接口：鉴权与 `/pair`、mDNS、`/config/reload`、`/events`、`/danmaku`。其余都已实现并有测试。
+> 标了 **（未实现）** 的是已定下形状但还没写的接口：鉴权与 `/pair`、mDNS、`/events`、`/danmaku`。其余都已实现并有测试。
 
 ## 约定
 
@@ -29,8 +29,21 @@
 | POST | `/subscriptions` | `{name?, url}`，`url` 支持 http(s)、`clan://`、`file://`、引擎所在机器上的路径、`;pk;` 密钥后缀 |
 | DELETE | `/subscriptions/{id}` | 删除 |
 | POST | `/subscriptions/{id}/activate` | 切换当前订阅；多仓订阅可带 `{repo}` 选择子仓（见下） |
-| POST | `/config/reload` | **（未实现）** 重新拉取（忽略缓存）；目前重新 `activate` 即可 |
-| GET | `/config` | 当前配置摘要：站点数、解析数、直播数、spider、壁纸 |
+| POST | `/config/reload` | 重新下载当前配置，返回新的摘要。下载失败时报错（`CONFIG_LOAD_FAILED`），正在用的配置保持不变，原因记在摘要的 `refreshError` 里 |
+| GET | `/config` | 当前配置摘要：站点数、解析数、直播数、spider、壁纸，以及下面的"新旧"字段 |
+| GET | `/cache` | 数据缓存的大小：`{bytes, entries, areas: {config｜site｜ext｜live: {bytes, entries}}}` |
+| DELETE | `/cache` | 清空数据缓存，返回清空后的大小。正在用的配置不受影响 |
+
+配置的新旧（`/config`、`activate`、`/config/reload` 返回的摘要里）：
+
+| 字段 | 说明 |
+|---|---|
+| `fetchedAt` | 正在用的配置是什么时候下载的（毫秒时间戳，0 表示不知道） |
+| `stored` | `true`：引擎启动时用的是上次下载后保存的副本，网络上的还没核对过（或核对失败） |
+| `refreshing` | `true`：正在后台核对副本。客户端隔一两秒再取一次 `/config`，直到它变成 `false`；这期间配置可能被换成新的（`fetchedAt`、站点数会变） |
+| `refreshError` | 最近一次下载失败的原因；没失败为空 |
+
+引擎启动时先用保存的副本激活上次的订阅（不等网络），再在后台下载：内容没变就只更新 `fetchedAt` 并把 `stored` 置回 `false`；变了就换成新的；下载失败就继续用副本并写明 `refreshError`。没有副本时（第一次、或缓存被清空）和以前一样等下载完成。
 
 设置：
 
@@ -72,6 +85,8 @@
 | GET | `/sites/{key}/search?wd=&pg=` | `Page<VodCard>`（单站） |
 | GET | `/search/stream?wd=&sites=` | **SSE** 聚合搜索，见下 |
 
+`home`、`category`、`detail` 的回答会在引擎里保存一段时间（首页和分类 15 分钟，详情 1 小时）：没过期的直接返回；过期的也先返回旧的，同时在后台向站点要新的，下次就是新的了；站点连不上时旧的一直可用。加 `?refresh=1` 表示现在就向站点要（失败就报错，不拿旧的顶替）。空的回答不保存。保存的内容按"订阅 + 配置内容 + 站点"区分，换订阅、配置内容变了、换站点都不会串。`search` 和 `/play/resolve` 从不保存。
+
 ### 聚合搜索事件（SSE）
 
 ```
@@ -112,7 +127,7 @@ event: end       data: {"sites":40,"ms":9120}
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/live` | `[{index, name, hasEpg, supported}]`：配置 `lives` 里的每一项是一个直播源 |
-| GET | `/live/{index}?refresh=1` | `{source, name, groups: [{name, channels: [{name, logo, urls: [{url, label, headers}]}]}]}`，缓存半小时 |
+| GET | `/live/{index}?refresh=1` | `{source, name, groups: [{name, channels: [{name, logo, urls: [{url, label, headers}]}]}]}`，缓存半小时；列表取不到时返回上次取到的那份 |
 | GET | `/live/{index}/epg?channel=&date=` | `{channel, date, programs: [{start, end, title}]}`，`date` 为 `yyyy-MM-dd`（中国时间，缺省今天），时间为毫秒时间戳 |
 
 `lives` 支持：`type: 0` 的 TXT（`分组,#genre#`、`频道,url#url2$线路名`）/ M3U（`group-title`、`tvg-logo`、`x-tvg-url`、`#EXTVLCOPT` 的 UA 与 Referer）播放列表；`proxy://do=live&ext=…` 里藏的列表地址；直接写在配置里的 `group`/`channels`；被包成配置格式（图片 base64、AES）的列表。`type: 3`（蜘蛛直播）暂不支持，`supported=false`。频道里的 `proxy://` 指向引擎，局域网客户端拿到的地址按它访问引擎用的地址改写。

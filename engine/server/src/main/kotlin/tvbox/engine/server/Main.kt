@@ -88,6 +88,8 @@ fun main(args: Array<String>) {
         .let { if ("--strict-tls" in args) it else LenientTls.apply(it) }
         .build()
     val locator = ConfigLocator("$local/file/")
+    // Copies of configs and site answers: on disk with the data, in memory in demo mode; a check keeps nothing.
+    val dataCache = if (check) null else tvbox.engine.core.cache.DataCache(dataDir?.let { File(it, "cache/data") })
     // What jar spiders request through the host's classes (com.github.catvod.net.OkHttp) follows the same rules.
     tvbox.engine.jarhost.HostBridge.baseClient = client
     val jsRuntime = JsRuntime(
@@ -116,8 +118,9 @@ fun main(args: Array<String>) {
             platform = "jvm-" + System.getProperty("os.name").lowercase().substringBefore(' '),
             capabilities = Capabilities(jar = false, js = false, py = false, sniff = false),
         ),
-        loader = ConfigLoader(client, locator),
+        loader = ConfigLoader(client, locator, dataCache),
         http = SiteHttp(client),
+        cache = dataCache,
         proxyBase = "$local/proxy?",
         store = store,
         // A check limited to some kinds must not run anything else. Skipping the sites is not enough: a live list

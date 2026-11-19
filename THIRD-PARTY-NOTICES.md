@@ -50,6 +50,7 @@ SOFTWARE.
 - ASM — BSD-3-Clause
 - OkHttp (with `okhttp-dnsoverhttps`), Gson, Jsoup, Ktor, kotlinx — Apache-2.0 / MIT
 - quickjs-kt — Apache-2.0; QuickJS — MIT
+- path_provider (Flutter, client) — BSD-3-Clause
 
 ## Tools
 

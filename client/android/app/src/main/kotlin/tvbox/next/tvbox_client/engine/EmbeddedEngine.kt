@@ -65,6 +65,8 @@ object EmbeddedEngine {
                 .readTimeout(30, TimeUnit.SECONDS),
         ).build()
         HostBridge.baseClient = client
+        // Copies of configs and site answers, so a start does not wait for the network.
+        val dataCache = tvbox.engine.core.cache.DataCache(File(data, "cache/data"))
         val locator = ConfigLocator("$local/file/")
         val js = JsRuntime(
             JsEnvironment(
@@ -83,8 +85,9 @@ object EmbeddedEngine {
                 platform = "android-${android.os.Build.VERSION.SDK_INT}",
                 capabilities = Capabilities(jar = false, js = false, py = false, sniff = false),
             ),
-            loader = ConfigLoader(client, locator),
+            loader = ConfigLoader(client, locator, dataCache),
             http = SiteHttp(client),
+            cache = dataCache,
             proxyBase = "$local/proxy?",
             store = JsonFileStore(data),
             runtimes = listOf(jar, js),

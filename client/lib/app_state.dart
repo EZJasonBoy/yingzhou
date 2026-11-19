@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 
 import 'engine/engine_client.dart';
@@ -186,6 +188,37 @@ class AppState extends ChangeNotifier {
   /// Asks the engine for its config again; after a failed load, the engine tries loading the subscription again.
   Future<void> reloadConfig() => _loadConfig();
 
+  /// Downloads the active subscription again (源 → 刷新). When that fails the config in use stays and the reason is
+  /// shown; the engine notes it in the summary too.
+  Future<void> refreshSubscription() => _run(() async {
+    try {
+      summary = await client.reloadConfig();
+      await _loadSites();
+    } on EngineException {
+      summary = await client.config().catchError((_) => summary!);
+      rethrow;
+    }
+  });
+
+  /// The engine started from its kept copy of the subscription and is checking it against the network: ask until
+  /// it knows, then show what it ended up with (the same config confirmed, a newer one, or the reason it could not).
+  Future<void> _followRefresh(EngineClient asked) async {
+    for (var i = 0; i < 60 && summary?.refreshing == true && identical(_client, asked); i++) {
+      await Future<void>.delayed(waitStep * 2);
+      if (!identical(_client, asked)) return;
+      try {
+        final next = await asked.config();
+        if (!identical(_client, asked)) return;
+        final changed = next.fetchedAt != summary?.fetchedAt || next.stored != summary?.stored || next.sites != summary?.sites;
+        summary = next;
+        if (changed) await _loadSites();
+        notifyListeners();
+      } on EngineException {
+        return;
+      }
+    }
+  }
+
   Future<void> _loadConfig() async {
     loadingConfig = true;
     configError = null;
@@ -193,6 +226,7 @@ class AppState extends ChangeNotifier {
     try {
       summary = await client.config();
       await _loadSites();
+      if (summary?.refreshing == true) unawaited(_followRefresh(client));
     } on EngineException catch (e) {
       if (e.code != 'NO_CONFIG') configError = e.message;
     } finally {

@@ -154,6 +154,11 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
             }
 
             get("/config") { call.respond(engine.config()) }
+            // Downloads the active config again; the one in use stays when that fails.
+            post("/config/reload") { call.respond(engine.reloadConfig()) }
+            // The data cache: copies of configs, site answers, ext files, live lists.
+            get("/cache") { call.respond(engine.cacheInfo()) }
+            delete("/cache") { call.respond(engine.clearCache()) }
 
             get("/settings") { call.respond(engine.settings()) }
             put("/settings") { call.respond(engine.updateSettings(call.receive<tvbox.engine.core.model.EngineSettings>())) }
@@ -162,13 +167,14 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
             get("/sites") { call.respond(engine.sites()) }
 
             route("/sites/{site}") {
-                get("/home") { call.respond(engine.home(call.site())) }
+                // `refresh=1` asks the site now instead of answering from the data cache.
+                get("/home") { call.respond(engine.home(call.site(), refresh = call.parameters["refresh"] == "1")) }
                 get("/category") {
                     val tid = call.required("tid")
                     val page = call.parameters["pg"]?.toIntOrNull() ?: 1
-                    call.respond(engine.category(call.site(), tid, page, call.filters()))
+                    call.respond(engine.category(call.site(), tid, page, call.filters(), refresh = call.parameters["refresh"] == "1"))
                 }
-                get("/detail") { call.respond(engine.detail(call.site(), call.required("id"))) }
+                get("/detail") { call.respond(engine.detail(call.site(), call.required("id"), refresh = call.parameters["refresh"] == "1")) }
                 get("/search") {
                     val page = call.parameters["pg"]?.toIntOrNull() ?: 1
                     call.respond(engine.search(call.site(), call.required("wd"), page))

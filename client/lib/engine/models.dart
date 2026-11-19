@@ -98,7 +98,23 @@ class ConfigSummary {
     required this.lives,
     required this.spider,
     required this.wallpaper,
+    this.fetchedAt = 0,
+    this.stored = false,
+    this.refreshing = false,
+    this.refreshError = '',
   });
+
+  /// When the config in use was downloaded (epoch milliseconds); 0 when unknown.
+  final int fetchedAt;
+
+  /// The engine started from the copy it kept of the last download; the network has not confirmed it (yet).
+  final bool stored;
+
+  /// That copy is being checked against the network right now.
+  final bool refreshing;
+
+  /// Why the last download failed while the config in use was kept; empty when it did not.
+  final String refreshError;
 
   final String subscriptionId;
 
@@ -127,7 +143,22 @@ class ConfigSummary {
         lives: json['lives'] as int,
         spider: json['spider'] as String? ?? '',
         wallpaper: json['wallpaper'] as String? ?? '',
+        fetchedAt: (json['fetchedAt'] as num?)?.toInt() ?? 0,
+        stored: json['stored'] as bool? ?? false,
+        refreshing: json['refreshing'] as bool? ?? false,
+        refreshError: json['refreshError'] as String? ?? '',
       );
+}
+
+/// Sizes of the engine's data cache (`/api/v1/cache`).
+class CacheInfo {
+  const CacheInfo({this.bytes = 0, this.entries = 0});
+
+  final int bytes;
+  final int entries;
+
+  factory CacheInfo.fromJson(Map<String, dynamic> json) =>
+      CacheInfo(bytes: (json['bytes'] as num?)?.toInt() ?? 0, entries: (json['entries'] as num?)?.toInt() ?? 0);
 }
 
 enum SiteRuntime { cms, js, jar, py, remote, unknown }
