@@ -30,17 +30,49 @@ class LiveUrl {
 }
 
 class LiveChannel {
-  const LiveChannel({required this.name, this.logo = '', this.urls = const []});
+  const LiveChannel({required this.name, this.logo = '', this.urls = const [], this.catchupDays = 0});
 
   final String name;
   final String logo;
   final List<LiveUrl> urls;
 
+  /// How many days back its programmes can be played again (回看); 0 when it has no catch-up.
+  final int catchupDays;
+
+  bool get hasCatchup => catchupDays > 0;
+
   factory LiveChannel.fromJson(Map<String, dynamic> j) => LiveChannel(
     name: j['name'] as String? ?? '',
     logo: j['logo'] as String? ?? '',
     urls: [for (final u in j['urls'] as List? ?? const []) LiveUrl.fromJson(u as Map<String, dynamic>)],
+    catchupDays: (j['catchupDays'] as num?)?.toInt() ?? 0,
   );
+}
+
+/// Where to play a past time range of a channel: the address to try first, then the others.
+class LiveCatchup {
+  const LiveCatchup({required this.url, this.headers = const {}, this.line = 0, this.alternates = const []});
+
+  final String url;
+  final Map<String, String> headers;
+  final int line;
+  final List<LiveUrl> alternates;
+
+  /// Every address, best first.
+  List<LiveUrl> get all => [LiveUrl(url: url, headers: headers), ...alternates];
+
+  factory LiveCatchup.fromJson(Map<String, dynamic> j) => LiveCatchup(
+    url: j['url'] as String? ?? '',
+    headers: (j['headers'] as Map<String, dynamic>? ?? const {}).map((k, v) => MapEntry(k, '$v')),
+    line: (j['line'] as num?)?.toInt() ?? 0,
+    alternates: [for (final a in j['alternates'] as List? ?? const []) LiveUrl.fromJson(a as Map<String, dynamic>)],
+  );
+}
+
+/// The China-time date (`yyyy-MM-dd`) [daysAgo] days before [now], which is how the engine names guide days.
+String chinaDate(DateTime now, {int daysAgo = 0}) {
+  final t = now.toUtc().add(const Duration(hours: 8)).subtract(Duration(days: daysAgo));
+  return '${t.year.toString().padLeft(4, '0')}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')}';
 }
 
 class LiveGroup {

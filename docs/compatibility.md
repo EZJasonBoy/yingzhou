@@ -139,8 +139,37 @@ jar 蜘蛛在桌面上依赖的安卓类是桩类，覆盖了常见用法（`Con
 | `{type: 3, api, ext, jar, url}` 蜘蛛直播 | 🟡 | 列表由蜘蛛给出：jar 蜘蛛问 `liveContent(url)`，JS 蜘蛛问 `live(url)`（没写 `url` 时传脚本自己的地址，同 TVBox）。返回 TXT / M3U / JSON 文本都行，JS 也可以直接返回分组数组。蜘蛛没有返回、而 `url` 是个地址时，按普通列表下载它（TVBox 对这种写法也只是下载列表，蜘蛛只管频道的代理地址）。Python 蜘蛛直播不支持 |
 | 蜘蛛列表里的 `proxy://…`、`http://127.0.0.1:9978/proxy?do=js&…` | ✅ | 指向本引擎的 `/proxy`，并补上这个直播源的蜘蛛的 `siteKey`，请求一定回到给出列表的那个蜘蛛。TVBox 是交给"最近用过的蜘蛛"；这里看直播的中途可以去点播别的站点，不带 `siteKey` 会串到别的脚本上 |
 | `{type: 3}` 但没有 `api` | ⬜ | 「直播」页标"暂不支持" |
-| `catchup` 回看 | ⬜ | |
+| `catchup` 回看 | ✅ | 见下面"回看" |
 | `playerType`、`timeout`、`boot`、`pass` | ⬜ | 忽略 |
+
+### 回看（catchup）
+
+回看规则从这几处读，频道自己的优先：
+
+| 写法 | 支持 | 说明 |
+|---|---|---|
+| M3U `#EXTINF` 的 `catchup`、`catchup-source`、`catchup-days`、`catchup-correction` | ✅ | `catchup-correction` 单位是小时（同 Kodi IPTV Simple），加到填进地址的开始 / 结束时间上 |
+| M3U `#EXTM3U` 头上的同名属性 | ✅ | 作为所有频道的默认值，频道没写的项从这里取 |
+| M3U `catchup-replace`、`timeshift="天数"`（SIPTV） | ✅ | 后者等于 `catchup="shift"` 加天数 |
+| JSON 列表 / 配置内联频道的 `catchup`（对象，或类型字符串加 `catchup-source`） | ✅ | |
+| `lives[].catchup` 对象：`type`、`source`、`replace`、`regex`（再加 `days`） | ✅ | 用于自己没有完整规则的频道；`regex` 不为空时，只有地址包含或匹配它的线路才能回看（TVBox） |
+| 没有任何规则、地址里有 `/PLTV/` 的频道 | ✅ | 同 TVBox：`/PLTV/` 换成 `/TVOD/`，后面加 `?playseek=开始-结束` |
+
+类型（`type` / `catchup`）：
+
+| 类型 | 地址怎么来 |
+|---|---|
+| `default`、`vod` | `source` 就是完整地址 |
+| `append`、不写 | 直播地址（先按 `replace` 的 `正则,替换` 改）后面接 `source`；直播地址已有查询串时 `source` 里的 `?` 换成 `&`（TVBox） |
+| `shift`、`timeshift` | 直播地址加 `?utc={utc}&lutc={lutc}`（已有查询串时用 `&`） |
+| `flussonic`、`flussonic-hls`、`flussonic-ts`、`fs` | 由直播地址推出：先给归档播放列表 `<名>-{utc}-{duration}.m3u8`（mpegts 为 `archive-{utc}-{duration}.ts`，可拖动），再给 Kodi 的 `timeshift_rel-{offset:1}.m3u8` / `timeshift_abs-{utc}.ts` 作为备选 |
+| `xc`（Xtream Codes） | `http://主机/timeshift/用户/密码/{duration:60}/{Y}-{m}-{d}:{H}-{M}/编号.ts`（直播是 `.m3u8` 时用 `.m3u8`） |
+
+占位符：`{utc}` / `${start}` 开始，`{utcend}` / `${end}` 结束，`{lutc}` / `${now}` / `${timestamp}` 现在（都是秒级时间戳）；`{duration}` / `${duration}` 秒数，`{duration:N}` 以 N 秒为单位；`{offset:N}` 从开始到现在；`{Y}{m}{d}{H}{M}{S}` 开始时间的各个字段；`{utc:YmdHMS}`、`${end:Ymd-H-M}` 这样带格式的（Kodi 的字母，也认 `yyyyMMddHHmmss` 这种 Java 写法）；TVBox 的 `${(b)yyyyMMddHHmmss}` / `${(e)yyyyMMddHHmmss}`（开始 / 结束，格式写 `timestamp` 时为时间戳）。日期按中国时间写，和节目单一致。不认识的占位符原样保留。还在播的节目只回看到现在。
+
+天数：`catchup-days` / `days`，没写时 7 天（TVBox 列一周的节目单）。`rtp://`、`udp://` 组播地址不能回看。
+
+不支持：Kodi 的 `{catchup-id}`（XMLTV 节目的 `catchup-id`）、`tvg-rec`、`|` 后面的播放器参数。
 
 节目单按频道名匹配，匹配前会规整名字：`CCTV-1 综合` → `CCTV1`，`CCTV-5+ 体育赛事` → `CCTV5+`，去掉"高清 / 超清 / HD / 4K / 频道"等后缀。规整后查不到再用原名。
 

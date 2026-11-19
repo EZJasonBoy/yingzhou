@@ -4,7 +4,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import tvbox.engine.core.config.ConfigDecoder
 import tvbox.engine.core.config.ConfigLocator
+import tvbox.engine.core.model.CatchupAddress
+import tvbox.engine.core.model.CatchupTemplate
 import tvbox.engine.core.model.EpgDay
+import tvbox.engine.core.model.LiveCatchup
 import tvbox.engine.core.model.EpgProgram
 import tvbox.engine.core.model.LiveList
 import tvbox.engine.core.model.LiveSourceInfo
@@ -80,7 +83,8 @@ class LiveService(
         if (playlist.groups.isEmpty()) throw LiveException("EMPTY", "${spec.name}: the playlist has no channels")
         val groups = playlist.groups.map { g ->
             g.copy(channels = g.channels.map { c ->
-                c.copy(logo = c.logo.ifEmpty { logoFor(spec, c.name) }, urls = c.urls.map { u -> u.copy(url = forSpider(own(u.url), spec)) })
+                val urls = c.urls.map { u -> u.copy(url = forSpider(own(u.url), spec), catchup = catchupRule(u.catchup, spec)) }
+                c.copy(logo = c.logo.ifEmpty { logoFor(spec, c.name) }, urls = urls, catchupDays = urls.maxOfOrNull { Catchup.days(it.catchup, it.url) } ?: 0)
             })
         }
         return Loaded(LiveList(index, spec.name, groups), playlist.tvgUrl, System.currentTimeMillis()).also { lists[index] = it }
@@ -130,6 +134,35 @@ class LiveService(
                 ?.let { java.net.URLDecoder.decode(it, "UTF-8") }?.takeIf { it.startsWith("http") } ?: throw e
             http.get(wrapped, headers = spec.headers, timeoutMs = 20_000)
         }
+    }
+
+    /**
+     * A line's catch-up rule: its own when it is complete (TVBox: a channel's `catchup` with a source wins), else
+     * the `lives` entry's, with what the line says (days, correction) kept.
+     */
+    private fun catchupRule(own: CatchupTemplate?, spec: LiveSourceSpec): CatchupTemplate? =
+        if (Catchup.isComplete(own) || spec.catchup == null) own else Catchup.merge(own, spec.catchup)
+
+    /**
+     * Where to play what [channel] (in [group], when names repeat across groups) showed from [startMs] to [endMs]:
+     * line [line] first, then the channel's other lines that have catch-up.
+     */
+    suspend fun catchup(index: Int, group: String?, channel: String, line: Int, startMs: Long, endMs: Long): LiveCatchup {
+        val spec = spec(index)
+        val ch = list(index).groups.filter { group.isNullOrEmpty() || it.name == group }
+            .flatMap { it.channels }.firstOrNull { it.name == channel }
+            ?: throw LiveException("NOT_FOUND", "no channel $channel")
+        val now = System.currentTimeMillis()
+        if (endMs <= startMs) throw LiveException("BAD_REQUEST", "end must be after start")
+        if (startMs >= now) throw LiveException("BAD_REQUEST", "the programme has not started yet")
+        if (ch.catchupDays == 0) throw LiveException("BAD_REQUEST", "$channel has no catch-up")
+        val first = line.coerceIn(0, ch.urls.size - 1)
+        val addresses = (listOf(first) + ch.urls.indices.filter { it != first }).flatMap { i ->
+            val u = ch.urls[i]
+            Catchup.build(u.catchup, u.url, startMs, endMs, now).map { CatchupAddress(forSpider(own(it), spec), u.headers, i) }
+        }.distinctBy { it.url }
+        val best = addresses.firstOrNull() ?: throw LiveException("BAD_REQUEST", "$channel has no catch-up")
+        return LiveCatchup(best.url, best.headers, best.line, addresses.drop(1))
     }
 
     /** The programmes of [channel] on [date] (`yyyy-MM-dd`, China time; today when blank). */

@@ -4,12 +4,12 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
 
 import '../app_state.dart';
 import '../desktop/desktop_window.dart';
 import '../engine/engine_client.dart';
 import '../engine/live_models.dart';
+import '../player_backend.dart';
 import '../settings.dart';
 import 'browse_page.dart' show errorText;
 
@@ -19,6 +19,10 @@ import 'browse_page.dart' show errorText;
 /// channel, ←/→ change line, PageUp/PageDown change group, F or double-click toggles fullscreen (the channel list
 /// becomes an overlay), M mutes, the wheel changes the volume. A line that fails, or shows nothing for 15 seconds,
 /// is replaced by the channel's next line. The last channel is remembered.
+///
+/// Catch-up (回看): on a channel that has it, the guide offers the days back the channel allows, and a programme
+/// that has ended plays from the engine's catch-up address with a seek bar; 「回到直播」, Esc or another channel goes
+/// back to live.
 class LivePage extends StatefulWidget {
   const LivePage({super.key, required this.visible, this.onImmersiveChanged});
 
@@ -35,7 +39,7 @@ class LivePage extends StatefulWidget {
 class _LivePageState extends State<LivePage> {
   // Created the first time the tab is shown, so a user who never opens live TV never starts a second player.
   Player? _playerOrNull;
-  VideoController? _video;
+  PlayerBackend? _backend;
   final _focus = FocusNode();
   final _subs = <StreamSubscription<dynamic>>[];
 
@@ -59,6 +63,14 @@ class _LivePageState extends State<LivePage> {
   Timer? _clock;
   DateTime _now = DateTime.now();
 
+  // Catch-up: the programme being played back (null while live), its addresses and the one being tried; the guide
+  // day shown (days before today) and the guides of earlier days by "channel|date".
+  EpgProgram? _catchup;
+  List<LiveUrl> _catchupUrls = const [];
+  int _catchupTry = 0;
+  int _guideDay = 0;
+  final _pastEpg = <String, EpgDay>{};
+
   bool _immersive = false;
   bool _overlay = true;
   Timer? _overlayTimer;
@@ -76,16 +88,19 @@ class _LivePageState extends State<LivePage> {
   Player get _player {
     final existing = _playerOrNull;
     if (existing != null) return existing;
-    final player = Player();
+    final backend = _state.playerBackend();
+    final player = backend.player;
     _playerOrNull = player;
-    _video = VideoController(player);
+    _backend = backend;
     final v = double.tryParse(_settings.getString(_volumeKey) ?? '');
     if (v != null) player.setVolume(v.clamp(0, 100));
     _subs.add(
       player.stream.error.listen((e) {
         // Errors while a line is playing (a lost segment) are mpv's business; one that keeps the picture from
         // starting means the line is dead.
-        if (!_opening && mounted && (_watchdog != null || !(_playerOrNull?.state.playing ?? false))) _nextLine('线路 ${_line + 1} 无法播放');
+        if (!_opening && mounted && (_watchdog != null || !(_playerOrNull?.state.playing ?? false))) {
+          _catchup != null ? _catchupFailed('无法播放') : _nextLine('线路 ${_line + 1} 无法播放');
+        }
       }),
     );
     _subs.add(
@@ -177,7 +192,9 @@ class _LivePageState extends State<LivePage> {
       _list = null;
       _sources = const [];
       _playing = null;
+      _catchup = null;
       _epg.clear();
+      _pastEpg.clear();
     });
     try {
       final sources = await _client.liveSources();
@@ -258,6 +275,10 @@ class _LivePageState extends State<LivePage> {
     final changed = _playing != (group, channel);
     setState(() {
       _playing = (group, channel);
+      // Live again: whatever was being played back stops, and a new channel's guide starts at today.
+      _catchup = null;
+      _catchupUrls = const [];
+      if (changed) _guideDay = 0;
       _line = line.clamp(0, ch.urls.length - 1);
       _status = ch.urls.length > 1 ? '正在打开 线路 ${_line + 1}/${ch.urls.length}…' : '正在打开…';
     });
@@ -275,8 +296,100 @@ class _LivePageState extends State<LivePage> {
     } finally {
       _opening = false;
     }
+    // A programme was picked for catch-up while this was opening: that is what plays now.
+    if (_catchup != null) return;
     // Nothing on screen after a while: this line is dead.
     _watchdog = Timer(const Duration(seconds: 15), () => _nextLine('线路 ${_line + 1} 没有画面'));
+  }
+
+  /// Plays a programme that has ended (or the part of the current one so far) from the channel's catch-up address.
+  Future<void> _playCatchup(EpgProgram program) async {
+    final ch = _channel;
+    final p = _playing;
+    final list = _list;
+    if (ch == null || p == null || list == null || !ch.hasCatchup) return;
+    _watchdog?.cancel();
+    _watchdog = null;
+    setState(() {
+      _catchup = program;
+      _catchupUrls = const [];
+      _status = '正在打开回看…';
+    });
+    _showOsd('回看 ${_hm(program.start)} ${program.title}');
+    final LiveCatchup found;
+    try {
+      found = await _client.liveCatchup(_source, ch.name, group: list.groups[p.$1].name, line: _line, start: program.start, end: program.end);
+    } catch (e) {
+      if (mounted && _catchup == program) setState(() => _status = '取不到回看地址：${errorText(e)}');
+      return;
+    }
+    if (!mounted || _catchup != program) return;
+    _catchupUrls = found.all;
+    _catchupTry = 0;
+    await _openCatchup(program);
+  }
+
+  Future<void> _openCatchup(EpgProgram program) async {
+    final url = _catchupUrls[_catchupTry];
+    setState(() => _status = '正在打开回看…');
+    _opening = true;
+    _watchdog?.cancel();
+    try {
+      await _player.open(Media(url.url, httpHeaders: url.headers));
+    } catch (_) {
+      // Reported through the error stream.
+    } finally {
+      _opening = false;
+    }
+    if (!mounted || _catchup != program) return;
+    _watchdog = Timer(const Duration(seconds: 15), () => _catchupFailed('没有画面'));
+  }
+
+  /// The catch-up address does not play: the next one the engine offered, else say so (the page stays in 回看).
+  void _catchupFailed(String why) {
+    final program = _catchup;
+    if (program == null) return;
+    _watchdog?.cancel();
+    _watchdog = null;
+    if (_catchupTry + 1 < _catchupUrls.length) {
+      _catchupTry++;
+      _openCatchup(program);
+    } else {
+      setState(() => _status = '回看$why，这个节目可能已经不能回看了');
+    }
+  }
+
+  /// From catch-up back to the channel's live picture.
+  void _backToLive() {
+    final p = _playing;
+    if (_catchup == null || p == null) return;
+    _showOsd('回到直播');
+    _play(p.$1, p.$2, line: _line);
+  }
+
+  void _seekBy(Duration delta) {
+    final duration = _player.state.duration;
+    var target = _player.state.position + delta;
+    if (target < Duration.zero) target = Duration.zero;
+    if (duration > Duration.zero && target > duration) target = duration;
+    _player.seek(target);
+    _showOsd('${delta.isNegative ? '⏪' : '⏩'} ${delta.inSeconds.abs()} 秒   ${_clockText(target)} / ${_clockText(duration)}');
+  }
+
+  /// The guide of [channel] on an earlier day.
+  void _loadPastEpg(String channel, String date) {
+    final key = '$channel|$date';
+    if (_pastEpg.containsKey(key) || _epgLoading.contains(key)) return;
+    _epgLoading.add(key);
+    _client
+        .epg(_source, channel, date: date)
+        .then((day) {
+          if (mounted) setState(() => _pastEpg[key] = day);
+        })
+        .catchError((Object _) {
+          if (mounted) setState(() => _pastEpg[key] = EpgDay(channel: channel, date: date));
+        })
+        .whenComplete(() => _epgLoading.remove(key));
   }
 
   void _nextLine(String why) {
@@ -374,9 +487,10 @@ class _LivePageState extends State<LivePage> {
     } else if (key == LogicalKeyboardKey.arrowDown) {
       _stepChannel(1);
     } else if (key == LogicalKeyboardKey.arrowLeft) {
-      _switchLine(-1);
+      // Playing back: ←/→ seek (Shift: a minute); live: change line.
+      _catchup != null ? _seekBy(Duration(seconds: HardwareKeyboard.instance.isShiftPressed ? -60 : -10)) : _switchLine(-1);
     } else if (key == LogicalKeyboardKey.arrowRight) {
-      _switchLine(1);
+      _catchup != null ? _seekBy(Duration(seconds: HardwareKeyboard.instance.isShiftPressed ? 60 : 10)) : _switchLine(1);
     } else if (key == LogicalKeyboardKey.pageUp) {
       _stepGroup(-1);
     } else if (key == LogicalKeyboardKey.pageDown) {
@@ -385,6 +499,8 @@ class _LivePageState extends State<LivePage> {
       _toggleImmersive();
     } else if (key == LogicalKeyboardKey.escape && _immersive) {
       _toggleImmersive();
+    } else if (key == LogicalKeyboardKey.escape && _catchup != null) {
+      _backToLive();
     } else if (key == LogicalKeyboardKey.keyM) {
       _toggleMute();
     } else if (key == LogicalKeyboardKey.space) {
@@ -455,6 +571,7 @@ class _LivePageState extends State<LivePage> {
         children: [
           AspectRatio(aspectRatio: 16 / 9, child: player),
           _buildNowBar(context),
+          if (_catchup != null) _CatchupBar(player: _player),
           SizedBox(height: 48, child: _buildGroupChips(context)),
           Expanded(child: _buildChannels(context)),
         ],
@@ -479,6 +596,7 @@ class _LivePageState extends State<LivePage> {
                 ),
               ),
               _buildNowBar(context),
+              if (_catchup != null) _CatchupBar(player: _player),
               Expanded(child: _buildGuide(context)),
             ],
           ),
@@ -513,6 +631,7 @@ class _LivePageState extends State<LivePage> {
           setState(() {
             _source = i;
             _epg.clear();
+            _pastEpg.clear();
           });
           _loadList(refresh: false);
         },
@@ -619,6 +738,7 @@ class _LivePageState extends State<LivePage> {
     final scheme = Theme.of(context).colorScheme;
     if (ch == null) return const SizedBox(height: 8);
     final now = _epg[ch.name]?.current(_now);
+    final back = _catchup;
     final line = ch.urls.length > 1 ? '线路 ${_line + 1}/${ch.urls.length}${ch.urls[_line].label.isEmpty ? '' : ' · ${ch.urls[_line].label}'}' : '';
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
@@ -628,13 +748,32 @@ class _LivePageState extends State<LivePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(ch.name, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-                if (now != null || line.isNotEmpty)
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(ch.name, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                    ),
+                    if (back != null) ...[const SizedBox(width: 10), const _CatchupBadge()],
+                  ],
+                ),
+                if (back != null)
+                  Text('${_md(back.start)} ${_hm(back.start)}–${_hm(back.end)}  ${back.title}', style: TextStyle(color: scheme.onSurfaceVariant))
+                else if (now != null || line.isNotEmpty)
                   Text([if (now != null) '正在播放：${now.title}', if (line.isNotEmpty) line].join('   '), style: TextStyle(color: scheme.onSurfaceVariant)),
               ],
             ),
           ),
-          if (ch.urls.length > 1) IconButton(tooltip: '换线路 (→)', onPressed: () => _switchLine(1), icon: const Icon(Icons.swap_horiz_rounded)),
+          if (back != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: FilledButton.tonalIcon(
+                key: const Key('back-to-live'),
+                onPressed: _backToLive,
+                icon: const Icon(Icons.live_tv_rounded, size: 18),
+                label: const Text('回到直播'),
+              ),
+            ),
+          if (back == null && ch.urls.length > 1) IconButton(tooltip: '换线路 (→)', onPressed: () => _switchLine(1), icon: const Icon(Icons.swap_horiz_rounded)),
           _VolumeButton(player: _player, onToggleMute: _toggleMute),
           if (_window.supported) IconButton(tooltip: '全屏 (F / 双击)', onPressed: _toggleImmersive, icon: const Icon(Icons.fullscreen_rounded)),
         ],
@@ -651,16 +790,72 @@ class _LivePageState extends State<LivePage> {
         child: Text('这个直播源没有节目单', style: TextStyle(color: scheme.onSurfaceVariant)),
       );
     }
-    final day = _epg[ch.name];
-    if (day == null) return const Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)));
-    if (day.programs.isEmpty) {
-      return Center(
+    // A channel with catch-up offers the days back it allows; one without shows today, as it always did.
+    final daysBack = ch.hasCatchup ? ch.catchupDays : 0;
+    final dayIndex = _guideDay.clamp(0, daysBack);
+    final date = chinaDate(_now, daysAgo: dayIndex);
+    final EpgDay? day;
+    if (dayIndex == 0) {
+      day = _epg[ch.name];
+    } else {
+      day = _pastEpg['${ch.name}|$date'];
+      if (day == null) _loadPastEpg(ch.name, date);
+    }
+    final Widget list;
+    if (day == null) {
+      list = const Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)));
+    } else if (day.programs.isEmpty) {
+      list = Center(
         child: Text('暂无节目单', style: TextStyle(color: scheme.onSurfaceVariant)),
       );
+    } else {
+      list = _GuideList(
+        key: ValueKey('${ch.name}|$date'),
+        programs: day.programs,
+        current: day.programs.indexWhere((p) => p.isOnAt(_now)),
+        now: _now,
+        catchup: ch.hasCatchup,
+        playingBack: _catchup,
+        onPlayBack: _playCatchup,
+        onLive: _backToLive,
+      );
     }
-    final current = day.programs.indexWhere((p) => p.isOnAt(_now));
-    return _GuideList(programs: day.programs, current: current, now: _now);
+    if (daysBack == 0) return list;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: 48,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+            children: [
+              for (var d = 0; d <= daysBack; d++)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text(_dayLabel(d)),
+                    selected: d == dayIndex,
+                    onSelected: (_) => setState(() => _guideDay = d),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        Expanded(child: list),
+      ],
+    );
   }
+
+  String _dayLabel(int daysAgo) => switch (daysAgo) {
+    0 => '今天',
+    1 => '昨天',
+    2 => '前天',
+    _ => () {
+      final d = chinaDate(_now, daysAgo: daysAgo).split('-');
+      return '${int.parse(d[1])}月${int.parse(d[2])}日';
+    }(),
+  };
 
   Widget _buildPlayer(BuildContext context) {
     return MouseRegion(
@@ -680,7 +875,8 @@ class _LivePageState extends State<LivePage> {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if (_video != null) Video(controller: _video!, controls: NoVideoControls, fill: Colors.black) else const ColoredBox(color: Colors.black),
+              _backend?.view ?? const ColoredBox(color: Colors.black),
+              if (_catchup != null) const IgnorePointer(child: Align(alignment: Alignment(-0.95, -0.9), child: _CatchupBadge())),
               if (_status != null)
                 Center(
                   child: Column(
@@ -758,14 +954,23 @@ class _LivePageState extends State<LivePage> {
                         ch.name,
                         style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w800),
                       ),
-                      if (now != null) ...[
+                      if (_catchup != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          '回看：${_catchup!.title}  ${_md(_catchup!.start)} ${_hm(_catchup!.start)}–${_hm(_catchup!.end)}',
+                          style: const TextStyle(color: Colors.white70, fontSize: 15),
+                        ),
+                      ] else if (now != null) ...[
                         const SizedBox(height: 4),
                         Text('正在播放：${now.title}  ${_hm(now.start)}–${_hm(now.end)}', style: const TextStyle(color: Colors.white70, fontSize: 15)),
                         const SizedBox(height: 8),
                         SizedBox(width: 360, child: LinearProgressIndicator(value: now.progressAt(_now), minHeight: 3)),
                       ],
                       const SizedBox(height: 8),
-                      const Text('↑/↓ 换台   ←/→ 换线路   Esc 退出全屏', style: TextStyle(color: Colors.white38, fontSize: 12)),
+                      Text(
+                        _catchup != null ? '↑/↓ 换台（回到直播）   ←/→ 快退 / 快进   Esc 退出全屏' : '↑/↓ 换台   ←/→ 换线路   Esc 退出全屏',
+                        style: const TextStyle(color: Colors.white38, fontSize: 12),
+                      ),
                     ],
                   ),
                 ),
@@ -778,6 +983,77 @@ class _LivePageState extends State<LivePage> {
 }
 
 String _hm(DateTime t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+String _md(DateTime t) => '${t.month}月${t.day}日';
+
+String _clockText(Duration d) {
+  final h = d.inHours;
+  final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+  return h > 0 ? '$h:$m:$s' : '$m:$s';
+}
+
+/// The 「回看」 mark: the picture is a programme played back, not live.
+class _CatchupBadge extends StatelessWidget {
+  const _CatchupBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(color: Colors.orange.shade700, borderRadius: BorderRadius.circular(6)),
+      child: const Text(
+        '回看',
+        style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+}
+
+/// Seek bar and times of the programme being played back.
+class _CatchupBar extends StatelessWidget {
+  const _CatchupBar({required this.player});
+
+  final Player player;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<Duration>(
+      stream: player.stream.position,
+      initialData: player.state.position,
+      builder: (context, snap) {
+        final duration = player.state.duration;
+        final max = duration.inMilliseconds.toDouble();
+        final position = snap.data ?? Duration.zero;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(8, 0, 16, 0),
+          child: Row(
+            children: [
+              StreamBuilder<bool>(
+                stream: player.stream.playing,
+                initialData: player.state.playing,
+                builder: (context, playing) => IconButton(
+                  tooltip: '播放 / 暂停 (空格)',
+                  onPressed: player.playOrPause,
+                  icon: Icon(playing.data == true ? Icons.pause_rounded : Icons.play_arrow_rounded),
+                ),
+              ),
+              Expanded(
+                child: Slider(
+                  key: const Key('catchup-seek'),
+                  value: max <= 0 ? 0 : position.inMilliseconds.toDouble().clamp(0, max),
+                  max: max <= 0 ? 1 : max,
+                  onChanged: max <= 0 ? null : (v) => player.seek(Duration(milliseconds: v.round())),
+                ),
+              ),
+              Text('${_clockText(position)} / ${_clockText(duration)}', style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()])),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
 
 class _Logo extends StatelessWidget {
   const _Logo({required this.url});
@@ -796,13 +1072,27 @@ class _Logo extends StatelessWidget {
   }
 }
 
-/// Today's programmes, scrolled so the current one is in view.
+/// A day's programmes, scrolled so the current one is in view. On a channel with [catchup], programmes that have
+/// ended are marked 「回看」 and play back when clicked; the one on air goes back to live.
 class _GuideList extends StatefulWidget {
-  const _GuideList({required this.programs, required this.current, required this.now});
+  const _GuideList({
+    super.key,
+    required this.programs,
+    required this.current,
+    required this.now,
+    this.catchup = false,
+    this.playingBack,
+    this.onPlayBack,
+    this.onLive,
+  });
 
   final List<EpgProgram> programs;
   final int current;
   final DateTime now;
+  final bool catchup;
+  final EpgProgram? playingBack;
+  final ValueChanged<EpgProgram>? onPlayBack;
+  final VoidCallback? onLive;
 
   @override
   State<_GuideList> createState() => _GuideListState();
@@ -830,9 +1120,15 @@ class _GuideListState extends State<_GuideList> {
         final p = widget.programs[i];
         final current = i == widget.current;
         final past = p.end.isBefore(widget.now);
-        final color = current ? scheme.primary : (past ? scheme.onSurfaceVariant.withValues(alpha: 0.6) : scheme.onSurface);
-        return Container(
-          decoration: current ? BoxDecoration(color: scheme.primaryContainer.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(8)) : null,
+        final back = widget.playingBack;
+        final playingBack = back != null && back.start == p.start && back.end == p.end;
+        // Live again from the programme on air, but only once something is being played back.
+        final canBack = widget.catchup && past;
+        final canLive = widget.catchup && current && back != null;
+        final highlighted = playingBack || (current && back == null);
+        final color = highlighted ? scheme.primary : (past && !canBack ? scheme.onSurfaceVariant.withValues(alpha: 0.6) : scheme.onSurface);
+        final row = Container(
+          decoration: highlighted ? BoxDecoration(color: scheme.primaryContainer.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(8)) : null,
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
             children: [
@@ -851,10 +1147,25 @@ class _GuideListState extends State<_GuideList> {
                   style: TextStyle(color: color, fontWeight: current ? FontWeight.w700 : FontWeight.w400),
                 ),
               ),
-              if (current) Text('直播中', style: TextStyle(color: scheme.primary, fontSize: 12)),
+              if (playingBack)
+                Text('回看中', style: TextStyle(color: scheme.primary, fontSize: 12))
+              else if (canBack)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.history_rounded, size: 14, color: scheme.onSurfaceVariant),
+                    const SizedBox(width: 2),
+                    Text('回看', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
+                  ],
+                )
+              else if (current)
+                Text('直播中', style: TextStyle(color: current && back == null ? scheme.primary : scheme.onSurfaceVariant, fontSize: 12)),
             ],
           ),
         );
+        if (canBack && !playingBack) return InkWell(borderRadius: BorderRadius.circular(8), onTap: () => widget.onPlayBack?.call(p), child: row);
+        if (canLive) return InkWell(borderRadius: BorderRadius.circular(8), onTap: widget.onLive, child: row);
+        return row;
       },
     );
   }

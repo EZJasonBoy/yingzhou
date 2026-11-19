@@ -92,6 +92,22 @@ class EngineClient {
   Future<EpgDay> epg(int source, String channel, {String? date}) async =>
       EpgDay.fromJson(await _send('GET', 'live/$source/epg', query: {'channel': channel, 'date': ?date}));
 
+  /// The address of what [channel] showed from [start] to [end] (回看), [line] first.
+  Future<LiveCatchup> liveCatchup(int source, String channel, {String? group, int line = 0, required DateTime start, required DateTime end}) async =>
+      LiveCatchup.fromJson(
+        await _send(
+          'GET',
+          'live/$source/catchup',
+          query: {
+            'channel': channel,
+            'group': ?group,
+            'line': '$line',
+            'start': '${start.millisecondsSinceEpoch}',
+            'end': '${end.millisecondsSinceEpoch}',
+          },
+        ),
+      );
+
   Future<List<FavoriteEntry>> favorites() async => [
     for (final f in await _send('GET', 'favorites') as List<dynamic>) FavoriteEntry.fromJson(f as Map<String, dynamic>),
   ];

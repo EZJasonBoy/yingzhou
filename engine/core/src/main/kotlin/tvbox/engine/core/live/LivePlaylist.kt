@@ -4,6 +4,7 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import tvbox.engine.core.config.ConfigLocator
+import tvbox.engine.core.model.CatchupTemplate
 import tvbox.engine.core.model.LiveChannel
 import tvbox.engine.core.model.LiveGroup
 import tvbox.engine.core.model.LiveUrl
@@ -31,6 +32,8 @@ data class LiveSourceSpec(
     val api: String = "",
     val ext: String = "",
     val jar: String = "",
+    /** TVBox `catchup` of the entry: the rule for channels whose playlist gives none of their own. */
+    val catchup: CatchupTemplate? = null,
 ) {
     /** The key the source's spider runs under: its `siteKey`, also in the proxy addresses of its channels. */
     val spiderKey: String get() = "live_$name"
@@ -58,7 +61,8 @@ data class LiveSourceSpec(
                     } else {
                         val list = channels.mapNotNull { c ->
                             val co = c as? JsonObject ?: return@mapNotNull null
-                            val urls = (co.get("urls") as? JsonArray)?.mapNotNull { u -> u.takeIf { it.isJsonPrimitive }?.asString?.let(::liveUrl) }.orEmpty()
+                            val catchup = Catchup.fromJson(co) ?: Catchup.fromJson(o)
+                            val urls = (co.get("urls") as? JsonArray)?.mapNotNull { u -> u.takeIf { it.isJsonPrimitive }?.asString?.let { liveUrl(it).copy(catchup = catchup) } }.orEmpty()
                             if (urls.isEmpty()) null else LiveChannel(name = co.str("name"), logo = co.str("logo"), urls = urls)
                         }
                         if (list.isNotEmpty()) inline += LiveGroup(group, list)
@@ -73,7 +77,7 @@ data class LiveSourceSpec(
                     val ext = o.get("ext")?.let { if (it.isJsonPrimitive) it.asString else it.toString() }.orEmpty()
                     specs += LiveSourceSpec(
                         name = name, url = o.str("url").trim(), epg = o.str("epg"), logo = o.str("logo"), headers = headers(o),
-                        api = o.str("api").trim(), ext = ext, jar = o.str("jar").trim(),
+                        api = o.str("api").trim(), ext = ext, jar = o.str("jar").trim(), catchup = Catchup.fromJson(o),
                     )
                     continue
                 }
@@ -90,7 +94,7 @@ data class LiveSourceSpec(
                     url = locator.clanToAddress(url.replace("file://", "clan://localhost/"))
                 }
                 if (url.isEmpty()) continue
-                specs += LiveSourceSpec(name = name, url = url, epg = o.str("epg"), logo = o.str("logo"), headers = headers(o))
+                specs += LiveSourceSpec(name = name, url = url, epg = o.str("epg"), logo = o.str("logo"), headers = headers(o), catchup = Catchup.fromJson(o))
             }
             if (inline.isNotEmpty()) specs.add(0, LiveSourceSpec(name = "直播", inline = inline, epg = inlineEpg))
             return specs
@@ -177,9 +181,10 @@ object LivePlaylistParser {
                     null -> emptyList()
                     else -> if (u.isJsonPrimitive) u.asString.split('#') else emptyList()
                 }
+                val catchup = Catchup.fromJson(co)
                 for (item in urls) {
                     if (SCHEMES.none { item.trim().startsWith(it) }) continue
-                    b.add(group, name, co.text("logo"), liveUrl(item.trim(), headers))
+                    b.add(group, name, co.text("logo"), liveUrl(item.trim(), headers).copy(catchup = catchup))
                 }
             }
         }
@@ -230,6 +235,8 @@ object LivePlaylistParser {
         // Several guides may be listed; all are kept, the first that answers is used.
         val tvg = ATTR.findAll(header).firstOrNull { it.groupValues[1] in setOf("x-tvg-url", "url-tvg", "tvg-url") }?.groupValues?.get(2)
             ?.split(',')?.map { it.trim() }?.filter { it.startsWith("http") }?.joinToString(",").orEmpty()
+        // Catch-up attributes on the header apply to every channel that does not say otherwise.
+        val headerCatchup = Catchup.fromAttributes(ATTR.findAll(header).associate { it.groupValues[1].lowercase() to it.groupValues[2] })
         var i = 1
         while (i < lines.size) {
             val line = lines[i].trim()
@@ -259,7 +266,8 @@ object LivePlaylistParser {
                 break
             }
             if (url.isEmpty()) continue
-            b.add(attrs["group-title"].orEmpty(), name, attrs["tvg-logo"].orEmpty(), liveUrl(url, headers))
+            val catchup = Catchup.merge(Catchup.fromAttributes(attrs), headerCatchup)
+            b.add(attrs["group-title"].orEmpty(), name, attrs["tvg-logo"].orEmpty(), liveUrl(url, headers).copy(catchup = catchup))
         }
         return LivePlaylist(b.build(), tvg)
     }

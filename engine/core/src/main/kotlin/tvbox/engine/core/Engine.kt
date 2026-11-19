@@ -349,6 +349,10 @@ class Engine(
 
     suspend fun epg(index: Int, channel: String, date: String): EpgDay = liveCall { live.epg(index, channel, date) }
 
+    /** The address that plays what a channel showed from [startMs] to [endMs] (回看). */
+    suspend fun liveCatchup(index: Int, group: String?, channel: String, line: Int, startMs: Long, endMs: Long): tvbox.engine.core.model.LiveCatchup =
+        liveCall { live.catchup(index, group, channel, line, startMs, endMs) }
+
     private suspend fun <T> liveCall(block: suspend () -> T): T {
         current()
         return try {

@@ -118,6 +118,67 @@ class EngineModuleTest {
     }
 
     @Test
+    fun `live channels say how many days they can be played back, and catchup gives the address of a past range`() {
+        val upstream = MockWebServer().apply { start() }
+        try {
+            upstream.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when (request.requestUrl!!.encodedPath) {
+                    "/tv.json" -> MockResponse().setBody("""{"sites":[],"lives":[{"name":"直播","type":0,"url":"${upstream.url("/tv.m3u")}"}]}""")
+                    "/tv.m3u" -> MockResponse().setBody(
+                        "#EXTM3U\n" +
+                            "#EXTINF:-1 group-title=\"组\" catchup=\"append\" catchup-days=\"3\" catchup-source=\"?s={utc}&e={utcend}\",回看台\n" +
+                            "proxy://do=live&id=1\n" +
+                            "#EXTINF:-1 group-title=\"组\",普通台\nhttp://a.test/2.m3u8\n",
+                    )
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+            testApplication {
+                application {
+                    engineModule(
+                        Engine(
+                            EngineInfo("tvbox-engine", "test", platform = "test", capabilities = Capabilities(false, false, false, false)),
+                            ConfigLoader(OkHttpClient(), ConfigLocator("http://127.0.0.1:80/file/")),
+                            SiteHttp(OkHttpClient()),
+                            proxyBase = "http://127.0.0.1:80/proxy?",
+                        ),
+                    )
+                }
+                val created = client.post("/api/v1/subscriptions") {
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"url":"${upstream.url("/tv.json")}"}""")
+                }
+                val id = EngineJson.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+                client.post("/api/v1/subscriptions/$id/activate")
+
+                val channels = EngineJson.parseToJsonElement(client.get("/api/v1/live/0").bodyAsText()).jsonObject["groups"]!!.jsonArray[0].jsonObject["channels"]!!.jsonArray
+                assertEquals(listOf("3", "0"), channels.map { it.jsonObject["catchupDays"]!!.jsonPrimitive.content })
+                assertTrue(channels.none { "catchup" in it.jsonObject["urls"]!!.jsonArray[0].jsonObject }, "the rule stays in the engine")
+
+                val start = System.currentTimeMillis() - 2 * 3_600_000L
+                val end = start + 1_800_000L
+                val channel = java.net.URLEncoder.encode("回看台", "UTF-8")
+                val catchup = EngineJson.parseToJsonElement(
+                    client.get("/api/v1/live/0/catchup?channel=$channel&group=%E7%BB%84&line=0&start=$start&end=$end") { header(HttpHeaders.Host, "192.168.1.5:9978") }.bodyAsText(),
+                ).jsonObject
+                assertEquals(
+                    "http://192.168.1.5:9978/proxy?do=live&id=1&s=${start / 1000}&e=${end / 1000}",
+                    catchup["url"]!!.jsonPrimitive.content,
+                    "the engine's own address, as the LAN client reaches it",
+                )
+                assertEquals("0", catchup["line"]!!.jsonPrimitive.content)
+
+                val plain = client.get("/api/v1/live/0/catchup?channel=%E6%99%AE%E9%80%9A%E5%8F%B0&start=$start&end=$end")
+                assertEquals(HttpStatusCode.BadRequest, plain.status, "a channel without catch-up")
+                assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/live/0/catchup?channel=$channel&start=x&end=$end").status)
+                assertEquals(HttpStatusCode.NotFound, client.get("/api/v1/live/0/catchup?channel=nope&start=$start&end=$end").status)
+            }
+        } finally {
+            upstream.shutdown()
+        }
+    }
+
+    @Test
     fun `history and favorites round trip, including ids with slashes`() = testApplication {
         application { engineModule(engine()) }
         val id = java.net.URLEncoder.encode("https://site.test/vod/1", "UTF-8")

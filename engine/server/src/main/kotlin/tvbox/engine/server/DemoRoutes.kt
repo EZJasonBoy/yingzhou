@@ -318,6 +318,7 @@ fun Route.demoRoutes(site: DemoSite) {
             appendLine(DemoSite.TEST_STREAM)
             appendLine("#EXTINF:-1 tvg-logo=\"$base/demo/poster/3.png\" group-title=\"演示频道\",苹果示例台")
             appendLine(DemoSite.BIPBOP)
+            append(demoCatchupEntry(base))
             appendLine("#EXTINF:-1 tvg-logo=\"$base/demo/poster/4.png\" group-title=\"测试\",备用线路演示")
             appendLine("http://127.0.0.1:1/dead.m3u8")
             appendLine("#EXTINF:-1 group-title=\"测试\",备用线路演示")

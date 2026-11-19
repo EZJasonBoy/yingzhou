@@ -1,6 +1,7 @@
 package tvbox.engine.server
 
 import io.ktor.http.ContentType
+import io.ktor.server.response.respondRedirect
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
@@ -49,6 +50,26 @@ object DemoLive {
     """.trimIndent()
 }
 
+/** The demo's catch-up channel: an M3U entry whose past is played from [demoLiveRoutes]' `/demo/catchup.m3u8`. */
+fun demoCatchupEntry(base: String): String =
+    "#EXTINF:-1 tvg-logo=\"$base/demo/poster/5.png\" group-title=\"演示频道\" catchup=\"default\" catchup-days=\"3\" " +
+        "catchup-source=\"$base/demo/catchup.m3u8?start=\${(b)yyyyMMddHHmmss}&end=\${(e)yyyyMMddHHmmss}&utc={utc}\",回看演示台\n" +
+        DemoSite.LIVE_TEST + "\n"
+
 fun Route.demoLiveRoutes() {
     get("/demo/live.js") { call.respondText(DemoLive.spiderJs, ContentType.Text.JavaScript) }
+    // Any past range of 回看演示台 "plays" as the VOD test stream; a request whose placeholders were not filled in
+    // (or that is not in the past) is refused, so a wrong address shows up as a channel that does not play.
+    get("/demo/catchup.m3u8") {
+        val q = call.request.queryParameters
+        val format = java.text.SimpleDateFormat("yyyyMMddHHmmss", java.util.Locale.ROOT).apply { timeZone = java.util.TimeZone.getTimeZone("Asia/Shanghai") }
+        val start = runCatching { format.parse(q["start"].orEmpty())!!.time }.getOrNull()
+        val end = runCatching { format.parse(q["end"].orEmpty())!!.time }.getOrNull()
+        val utc = q["utc"]?.toLongOrNull()
+        if (start == null || end == null || end <= start || utc != start / 1000 || start > System.currentTimeMillis()) {
+            call.respondText("bad catch-up range", status = io.ktor.http.HttpStatusCode.BadRequest)
+        } else {
+            call.respondRedirect(DemoSite.TEST_STREAM, permanent = false)
+        }
+    }
 }
