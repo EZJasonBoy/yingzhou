@@ -4,7 +4,7 @@
 
 > 一个兼容 TVBox 配置与蜘蛛协议的全平台影视客户端：一个 Kotlin 引擎 + 一个 Flutter 客户端 + 一套 HTTP 协议。名字取"一条船把影像载到每块屏幕上"，对应一个引擎服务多台设备；logo 的帆就是播放键（见 [docs/brand](docs/brand)）。仓库目录仍叫 `tvbox-next`。
 
-**现状**：Windows 桌面版可用（点播、搜索、jar / js 蜘蛛、解析、嗅探、去广告、直播 + 节目单），macOS 的工程与打包已就绪但未在真机验证。桌面优先，Android 只保证能编译。详见 [docs/status.md](docs/status.md)。
+**现状**：Windows 桌面版可用（点播、搜索、jar / js 蜘蛛、解析、嗅探、去广告、直播 + 节目单），macOS 的工程与打包已就绪但未在真机验证。Android 手机、平板和电视盒子的界面（触屏手势、遥控器焦点）以及内置引擎的缓存、下载、局域网共享已经做了，只在模拟器上验证过。详见 [docs/status.md](docs/status.md)。
 
 ## 文档
 
@@ -26,6 +26,7 @@
 
 - Windows：`yingzhou-windows-x64-setup.exe`（安装程序）或 `yingzhou-windows-x64.zip`（绿色包）。没有数字签名，第一次运行时 SmartScreen 可能拦一下，点「更多信息 → 仍要运行」。
 - macOS（Apple Silicon）：`yingzhou-macos-arm64.dmg`，临时签名，第一次需右键 → 打开。还没有在真机上运行过。
+- Android（手机、平板、电视盒子，Android 7.0 起）：`yingzhou-android-arm64-v8a.apk` 适合绝大多数手机和较新的盒子，`armeabi-v7a` 给 32 位的老电视盒子。从 v0.2.0 之后的版本开始提供，用正式密钥签名，可以覆盖升级。
 - 引擎的 Docker 镜像：`ghcr.io/sa1koro/yingzhou-engine`，见 [docs/user-guide.md](docs/user-guide.md)。
 
 打一个 `v*` 标签就会触发 `.github/workflows/desktop.yml` 出包并发布 Release。

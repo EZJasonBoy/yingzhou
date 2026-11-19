@@ -314,7 +314,7 @@ tvbox-next/
 - **播放页**（`pages/player_tv.dart`，`player_page.dart` 的 part）：页面的按键处理在电视上先交给 `_onTvKey`。画面有焦点时：OK 暂停、←/→ 快退快进（按住时目标越走越快，松开才 `seek` 一次——引擎的播放缓存和播放器都更喜欢一次跳转）、↑ 选集面板、↓ 控制栏（焦点在播放按钮）、菜单键设置面板（倍速、线路、字幕与音轨、弹幕、选集）、频道键 / 上下曲换集；焦点在控制栏或面板里时方向键交给焦点系统。侧面板打开时焦点进去（`PlayerSidePanel` 里的 `TvAutofocus`）。
 - **直播页**（`pages/live_tv.dart`，`live_page.dart` 的 part）：电视上开始播放就进全屏；↑/↓ 和频道键换台，数字键按列表里的序号换台，OK 打开分组 + 频道列表（焦点所在的分组决定右边列哪个分组的频道），←/→ 换线路（只有一条线路时打开列表 / 节目单），菜单键节目单（可回看的频道能选前几天、OK 回看）。退出全屏是电视版的三栏（分组 | 频道 | 小画面 + 节目单）。行高固定，列表一打开就滚到正在播的频道。
 - **启动器**：`AndroidManifest.xml` 已有 `LEANBACK_LAUNCHER` 和"不需要触摸屏"；横幅 `res/drawable-xhdpi/banner.png`（320×180）和 `drawable-xxhdpi`（480×270）由 `tools/brand/render-banner.mjs` 从 `docs/brand/yingzhou-banner.svg` 画出来。`DeviceChannel` 还关掉了安卓给获得焦点的视图画的默认高亮（整个 Flutter 视图外面一圈彩色框）。
-- **测试**：`test/tv_focus_test.dart`（主界面、首页、详情、搜索、输入框、BACK）、`test/tv_player_test.dart`（播放页、直播页），用方向键、OK、BACK、菜单键驱动，检查每一步之后焦点在哪；各有一个桌面用例确认桌面按键没变。在模拟器上的看法见 [development.md](development.md) 第 14 节。
+- **测试**：`test/tv_focus_test.dart`（主界面、首页、详情、搜索、输入框、BACK）、`test/tv_player_test.dart`（播放页、直播页），用方向键、OK、BACK、菜单键驱动，检查每一步之后焦点在哪；各有一个桌面用例确认桌面按键没变。在模拟器上的看法见 [development.md](development.md) 第 13 节。
 
 ## 5. 安全
 
