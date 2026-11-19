@@ -43,6 +43,8 @@ import tvbox.engine.core.model.PlayInfo
 import tvbox.engine.core.model.PlayRequest
 import tvbox.engine.core.util.Base64Compat
 import tvbox.engine.core.search.SearchEvent
+import tvbox.engine.api.access.AccessControl
+import tvbox.engine.api.access.installAccess
 
 val EngineJson = Json {
     encodeDefaults = true
@@ -56,6 +58,8 @@ data class EngineModuleOptions(
      * Off by default so that arbitrary web sites cannot drive a local engine.
      */
     val allowLocalhostCors: Boolean = false,
+    /** Pairing, tokens and signed media addresses (see [installAccess]); by default only this machine gets in. */
+    val access: tvbox.engine.api.access.AccessControl? = null,
 )
 
 /** Installs protocol v1 (docs/protocol.md) on a Ktor application. Shared by the server and the Android app. */
@@ -90,6 +94,7 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
             call.respond(HttpStatusCode.InternalServerError, ErrorBody(ApiError("INTERNAL", e.message ?: e.javaClass.simpleName)))
         }
     }
+    installAccess(options.access ?: AccessControl())
 
     routing {
         // TVBox 9978 compatibility. Jar spiders probe 9978..9999 with /proxy?do=ck to find the host, and serve media,

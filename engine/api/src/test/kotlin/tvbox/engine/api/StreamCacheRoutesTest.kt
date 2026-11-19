@@ -103,6 +103,10 @@ class StreamCacheRoutesTest {
         site.shutdown()
     }
 
+    /** LAN sharing is on and one device ("tv") is paired; [token] is its token. */
+    private val access = tvbox.engine.api.access.AccessControl(MemoryStore(), supported = true).also { it.setSharing(true) }
+    private val token = (access.pair(access.newCode().code, "tv", "x") as tvbox.engine.api.access.AccessControl.PairResult.Paired).token
+
     /** An engine with the stream cache and the site's config loaded. The engine's own urls use port 80, the test host's. */
     private fun withEngine(block: suspend ApplicationTestBuilder.() -> Unit) = testApplication {
         application {
@@ -115,6 +119,7 @@ class StreamCacheRoutesTest {
                     store = MemoryStore(),
                     streamCache = cache,
                 ),
+                EngineModuleOptions(access = access),
             )
         }
         val created = client.post("/api/v1/subscriptions") {
@@ -131,13 +136,19 @@ class StreamCacheRoutesTest {
     private suspend fun ApplicationTestBuilder.resolve(host: String? = null): JsonObject = EngineJson.parseToJsonElement(
         client.post("/api/v1/play/resolve") {
             contentType(ContentType.Application.Json)
-            if (host != null) header(HttpHeaders.Host, host)
+            if (host != null) {
+                header(HttpHeaders.Host, host)
+                header(HttpHeaders.Authorization, "Bearer $token")
+            }
             setBody("""{"site":"cms","line":"线路","episodeId":"${site.url("/ads/index.m3u8")}"}""")
         }.bodyAsText(),
     ).jsonObject
 
     /** The path and query of an engine url, for the test client. */
     private fun local(url: String) = "/" + url.substringAfter("://").substringAfter('/')
+
+    /** An engine url without the signature the engine adds for whoever asked (see AccessPlugin). */
+    private fun unsigned(url: String) = url.replace(Regex("[&?]tvsig=[^&\\s]*"), "")
 
     private fun segments(playlist: String) = playlist.lines().filter { it.startsWith("http") }
 
@@ -147,12 +158,12 @@ class StreamCacheRoutesTest {
         val key = info["cache"]!!.jsonPrimitive.content
         val url = info["url"]!!.jsonPrimitive.content
         assertEquals(16, key.length)
-        assertTrue(url.startsWith("http://127.0.0.1:80/m3u8?url=") && url.endsWith("&k=$key"), url)
+        assertTrue(url.startsWith("http://127.0.0.1:80/m3u8?url=") && unsigned(url).endsWith("&k=$key"), url)
 
         val playlist = client.get(local(url)).bodyAsText()
         val lines = segments(playlist)
         assertEquals(20, lines.size, "the ad is gone and every segment is the engine's: $playlist")
-        assertTrue(lines.all { Regex("http://127\\.0\\.0\\.1:80/hls/[0-9a-f]+-[0-9a-f]+/\\d+\\.ts").matches(it) }, playlist)
+        assertTrue(lines.all { Regex("http://127\\.0\\.0\\.1:80/hls/[0-9a-f]+-[0-9a-f]+/\\d+\\.ts").matches(unsigned(it)) }, playlist)
         assertFalse(playlist.contains("token=abc") || playlist.contains(":${site.port}"), "nothing of the source is left in it")
 
         // A segment comes from the source once, then from the store; a range of it can be asked for.
@@ -189,18 +200,24 @@ class StreamCacheRoutesTest {
         val info = resolve(host = "192.168.1.5:9978")
         val url = info["url"]!!.jsonPrimitive.content
         assertTrue(url.startsWith("http://192.168.1.5:9978/m3u8?url="), url)
+        assertTrue(url.contains("tvsig="), "a player on the LAN gets a signed address: $url")
+        // The player sends no token, only the signed address.
         val playlist = client.get(local(url)) { header(HttpHeaders.Host, "192.168.1.5:9978") }.bodyAsText()
-        assertTrue(segments(playlist).all { it.startsWith("http://192.168.1.5:9978/hls/") }, playlist)
+        assertTrue(segments(playlist).isNotEmpty() && segments(playlist).all { it.startsWith("http://192.168.1.5:9978/hls/") && it.contains("tvsig=") }, playlist)
+        val segment = client.get(local(segments(playlist).first())) { header(HttpHeaders.Host, "192.168.1.5:9978") }
+        assertEquals(HttpStatusCode.OK, segment.status, "a signed segment address works without a token")
+        val unsignedSegment = client.get(local(unsigned(segments(playlist).first()))) { header(HttpHeaders.Host, "192.168.1.5:9978") }
+        assertEquals(HttpStatusCode.Unauthorized, unsignedSegment.status, "without the signature a LAN player gets nothing")
         // The same film asked for on the machine itself is the same playlist under the local address.
         val own = client.get(local(url)).bodyAsText()
-        assertEquals(playlist.replace("192.168.1.5:9978", "127.0.0.1:80"), own)
+        assertEquals(unsigned(playlist).replace("192.168.1.5:9978", "127.0.0.1:80"), unsigned(own))
     }
 
     @Test
     fun `the variants of a master playlist carry the film's key, and live playlists are not cached`() = withEngine {
         val master = client.get("/m3u8?url=" + URLEncoder.encode(site.url("/ads/master.m3u8").toString(), "UTF-8") + "&k=abc123").bodyAsText()
         val variant = master.lines().single { it.startsWith("http") }
-        assertTrue(variant.startsWith("http://127.0.0.1:80/m3u8?url=") && variant.endsWith("&k=abc123"), master)
+        assertTrue(variant.startsWith("http://127.0.0.1:80/m3u8?url=") && unsigned(variant).endsWith("&k=abc123"), master)
         val media = client.get(local(variant)).bodyAsText()
         assertTrue(segments(media).all { it.contains("/hls/") }, media)
         client.get(local(segments(media).first())).readRawBytes()

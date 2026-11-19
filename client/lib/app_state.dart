@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
 
+import 'engine/discovery.dart';
 import 'engine/engine_client.dart';
+import 'engine/lan.dart';
 import 'engine/local_engine.dart';
 import 'engine/models.dart';
 import 'player_backend.dart';
@@ -138,6 +140,9 @@ class AppState extends ChangeNotifier {
     _client?.close();
     final client = clientFactory(Uri.parse(engineUrl));
     _client = client;
+    final saved = _settings.getString(_tokenKey(engineUrl));
+    client.token = saved == null || saved.isEmpty ? null : saved;
+    client.onUnauthorized = (e) => _pairingRequired(client, e);
     info = null;
     summary = null;
     sites = const [];
@@ -147,10 +152,104 @@ class AppState extends ChangeNotifier {
     await _settings.setString(_engineUrlKey, engineUrl);
     try {
       engineSettings = await client.settings();
-    } on EngineException {
+    } on EngineException catch (e) {
+      if (_refused(e)) return;
       engineSettings = null;
     }
+    needsPairing = false;
     await _loadConfig();
+  }
+
+  // ---- pairing with an engine on another device ----
+
+  /// The engine on another device wants a pairing code first (no token yet, or it was revoked).
+  bool needsPairing = false;
+
+  /// Why the last pairing attempt failed (wrong code, locked...).
+  String? pairingError;
+
+  /// The token used with the current engine, for the image loader; null for the engine on this machine.
+  String? get engineToken => _client?.token;
+
+  static String _tokenKey(String url) {
+    final u = Uri.tryParse(url);
+    return 'engineToken|${u == null ? url : '${u.scheme}://${u.host}:${u.port}'}';
+  }
+
+  /// The engine said no: it wants pairing (401), or it does not share at all (403 LAN_SHARING_OFF).
+  bool _refused(EngineException e) {
+    if (e.statusCode == 401) {
+      // onUnauthorized has already set things up.
+      return true;
+    }
+    if (e.statusCode == 403 && e.code == 'LAN_SHARING_OFF') {
+      info = null;
+      error = '这台引擎没有开启局域网共享：在它所在的设备上打开「源 → 局域网共享」';
+      return true;
+    }
+    return false;
+  }
+
+  void _pairingRequired(EngineClient client, EngineException e) {
+    if (!identical(client, _client)) return;
+    info = null;
+    summary = null;
+    sites = const [];
+    needsPairing = true;
+    error = client.token == null ? '这台引擎需要配对：输入它显示的配对码' : '与这台引擎的配对已失效（${e.message}），请重新配对';
+    notifyListeners();
+  }
+
+  /// Asks the engine to show a pairing code (a headless engine prints it in its log).
+  Future<void> requestPairingCode() async {
+    try {
+      await _client?.pair('', deviceName());
+    } on EngineException {
+      // PAIR_CODE_REQUIRED is the expected answer; anything else shows up when the code is entered.
+    }
+  }
+
+  /// Pairs with the current engine using the code it shows, keeps the token for it, and connects.
+  Future<bool> pair(String code) async {
+    final client = _client;
+    if (client == null) return false;
+    busy = true;
+    pairingError = null;
+    notifyListeners();
+    try {
+      final token = await client.pair(code.trim(), deviceName());
+      await _settings.setString(_tokenKey(engineUrl), token);
+      needsPairing = false;
+      await _connectOnce();
+      return connected;
+    } on EngineException catch (e) {
+      pairingError = e.message;
+      return false;
+    } finally {
+      busy = false;
+      notifyListeners();
+    }
+  }
+
+  /// Leaves the pairing dialog without pairing.
+  void dismissPairing() {
+    needsPairing = false;
+    pairingError = null;
+    notifyListeners();
+  }
+
+  /// Shows the pairing dialog again for the current engine.
+  void startPairing() {
+    needsPairing = true;
+    pairingError = null;
+    notifyListeners();
+  }
+
+  /// Forgets the token kept for the current engine.
+  Future<void> forgetPairing() async {
+    await _settings.setString(_tokenKey(engineUrl), '');
+    _client?.token = null;
+    await connect();
   }
 
   /// The engine's own settings; null when the engine is too old to have any.

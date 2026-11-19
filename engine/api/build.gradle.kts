@@ -16,5 +16,6 @@ dependencies {
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.launcher)
     testImplementation(libs.ktor.server.test.host)
+    testImplementation(libs.ktor.server.cio)
     testImplementation(libs.okhttp.mockwebserver)
 }

@@ -55,7 +55,15 @@ flutter test                                # 单元 / 组件测试（用 test/f
 flutter run -d windows                      # 没有引擎在 9978 上时会自己拉起上面 installDist 的引擎
 ```
 
-引擎参数：`--port`、`--lan`（监听局域网）、`--data <目录>`（默认 `~/.tvbox-next/engine`）、`--subscribe <地址>`、`--demo`、`--dev-cors`、`--exit-with-stdin`。
+引擎参数：`--port`、`--lan`（监听 0.0.0.0，局域网共享始终开启，配对码打印在标准输出）、`--name <名字>`（局域网里显示的名字，默认"映舟 · 计算机名"）、`--data <目录>`（默认 `~/.tvbox-next/engine`）、`--subscribe <地址>`、`--demo`、`--dev-cors`、`--exit-with-stdin`。
+
+### 局域网共享与鉴权
+
+- 代码：`engine/api/src/main/kotlin/tvbox/engine/api/access/`（`AccessControl` 配对码、令牌、签名；`AccessPlugin` 拦截器、`/pair`、`/lan`、给响应里的引擎地址签名），`engine/server/.../lan/LanSharing.kt`（按地址另起监听、JmDNS）。客户端：`client/lib/engine/lan.dart`、`discovery*.dart`、`lib/ui/pairing_dialog.dart`、`lib/pages/lan_section.dart`。协议见 [protocol.md](protocol.md)"鉴权与配对"。
+- `EngineModuleOptions(access = …)` 不传时是"只有本机"（安卓内置引擎就是这样）。新加的路由不用做任何事就受保护；返回引擎地址的新接口，返回 `PlayInfo` / `LiveList` 会自动签名，其他形状自己调 `AccessControl.sign`。
+- 测试：`engine/api/src/test/.../AccessTest.kt`。测试宿主的请求来自回环地址，"别的设备"用外来的 `Host` 头模拟；有一个用例在本机的局域网地址上起真实的 CIO 监听，从非回环地址访问。这些都还是同一台机器，**没有跨真实网络测过**；mDNS 通告只确认了注册不报错，没有用另一台设备搜到过。客户端用 `test/fake_lan_engine.dart` 模拟要令牌的远程引擎。
+- 手动试：`--demo --port 19984` 启动后 `curl -X PUT -H 'Content-Type: application/json' -d '{"enabled":true}' http://127.0.0.1:19984/api/v1/lan`，返回里有地址和配对码；用局域网地址访问 `/api/v1/sites` 应得 401。试完记得关掉（`{"enabled":false}`）或停掉引擎。
+- Git Bash 传给 Java 的中文参数会乱码（`--name 测试引擎`），测试时用英文名。
 
 ## 4. 演示引擎
 
@@ -186,3 +194,48 @@ PLAY=1 MAX_SITES=20 tools/check-configs.sh          # 加上播放解析；每�
 - 提交信息用英文，一句话说清做了什么；每个迭代一次提交。
 - 移植自其他项目的代码，在 [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) 里登记来源和许可证。
 - 改了协议就同步改 [protocol.md](protocol.md)；做完一个功能就更新 [status.md](status.md) 和 [requirements.md](requirements.md) 里的状态。
+
+## 12. Docker 镜像（NAS）
+
+> **镜像本身还没有构建、运行过**：开发机上没有 Docker（也不打算装）。下面"已检查"列出的是没有 Docker 时能查的部分；第一次真正的构建会在 CI 上（仓库推到 GitHub 之后），或者在有 Docker 的机器上手动做。
+
+文件：
+
+| 文件 | 作用 |
+|---|---|
+| `engine/Dockerfile` | 三段：① 在构建机自己的 CPU 上用 Gradle 编译（`--platform=$BUILDPLATFORM`，字节码各平台一样）；② 用**目标 CPU** 的 JDK 做 jlink（jlink 出的运行时只能在它的 CPU 上跑），模块列表和 `tools/package-desktop.sh` 相同；③ `debian:bookworm-slim` + 运行时 + 引擎 jar + Chromium（`WITH_CHROMIUM=false` 去掉）+ tini + curl |
+| `engine/docker-entrypoint.sh` | 启动命令：JVM 参数与桌面应用的内置引擎相同，加 UTF-8 输出；引擎参数 `--lan --port $TVBOX_PORT --data /data --name $TVBOX_NAME`，容器参数追加在后面 |
+| `engine/docker-chromium.sh` | `TVBOX_BROWSER` 指向它：`chromium --no-sandbox --disable-dev-shm-usage` |
+| `engine/docker-compose.yml` | 示例：数据卷、9978 端口、`shm_size`，注释里有 host 网络和不带 Chromium 的写法 |
+| `engine/.dockerignore` | 只把源码和脚本送进构建（不要 `build/`、`.gradle/`） |
+| `.github/workflows/engine-image.yml` | 构建 amd64 镜像并冒烟测试，再构建 amd64 + arm64；打 `v*` 标签或手动运行勾选 push 时推到 `ghcr.io/<owner>/yingzhou-engine` |
+
+需要 BuildKit（Docker 23 起默认；用了 `--platform=$BUILDPLATFORM`、`RUN --mount=type=cache`、`COPY --chmod`）。
+
+```bash
+cd engine
+docker build -t yingzhou-engine .
+docker run -d --name yingzhou -p 9978:9978 -v yingzhou-data:/data --shm-size 256m yingzhou-engine
+docker logs yingzhou                                     # 配对码
+docker buildx build --platform linux/amd64,linux/arm64 -t yingzhou-engine .   # 两个平台（arm64 的 jlink 在 QEMU 里跑，慢一些）
+```
+
+设计要点：
+
+- 以非 root 用户 `yingzhou`（UID/GID 10001）运行，`HOME` 和数据都在 `/data`（卷）。绑定挂载目录时要先 `chown 10001:10001`。
+- 局域网模式：`--lan` 监听 0.0.0.0、共享强制打开，启动时把地址和配对码打印到日志。容器里列出的地址是容器自己的，用户要用宿主机地址。
+- 经端口映射进来的请求来自 Docker 网关，不是回环地址，所以宿主机上的客户端也要配对；容器内的健康检查是回环地址，`/api/v1/info` 本来也不要令牌。
+- 健康检查 `curl -fsS http://127.0.0.1:$TVBOX_PORT/api/v1/info`，60 秒启动宽限。
+- QuickJS 的 JNI 库 `quickjs-jvm.jar` 里带 `linux_x64` 和 `linux_aarch64`，两个平台的 JS 蜘蛛都能跑；jar 蜘蛛是纯字节码。
+- mDNS 出不了桥接网络；要自动发现就用 `network_mode: host`。
+- Chromium 无沙盒：容器里没有它的沙盒需要的用户命名空间。代价是被嗅探的网页一旦攻破渲染进程就直接在容器里（以非 root 用户）。不放心就不带 Chromium。
+
+已检查（没有 Docker 的条件下）：
+
+- 用镜像里同样的模块列表 jlink 出运行时（Windows 上），带镜像入口脚本里同样的 JVM 参数运行 `--demo --check --strict` 和 `--demo --check --play --strict`，都通过（退出码 0）。
+- 用同样的参数加 `--lan --port 19984 --data <临时目录>` 启动：日志里打印了地址和配对码，`/api/v1/lan` 显示 `forced=true`，从局域网地址访问 `/api/v1/sites` 得 401、`/api/v1/info` 得 200。
+- `sh -n` 检查两个脚本；YAML 解析 compose 和 workflow 文件；逐行对照 Dockerfile 最佳实践（固定的基础镜像系列、多阶段、缓存挂载、依赖层在源码层之前、`--no-install-recommends` 并清 apt 列表、非 root、tini、健康检查、`.dockerignore`）。
+
+没有检查：镜像能否构建（Gradle 在容器里、Debian 的 `chromium` 包、arm64 下 QEMU 里的 jlink）、容器里 Chromium 能否嗅探、健康检查、卷的权限、host 网络下的 mDNS。CI 的冒烟测试覆盖前四项中的 amd64 部分。
+
+基础镜像只固定到系列（`eclipse-temurin:21-jdk`、`debian:bookworm-slim`），每次构建会拿到当时的安全更新；需要可重复构建时用 `--build-arg JDK_IMAGE=…@sha256:…` 固定摘要。

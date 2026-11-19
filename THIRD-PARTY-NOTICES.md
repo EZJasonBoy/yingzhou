@@ -52,6 +52,15 @@ SOFTWARE.
 - OkHttp (with `okhttp-dnsoverhttps`), Gson, Jsoup, Ktor, kotlinx — Apache-2.0 / MIT
 - quickjs-kt — Apache-2.0; QuickJS — MIT
 - path_provider (Flutter, client) — BSD-3-Clause
+- JmDNS (`org.jmdns:jmdns`, mDNS announcement of a shared engine) — Apache-2.0
+- bonsoir (`bonsoir`, `bonsoir_platform_interface`, `bonsoir_android`, `bonsoir_darwin`, `bonsoir_linux`, `bonsoir_windows`; finding engines on the LAN in the client), Copyright (c) 2019 Hugo DELAUNAY "Skyost" — MIT
+
+## Docker image
+
+The engine image (`engine/Dockerfile`) is built from Eclipse Temurin 21 (GPL-2.0 with Classpath Exception; the
+trimmed runtime is made from it with jlink) and Debian bookworm, whose packages keep their own licences: Chromium
+(BSD-3-Clause and others), tini (MIT), curl (curl licence), Liberation fonts (OFL-1.1). The repository contains only
+the build files, not these components.
 
 ## Tools
 

@@ -9,6 +9,7 @@ import 'engine/engine_client.dart';
 import 'engine/local_engine.dart';
 import 'settings.dart';
 import 'ui/poster_cache.dart';
+import 'ui/pairing_dialog.dart';
 import 'ui/shell.dart';
 import 'ui/theme.dart';
 
@@ -65,7 +66,7 @@ class _TvboxAppState extends State<TvboxApp> {
           },
           child: CallbackShortcuts(bindings: {const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): _back}, child: child ?? const SizedBox.shrink()),
         ),
-        home: const AppShell(),
+        home: const PairingGate(child: AppShell()),
       ),
     );
   }

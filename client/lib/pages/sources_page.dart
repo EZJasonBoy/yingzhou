@@ -5,6 +5,7 @@ import '../engine/models.dart';
 import 'cache_settings.dart';
 import 'network_settings.dart';
 import 'stream_cache_settings.dart';
+import 'lan_section.dart';
 
 /// 源：engine connection, subscription import, repository switch and the site list.
 class SourcesPage extends StatefulWidget {
@@ -79,12 +80,14 @@ class _SourcesPageState extends State<SourcesPage> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '引擎在另一台设备上时：在那台设备用 --lan 启动引擎，这里填 http://它的局域网IP:9978',
+                        '引擎在另一台设备上时：在那台设备打开「局域网共享」，在下面「发现局域网里的引擎」里选它，或在这里填它显示的地址，再输入配对码',
                         style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
                       ),
                     ],
                   ),
                 ),
+                const SizedBox(height: 12),
+                const LanSection(),
                 const SizedBox(height: 12),
                 _section(
                   context,

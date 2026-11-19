@@ -403,7 +403,10 @@ class StreamCacheTest {
         // Say the pieces had brought no more together than the start did alone (as on a line that is itself the
         // limit; the test's source cannot share a line out among its answers, so the samples are put in by hand).
         val session = cache.session(id)!!
-        session.sample(rate = 1000.0, busy = 1.0)
+        // Let the first segment's own measurements land first, then push every one of them out of the kept samples
+        // (StreamCache keeps the latest three of each kind).
+        delay(200)
+        repeat(3) { session.sample(rate = 1000.0, busy = 1.0) }
         repeat(3) { session.sample(rate = 260.0, busy = 4.0) }
         assertEquals(false, session.parallelHelps)
         origin.asked.clear()

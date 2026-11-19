@@ -133,6 +133,9 @@ class EngineModuleTest {
                     else -> MockResponse().setResponseCode(404)
                 }
             }
+            // The LAN client below is a paired device.
+            val access = tvbox.engine.api.access.AccessControl(tvbox.engine.core.store.MemoryStore(), supported = true).also { it.setSharing(true) }
+            val token = (access.pair(access.newCode().code, "tv", "x") as tvbox.engine.api.access.AccessControl.PairResult.Paired).token
             testApplication {
                 application {
                     engineModule(
@@ -142,6 +145,7 @@ class EngineModuleTest {
                             SiteHttp(OkHttpClient()),
                             proxyBase = "http://127.0.0.1:80/proxy?",
                         ),
+                        EngineModuleOptions(access = access),
                     )
                 }
                 val created = client.post("/api/v1/subscriptions") {
@@ -159,11 +163,16 @@ class EngineModuleTest {
                 val end = start + 1_800_000L
                 val channel = java.net.URLEncoder.encode("回看台", "UTF-8")
                 val catchup = EngineJson.parseToJsonElement(
-                    client.get("/api/v1/live/0/catchup?channel=$channel&group=%E7%BB%84&line=0&start=$start&end=$end") { header(HttpHeaders.Host, "192.168.1.5:9978") }.bodyAsText(),
+                    client.get("/api/v1/live/0/catchup?channel=$channel&group=%E7%BB%84&line=0&start=$start&end=$end") {
+                        header(HttpHeaders.Host, "192.168.1.5:9978")
+                        header(HttpHeaders.Authorization, "Bearer $token")
+                    }.bodyAsText(),
                 ).jsonObject
+                val catchupUrl = catchup["url"]!!.jsonPrimitive.content
+                assertTrue(catchupUrl.contains("&tvsig="), "signed, so a player on the LAN can open it: $catchupUrl")
                 assertEquals(
                     "http://192.168.1.5:9978/proxy?do=live&id=1&s=${start / 1000}&e=${end / 1000}",
-                    catchup["url"]!!.jsonPrimitive.content,
+                    catchupUrl.substringBefore("&tvsig="),
                     "the engine's own address, as the LAN client reaches it",
                 )
                 assertEquals("0", catchup["line"]!!.jsonPrimitive.content)
@@ -271,6 +280,9 @@ class EngineModuleTest {
                     else -> MockResponse().setResponseCode(404)
                 }
             }
+            // The LAN client below is a paired device.
+            val access = tvbox.engine.api.access.AccessControl(tvbox.engine.core.store.MemoryStore(), supported = true).also { it.setSharing(true) }
+            val token = (access.pair(access.newCode().code, "tv", "x") as tvbox.engine.api.access.AccessControl.PairResult.Paired).token
             testApplication {
                 // The engine's own urls use the port it listens on (80 in the test host).
                 application {
@@ -281,6 +293,7 @@ class EngineModuleTest {
                             SiteHttp(OkHttpClient()),
                             proxyBase = "http://127.0.0.1:80/proxy?",
                         ),
+                        EngineModuleOptions(access = access),
                     )
                 }
                 val created = client.post("/api/v1/subscriptions") {
@@ -302,6 +315,7 @@ class EngineModuleTest {
                 val lan = EngineJson.parseToJsonElement(client.post("/api/v1/play/resolve") {
                     contentType(ContentType.Application.Json)
                     header(HttpHeaders.Host, "192.168.1.5:9978")
+                    header(HttpHeaders.Authorization, "Bearer $token")
                     setBody("""{"site":"cms","line":"x","episodeId":"https://cdn.test/a/index.m3u8"}""")
                 }.bodyAsText()).jsonObject
                 assertTrue(lan["url"]!!.jsonPrimitive.content.startsWith("http://192.168.1.5:9978/m3u8?url="), lan.toString())
