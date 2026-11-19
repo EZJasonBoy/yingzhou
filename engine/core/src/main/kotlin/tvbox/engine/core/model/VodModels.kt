@@ -108,20 +108,25 @@ data class PlayInfo(
      * disk, and `/api/v1/stream-cache/coverage?key=` with this value says which parts are there.
      */
     val cache: String = "",
-    /** Subtitles that go with [url] (TVBox `subs`), e.g. the `.srt` / `.ass` / `.vtt` files beside a drive's video. */
-    val subtitles: List<Subtitle> = emptyList(),
+    /** External subtitles the site named, each served by the engine as UTF-8 SRT / ASS / WebVTT. */
+    val subtitles: List<SubtitleTrack> = emptyList(),
+    /**
+     * Where the site's danmaku for this episode come from ("" when it named none). For display only: clients get the
+     * danmaku themselves from `/api/v1/danmaku`, which also asks the configured danmaku services.
+     */
+    val danmaku: String = "",
 )
 
-/** A subtitle file a player can load next to the video. */
+/** An external subtitle of a [PlayInfo]. */
 @Serializable
-data class Subtitle(
-    val url: String,
-    /** For the menu: the file name, or what a spider called it. */
-    val name: String = "",
-    /** Language tag when known (`zh`, `chs`, `en` from `film.zh.srt`); empty when not. */
+data class SubtitleTrack(
+    val name: String,
+    /** Language code or name as the site gave it ("" when it did not). */
     val lang: String = "",
-    /** `srt` | `ass` | `ssa` | `vtt`; empty when not known. */
+    /** What the engine serves at [url]: srt | ass | ssa | vtt. */
     val format: String = "",
+    /** The engine's `/subtitle?…` address (signed for LAN clients), not the site's. */
+    val url: String,
 )
 
 /** Aggregated search events (SSE). */

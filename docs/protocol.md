@@ -165,14 +165,14 @@ event: end       data: {"sites":40,"ms":9120}
   "url": "https://…/index.m3u8",
   "headers": {"Referer": "…", "User-Agent": "…"},
   "format": "hls",               // 可选：hls | dash | mp4 | flv | …
-  "subtitles": [{"url": "http://127.0.0.1:9978/drive/1a2b3c4d/剧集/第1集.srt", "name": "第1集.srt", "lang": "", "format": "srt"}],
+  "subtitles": [{"name": "第1集.srt", "lang": "", "format": "srt", "url": "http://127.0.0.1:9978/drive/1a2b3c4d/剧集/第1集.srt"}],
   "danmaku": null,
   "sniff": null,                 // kind=sniff 时：{"pageUrl", "headers", "clickSelector", "timeoutMs"}
   "cache": "84e291843de2b840"    // 非空：url 由引擎的播放缓存提供，值是查询缓存范围用的 key；空：引擎不缓存这个地址
 }
 ```
 
-`subtitles`：和这个视频一起的外挂字幕，`[{url, name, lang, format}]`，没有时是空数组。`name` 给菜单显示（文件名），`lang` 是能看出来的语言标记（`film.zh.srt` 的 `zh`，看不出为空），`format` 是 `srt` / `ass` / `ssa` / `vtt`（不知道为空）。现在由网盘填写（视频旁边同名的字幕文件，见下面"网盘"）。指向引擎的字幕地址和 `url` 一样按调用方改写主机、签名。
+`subtitles`：和这个视频一起的外挂字幕，`[{name, lang, format, url}]`，没有时是空数组（`danmaku` 字段见弹幕的说明）。网盘的视频填的是它旁边同名的字幕文件（见下面"网盘"）：`name` 是文件名，`lang` 是文件名里的语言标记（`film.zh.srt` 的 `zh`，没有为空），`format` 是 `srt` / `ass` / `ssa` / `vtt`，`url` 和视频的地址给法相同（引擎的 `/drive/…` 或 AList 的 `/d/…`）。指向引擎的字幕地址和 `url` 一样按调用方改写主机、签名。
 
 引擎尽量自己走完解析链（直链 / JSON 解析接口 / `jx` / 网页嗅探）。网页嗅探：桌面与 NAS 引擎用无头 Edge/Chrome（CDP，浏览器装在非标准位置时设 `TVBOX_BROWSER`），Android 内置引擎用 WebView；判定规则同 TVBox（配置 `rules` 的 `host`/`rule`/`filter`，再加内置视频地址正则），返回的 `headers` 带上页面实际使用的 Referer / User-Agent / Cookie。配置的顶层 `headers` 里有播放地址所在域名的条目时，它的请求头也并进 `headers`（同名覆盖）；直播线路的 `headers` 同理。`/info` 的 `capabilities.sniff` 表示引擎能否嗅探；不能时才返回 `kind: "sniff"`，由客户端自行嗅探（或提示换线路）。
 

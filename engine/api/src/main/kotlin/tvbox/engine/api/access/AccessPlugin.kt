@@ -251,7 +251,11 @@ private class UrlSigner(call: ApplicationCall, private val access: AccessControl
         return access.sign(url, grant.subject, expiresAt)
     }
 
-    fun play(info: PlayInfo): PlayInfo = info.copy(url = sign(info.url), sniff = info.sniff?.let { it.copy(pageUrl = sign(it.pageUrl)) }, subtitles = info.subtitles.map { it.copy(url = sign(it.url)) })
+    fun play(info: PlayInfo): PlayInfo = info.copy(
+        url = sign(info.url),
+        sniff = info.sniff?.let { it.copy(pageUrl = sign(it.pageUrl)) },
+        subtitles = info.subtitles.map { it.copy(url = sign(it.url)) },
+    )
 
     fun live(list: LiveList): LiveList = list.copy(
         groups = list.groups.map { g -> g.copy(channels = g.channels.map { c -> c.copy(urls = c.urls.map { it.copy(url = sign(it.url)) }) }) },

@@ -4,7 +4,7 @@ import okhttp3.OkHttpClient
 import tvbox.engine.core.model.Episode
 import tvbox.engine.core.model.PlayInfo
 import tvbox.engine.core.model.PlayLine
-import tvbox.engine.core.model.Subtitle
+import tvbox.engine.core.model.SubtitleTrack
 import tvbox.engine.core.model.VodDetail
 import tvbox.engine.core.store.EngineStore
 import java.io.File
@@ -156,7 +156,7 @@ class DriveService(
         val video = link(item)
         val subtitles = DriveFiles.subtitlesFor(item.entry.name, siblings.map { it.entry }).map { (entry, lang) ->
             val sub = siblings.first { it.entry.path == entry.path }
-            Subtitle(url = link(sub).url, name = entry.name, lang = lang, format = DriveFiles.extension(entry.name))
+            SubtitleTrack(name = entry.name, lang = lang, format = DriveFiles.extension(entry.name), url = link(sub).url)
         }
         return PlayInfo(kind = "direct", url = video.url, headers = video.headers, subtitles = subtitles)
     }
