@@ -8,6 +8,7 @@ import 'desktop/desktop_window.dart';
 import 'engine/engine_client.dart';
 import 'engine/local_engine.dart';
 import 'settings.dart';
+import 'ui/device_form.dart';
 import 'ui/poster_cache.dart';
 import 'ui/pairing_dialog.dart';
 import 'ui/shell.dart';
@@ -22,9 +23,14 @@ Future<void> main() async {
   DesktopWindow.instance.restoreAndTrack(settings);
   // Posters are kept on disk (see ui/poster_cache.dart).
   PosterCache.instance = await PosterCache.open();
+  // Phone, tablet, TV or desktop (ui/device_form.dart): the system's answer and the user's override.
+  final deviceForm = DeviceFormController(info: await DeviceInfo.load(), settings: settings);
   runApp(
-    TvboxApp(
-      state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings, localEngine: createLocalEngine()),
+    DeviceFormScope(
+      controller: deviceForm,
+      child: TvboxApp(
+        state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings, localEngine: createLocalEngine()),
+      ),
     ),
   );
 }
