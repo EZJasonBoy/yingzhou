@@ -119,12 +119,17 @@ class DeviceFormScope extends InheritedNotifier<DeviceFormController> {
 
   static DeviceFormController? maybeControllerOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<DeviceFormScope>()?.notifier;
 
-  /// The form for this context. Without a scope (widget tests that pump a page alone): desktop on a desktop
-  /// platform, otherwise phone or tablet by size — never TV.
+  /// Tests: the form when there is no scope above (flutter_test reports the platform as Android). Null: by platform and size.
+  static DeviceForm? debugFormWithoutScope;
+
+  /// The form for this context. Without a scope (widget tests that pump a page alone): [debugFormWithoutScope] when
+  /// set, else desktop on a desktop platform, otherwise phone or tablet by size — never TV.
   static DeviceForm of(BuildContext context) {
     final controller = maybeControllerOf(context);
     final size = MediaQuery.maybeSizeOf(context) ?? Size.zero;
     if (controller != null) return controller.formFor(size);
+    final debug = debugFormWithoutScope;
+    if (debug != null) return debug;
     if (kIsWeb ||
         defaultTargetPlatform == TargetPlatform.windows ||
         defaultTargetPlatform == TargetPlatform.macOS ||
@@ -135,7 +140,8 @@ class DeviceFormScope extends InheritedNotifier<DeviceFormController> {
   }
 
   /// Without listening to changes (callbacks, initState).
-  static bool readIsTv(BuildContext context) => context.getInheritedWidgetOfExactType<DeviceFormScope>()?.notifier?.isTv ?? false;
+  static bool readIsTv(BuildContext context) =>
+      context.getInheritedWidgetOfExactType<DeviceFormScope>()?.notifier?.isTv ?? (debugFormWithoutScope == DeviceForm.tv);
 }
 
 /// Driven with a remote control: the 10-foot layout, D-pad focus everywhere.
