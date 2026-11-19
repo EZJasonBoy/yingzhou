@@ -7,6 +7,7 @@ import '../ui/common.dart';
 import '../ui/poster.dart';
 import 'browse_page.dart' show errorText;
 import 'detail_page.dart';
+import 'downloads_tab.dart';
 
 /// 我的：watch history (with progress) and favorites, both stored in the engine.
 class LibraryPage extends StatefulWidget {
@@ -76,7 +77,7 @@ class _LibraryPageState extends State<LibraryPage> {
     return Scaffold(
       body: SafeArea(
         child: DefaultTabController(
-          length: 2,
+          length: 3,
           child: Column(
             children: [
               Padding(
@@ -91,7 +92,7 @@ class _LibraryPageState extends State<LibraryPage> {
               ),
               const Align(
                 alignment: Alignment.centerLeft,
-                child: TabBar(isScrollable: true, tabs: [Tab(text: '观看历史', height: 40), Tab(text: '收藏', height: 40)]),
+                child: TabBar(isScrollable: true, tabs: [Tab(text: '观看历史', height: 40), Tab(text: '收藏', height: 40), Tab(text: '下载', height: 40)]),
               ),
               Expanded(
                 child: !state.connected
@@ -104,7 +105,7 @@ class _LibraryPageState extends State<LibraryPage> {
                             return StatusView(icon: Icons.cloud_off, message: '加载失败\n${errorText(snap.error)}', actionLabel: '重试', onAction: _reload);
                           }
                           final (history, favorites) = snap.data!;
-                          return TabBarView(children: [_history(history, state), _favorites(favorites, state)]);
+                          return TabBarView(children: [_history(history, state), _favorites(favorites, state), const DownloadsTab()]);
                         },
                       ),
               ),

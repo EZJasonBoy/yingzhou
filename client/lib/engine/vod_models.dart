@@ -166,7 +166,7 @@ class VodDetail {
 }
 
 class PlayInfo {
-  const PlayInfo({required this.kind, this.url = '', this.headers = const {}, this.sniffPageUrl, this.parsedBy = '', this.cache = ''});
+  const PlayInfo({required this.kind, this.url = '', this.headers = const {}, this.sniffPageUrl, this.parsedBy = '', this.cache = '', this.download = ''});
 
   /// `direct` or `sniff`.
   final String kind;
@@ -178,6 +178,9 @@ class PlayInfo {
   /// Not empty when the engine's stream cache serves [url]; the key to ask the engine which parts it holds.
   final String cache;
 
+  /// Not empty when [url] is a finished download on the engine's disk (its id): it plays without the network.
+  final String download;
+
   bool get isDirect => kind == 'direct';
 
   factory PlayInfo.fromJson(Map<String, dynamic> j) => PlayInfo(
@@ -187,6 +190,7 @@ class PlayInfo {
         sniffPageUrl: (j['sniff'] as Map<String, dynamic>?)?['pageUrl'] as String?,
         parsedBy: j['parsedBy'] as String? ?? '',
         cache: j['cache'] as String? ?? '',
+        download: j['download'] as String? ?? '',
       );
 }
 
