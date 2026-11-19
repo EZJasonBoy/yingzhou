@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../pages/browse_page.dart';
+import '../pages/drives_page.dart';
 import '../pages/library_page.dart';
 import '../pages/live_page.dart';
 import '../pages/search_page.dart';
@@ -40,6 +41,7 @@ class _AppShellState extends State<AppShell> {
     (icon: Icons.search_outlined, selected: Icons.search_rounded, label: '搜索'),
     (icon: Icons.video_library_outlined, selected: Icons.video_library_rounded, label: '我的'),
     (icon: Icons.dns_outlined, selected: Icons.dns_rounded, label: '源'),
+    (icon: Icons.cloud_outlined, selected: Icons.cloud_rounded, label: '网盘'),
   ];
 
   void _go(int i) => setState(() => _index = i);
@@ -63,6 +65,7 @@ class _AppShellState extends State<AppShell> {
       SearchPage(focusNode: _searchFocus),
       LibraryPage(visible: _index == 3),
       const SourcesPage(),
+      DrivesPage(visible: _index == 5),
     ];
     // Hidden pages keep their state but stop animating.
     final pages = KeyedSubtree(
