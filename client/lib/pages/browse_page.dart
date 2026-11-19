@@ -33,7 +33,7 @@ class BrowsePage extends StatelessWidget {
     } else if (!state.hasConfig) {
       body = StatusView(icon: Icons.playlist_add, message: '还没有导入订阅', actionLabel: '导入订阅', onAction: onOpenSources);
     } else if (site == null) {
-      body = StatusView(icon: Icons.block, message: '当前订阅里没有这台引擎能打开的站点\n（Python 蜘蛛等类型还不支持）', actionLabel: '查看站点', onAction: onOpenSources);
+      body = StatusView(icon: Icons.block, message: '当前订阅里没有这台引擎能打开的站点\n（Python 站点要先在「源」页设置 Python）', actionLabel: '查看站点', onAction: onOpenSources);
     } else {
       body = _SiteBrowser(key: ValueKey(site.key), site: site);
     }

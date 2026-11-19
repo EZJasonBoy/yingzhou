@@ -5,6 +5,7 @@ import '../engine/models.dart';
 import 'cache_settings.dart';
 import 'network_settings.dart';
 import 'stream_cache_settings.dart';
+import 'python_settings.dart';
 import 'lan_section.dart';
 
 /// 源：engine connection, subscription import, repository switch and the site list.
@@ -155,6 +156,7 @@ class _SourcesPageState extends State<SourcesPage> {
                 ],
                 const CacheSettings(),
                 const StreamCacheSettings(),
+                const PythonSettings(),
                 if (state.busy) const Padding(padding: EdgeInsets.only(top: 12), child: LinearProgressIndicator()),
                 if (state.error != null)
                   Padding(
@@ -257,7 +259,11 @@ class _SiteList extends StatelessWidget {
               selected: site.key == state.currentSiteKey,
               onTap: state.supports(site.runtime) ? () => state.selectSite(site.key) : null,
               title: Text(site.name),
-              subtitle: Text(state.supports(site.runtime) ? site.key : '${site.key} · 这台引擎还不支持这类站点'),
+              subtitle: Text(
+                state.supports(site.runtime)
+                    ? site.key
+                    : '${site.key} · ${site.runtime == SiteRuntime.py ? '需要 Python，见上方「Python 蜘蛛」' : '这台引擎还不支持这类站点'}',
+              ),
               leading: Container(
                 width: 44,
                 padding: const EdgeInsets.symmetric(vertical: 2),
