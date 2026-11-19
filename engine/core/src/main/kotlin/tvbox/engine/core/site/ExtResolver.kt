@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap
  * TVBox `SourceViewModel.getFixUrl`: a site `ext` that is an http(s) url is replaced by the text it points to
  * (cached for the session). Anything else is passed through.
  */
-class ExtResolver(private val http: SiteHttp) {
+class ExtResolver(private val http: SiteHttp, private val disk: tvbox.engine.core.cache.DataCache? = null) {
     private val cache = ConcurrentHashMap<String, String>()
     private val lock = Mutex()
 
@@ -19,8 +19,10 @@ class ExtResolver(private val http: SiteHttp) {
         return lock.withLock {
             cache[ext] ?: runCatching { http.get(ext, timeoutMs = timeoutMs).trim() }
                 .onSuccess { cache[ext] = it }
-                // On failure TVBox keeps the url itself as the ext; failures are not cached so they can recover.
-                .getOrDefault(ext)
+                .onSuccess { disk?.put(tvbox.engine.core.cache.DataCache.EXT, ext, it) }
+                // On failure the copy of an earlier download is used when there is one. Otherwise TVBox keeps the url
+                // itself as the ext; failures are not cached so they can recover.
+                .getOrElse { disk?.get(tvbox.engine.core.cache.DataCache.EXT, ext)?.text ?: ext }
         }
     }
 

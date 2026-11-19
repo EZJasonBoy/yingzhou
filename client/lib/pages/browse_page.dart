@@ -59,16 +59,24 @@ class _SiteBrowserState extends State<_SiteBrowser> {
     _load();
   }
 
-  void _load() {
-    _home = AppScope.read(context).client.home(widget.site.key);
+  /// Counts the refreshes asked for: the categories are built anew, and ask the site instead of the engine's cache.
+  int _refreshes = 0;
+
+  void _load({bool refresh = false}) {
+    _home = AppScope.read(context).client.home(widget.site.key, refresh: refresh);
   }
+
+  void _refresh() => setState(() {
+    _refreshes++;
+    _load(refresh: true);
+  });
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<HomeResult>(
       future: _home,
       builder: (context, snap) {
-        final header = _Header(site: widget.site);
+        final header = _Header(site: widget.site, onRefresh: snap.connectionState == ConnectionState.done ? _refresh : null);
         if (snap.connectionState != ConnectionState.done) {
           return Column(
             children: [
@@ -118,7 +126,14 @@ class _SiteBrowserState extends State<_SiteBrowser> {
                 child: TabBarView(
                   children: [
                     if (hasRecommend) _VodGrid.fixed(items: home.list),
-                    for (final c in home.classes) _CategoryView(site: widget.site.key, classId: c.id, filters: home.filters[c.id] ?? const []),
+                    for (final c in home.classes)
+                      _CategoryView(
+                        key: ValueKey('${c.id}#$_refreshes'),
+                        site: widget.site.key,
+                        classId: c.id,
+                        filters: home.filters[c.id] ?? const [],
+                        refresh: _refreshes > 0,
+                      ),
                   ],
                 ),
               ),
@@ -131,9 +146,12 @@ class _SiteBrowserState extends State<_SiteBrowser> {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.site});
+  const _Header({required this.site, this.onRefresh});
 
   final SiteInfo site;
+
+  /// Asks the site again instead of showing what the engine kept; null while a load is under way.
+  final VoidCallback? onRefresh;
 
   @override
   Widget build(BuildContext context) {
@@ -160,6 +178,8 @@ class _Header extends StatelessWidget {
               onPressed: () => controller.isOpen ? controller.close() : controller.open(),
             ),
           ),
+          const SizedBox(width: 4),
+          IconButton(key: const Key('home-refresh'), tooltip: '刷新（重新向站点获取）', icon: const Icon(Icons.refresh), onPressed: onRefresh),
         ],
       ),
     );
@@ -168,11 +188,14 @@ class _Header extends StatelessWidget {
 
 /// A category: filter bar + paged poster wall that loads more as you scroll.
 class _CategoryView extends StatefulWidget {
-  const _CategoryView({required this.site, required this.classId, required this.filters});
+  const _CategoryView({super.key, required this.site, required this.classId, required this.filters, this.refresh = false});
 
   final String site;
   final String classId;
   final List<VodFilter> filters;
+
+  /// The user asked for fresh data: pages come from the site, not from what the engine kept.
+  final bool refresh;
 
   @override
   State<_CategoryView> createState() => _CategoryViewState();
@@ -209,6 +232,7 @@ class _CategoryViewState extends State<_CategoryView> with AutomaticKeepAliveCli
         widget.site,
         widget.classId,
         page: _page + 1,
+        refresh: widget.refresh,
         filters: {
           for (final e in _selected.entries)
             if (e.value.isNotEmpty) e.key: e.value,

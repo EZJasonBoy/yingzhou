@@ -2,6 +2,8 @@ import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
 import '../engine/models.dart';
+import 'cache_settings.dart';
+import 'network_settings.dart';
 
 /// 源：engine connection, subscription import, repository switch and the site list.
 class SourcesPage extends StatefulWidget {
@@ -142,10 +144,12 @@ class _SourcesPageState extends State<SourcesPage> {
                               ),
                             ],
                           ),
+                        const NetworkSettings(),
                       ],
                     ),
                   ),
                 ],
+                const CacheSettings(),
                 if (state.busy) const Padding(padding: EdgeInsets.only(top: 12), child: LinearProgressIndicator()),
                 if (state.error != null)
                   Padding(
@@ -171,6 +175,7 @@ class _SourcesPageState extends State<SourcesPage> {
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
+                        const ConfigFreshness(),
                         if (summary.repos.isNotEmpty) ...[
                           const SizedBox(height: 12),
                           DropdownButton<String>(

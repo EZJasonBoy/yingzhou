@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'library_models.dart';
 import 'live_models.dart';
 import 'models.dart';
+import 'network_models.dart';
 import 'vod_models.dart';
 
 /// Client for engine protocol v1. The same client talks to the built-in engine and to remote ones.
@@ -42,17 +43,36 @@ class EngineClient {
   Future<EngineSettings> updateSettings(EngineSettings settings) async =>
       EngineSettings.fromJson(await _send('PUT', 'settings', body: settings.toJson()));
 
+  /// The DoH servers to choose from and the active config's hosts / headers / ads.
+  Future<NetworkInfo> network() async => NetworkInfo.fromJson(await _send('GET', 'network'));
+
   Future<List<SiteInfo>> sites() async => [for (final s in await _send('GET', 'sites') as List<dynamic>) SiteInfo.fromJson(s as Map<String, dynamic>)];
 
   // ---- browsing ----
 
-  Future<HomeResult> home(String site) async => HomeResult.fromJson(await _send('GET', 'sites/${_seg(site)}/home'));
+  // With [refresh] the engine asks the site now instead of answering from what it kept.
 
-  Future<VodPage> category(String site, String classId, {int page = 1, Map<String, String> filters = const {}}) async => VodPage.fromJson(
-    await _send('GET', 'sites/${_seg(site)}/category', query: {'tid': classId, 'pg': '$page', if (filters.isNotEmpty) 'f': jsonEncode(filters)}),
-  );
+  Future<HomeResult> home(String site, {bool refresh = false}) async =>
+      HomeResult.fromJson(await _send('GET', 'sites/${_seg(site)}/home', query: {if (refresh) 'refresh': '1'}));
 
-  Future<VodDetail> detail(String site, String id) async => VodDetail.fromJson(await _send('GET', 'sites/${_seg(site)}/detail', query: {'id': id}));
+  Future<VodPage> category(String site, String classId, {int page = 1, Map<String, String> filters = const {}, bool refresh = false}) async =>
+      VodPage.fromJson(
+        await _send(
+          'GET',
+          'sites/${_seg(site)}/category',
+          query: {'tid': classId, 'pg': '$page', if (filters.isNotEmpty) 'f': jsonEncode(filters), if (refresh) 'refresh': '1'},
+        ),
+      );
+
+  Future<VodDetail> detail(String site, String id, {bool refresh = false}) async =>
+      VodDetail.fromJson(await _send('GET', 'sites/${_seg(site)}/detail', query: {'id': id, if (refresh) 'refresh': '1'}));
+
+  /// Downloads the active config again; throws when that fails (the config in use stays).
+  Future<ConfigSummary> reloadConfig() async => ConfigSummary.fromJson(await _send('POST', 'config/reload'));
+
+  Future<CacheInfo> cacheInfo() async => CacheInfo.fromJson(await _send('GET', 'cache'));
+
+  Future<CacheInfo> clearCache() async => CacheInfo.fromJson(await _send('DELETE', 'cache'));
 
   Future<VodPage> search(String site, String keyword, {int page = 1}) async =>
       VodPage.fromJson(await _send('GET', 'sites/${_seg(site)}/search', query: {'wd': keyword, 'pg': '$page'}));

@@ -1,5 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
+import 'poster_cache.dart';
+
 /// Centered status message with an optional action, for empty / error states.
 class StatusView extends StatelessWidget {
   const StatusView({super.key, required this.icon, required this.message, this.actionLabel, this.onAction});
@@ -55,10 +57,11 @@ class NetImage extends StatelessWidget {
       child: Center(child: Icon(Icons.movie_outlined, color: scheme.onSurfaceVariant.withValues(alpha: 0.5))),
     );
     if (url.isEmpty) return placeholder;
-    return Image.network(
-      url,
+    // Through the disk cache when the app has one: painted at once on the next visit, and without a network.
+    final cache = PosterCache.instance;
+    return Image(
+      image: cache != null && url.startsWith('http') ? CachedPoster(url, cache, headers: headers) : NetworkImage(url, headers: headers) as ImageProvider,
       fit: fit,
-      headers: headers,
       gaplessPlayback: true,
       frameBuilder: (context, child, frame, wasSync) => wasSync
           ? child

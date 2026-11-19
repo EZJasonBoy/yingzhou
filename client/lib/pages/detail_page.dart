@@ -38,8 +38,8 @@ class _DetailPageState extends State<DetailPage> {
     _loadLibrary();
   }
 
-  void _load() {
-    _detail = AppScope.read(context).client.detail(widget.preview.site, widget.preview.id);
+  void _load({bool refresh = false}) {
+    _detail = AppScope.read(context).client.detail(widget.preview.site, widget.preview.id, refresh: refresh);
   }
 
   Future<void> _loadLibrary() async {
@@ -101,7 +101,14 @@ class _DetailPageState extends State<DetailPage> {
     final state = AppScope.of(context);
     return Scaffold(
       extendBodyBehindAppBar: true,
-      appBar: AppBar(backgroundColor: Colors.transparent),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        actions: [
+          // The engine keeps details for a while; this asks the site again (new episodes, repaired lines).
+          IconButton(key: const Key('detail-refresh'), tooltip: '刷新（重新向站点获取）', icon: const Icon(Icons.refresh), onPressed: () => setState(() => _load(refresh: true))),
+          const SizedBox(width: 8),
+        ],
+      ),
       body: FutureBuilder<VodDetail>(
         future: _detail,
         builder: (context, snap) {

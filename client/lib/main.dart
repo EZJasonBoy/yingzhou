@@ -8,6 +8,7 @@ import 'desktop/desktop_window.dart';
 import 'engine/engine_client.dart';
 import 'engine/local_engine.dart';
 import 'settings.dart';
+import 'ui/poster_cache.dart';
 import 'ui/shell.dart';
 import 'ui/theme.dart';
 
@@ -18,6 +19,8 @@ Future<void> main() async {
   const engineUrl = String.fromEnvironment('ENGINE_URL', defaultValue: defaultEngineUrl);
   final settings = await SharedPreferencesSettings.load();
   DesktopWindow.instance.restoreAndTrack(settings);
+  // Posters are kept on disk (see ui/poster_cache.dart).
+  PosterCache.instance = await PosterCache.open();
   runApp(
     TvboxApp(
       state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings, localEngine: createLocalEngine()),

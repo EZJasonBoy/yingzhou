@@ -65,6 +65,8 @@ data class TvboxConfig(
     val livesJson: String = "",
     val rulesJson: String = "",
     val dohJson: String = "",
+    /** `headers`: `[{"host", "header": {...}}]`, request headers per host (see `net/ConfigNetwork`). */
+    val headersJson: String = "",
 )
 
 /** One entry of a multi-repository subscription (`{"urls": [...]}` without `sites`). */

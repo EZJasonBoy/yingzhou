@@ -9,6 +9,10 @@ Yingzhou (映舟) is licensed under AGPL-3.0 (see `LICENSE`). It includes code a
 - `engine/core/.../play/PlayResolver.kt`, `PlayRules`, `M3u8Cleaner.kt`: the parse chain, `rules` handling and m3u8 ad rules follow TVBoxOS and Box (takagen99, AGPL-3.0), which credit FongMi/TV.
 - `engine/core/.../live/Catchup.kt`: live catch-up (回看) addresses follow `LivePlayActivity` of Box (takagen99, AGPL-3.0: `?playseek=` on `/PLTV/` addresses) and TVBoxOS (the `catchup` object's `type` / `source` / `replace` / `regex`, `${(b)…}` / `${(e)…}` placeholders, `appendCatchupUrl`), and `TxtSubscribe` for the M3U attributes. The catch-up modes and placeholders of M3U playlists (`shift`, `flussonic`, `xc`, `{utc}`, `{duration:N}`, `{offset:N}` …) follow the behaviour documented for Kodi's IPTV Simple PVR client (kodi-pvr/pvr.iptvsimple, GPL-2.0-or-later); no code of it is included.
 
+- `engine/core/.../net/ConfigNetwork.kt`: how `hosts`, `doh` and `ads` behave follows TVBoxOS (`OkGoHelper.CustomDns`,
+  its DoH list and `ips` bootstrap, the fallback to the system's DNS, `AdBlocker`) and Box (the longer DoH list); the
+  `*` in `hosts` names and the top-level `headers` list follow FongMi/TV (GPL-3.0), described from its behaviour.
+
 ## Win-box — MIT
 
 `engine/runtime-jar/src/main/java/android/**`, `androidx/**` and `dalvik/**` started from Win-box's Android stubs
@@ -45,8 +49,9 @@ SOFTWARE.
 - android-json (`com.vaadin.external.google:android-json`, AOSP's org.json) — Apache-2.0
 - AndroidX Collection — Apache-2.0
 - ASM — BSD-3-Clause
-- OkHttp, Gson, Jsoup, Ktor, kotlinx — Apache-2.0 / MIT
+- OkHttp (with `okhttp-dnsoverhttps`), Gson, Jsoup, Ktor, kotlinx — Apache-2.0 / MIT
 - quickjs-kt — Apache-2.0; QuickJS — MIT
+- path_provider (Flutter, client) — BSD-3-Clause
 
 ## Tools
 

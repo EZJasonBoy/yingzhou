@@ -61,19 +61,30 @@ class RepoInfo {
 
 /// Engine-wide settings (`/api/v1/settings`).
 class EngineSettings {
-  const EngineSettings({this.githubProxy = false, this.githubProxyPrefix = ''});
+  const EngineSettings({this.githubProxy = false, this.githubProxyPrefix = '', this.doh = ''});
 
   /// Off: files on GitHub come from GitHub, and a proxy a subscription put in front of them is taken off.
   /// On: they are fetched through [githubProxyPrefix].
   final bool githubProxy;
   final String githubProxyPrefix;
 
+  /// The url of the DNS-over-HTTPS server names are looked up with; empty (default) for the system's DNS.
+  final String doh;
+
   factory EngineSettings.fromJson(Map<String, dynamic> json) => EngineSettings(
     githubProxy: json['githubProxy'] as bool? ?? false,
     githubProxyPrefix: json['githubProxyPrefix'] as String? ?? '',
+    doh: json['doh'] as String? ?? '',
   );
 
-  Map<String, dynamic> toJson() => {'githubProxy': githubProxy, 'githubProxyPrefix': githubProxyPrefix};
+  Map<String, dynamic> toJson() => {'githubProxy': githubProxy, 'githubProxyPrefix': githubProxyPrefix, 'doh': doh};
+
+  /// The settings are saved as a whole: change one through this, so the others go back as they were.
+  EngineSettings copyWith({bool? githubProxy, String? githubProxyPrefix, String? doh}) => EngineSettings(
+    githubProxy: githubProxy ?? this.githubProxy,
+    githubProxyPrefix: githubProxyPrefix ?? this.githubProxyPrefix,
+    doh: doh ?? this.doh,
+  );
 }
 
 class ConfigSummary {
@@ -87,7 +98,23 @@ class ConfigSummary {
     required this.lives,
     required this.spider,
     required this.wallpaper,
+    this.fetchedAt = 0,
+    this.stored = false,
+    this.refreshing = false,
+    this.refreshError = '',
   });
+
+  /// When the config in use was downloaded (epoch milliseconds); 0 when unknown.
+  final int fetchedAt;
+
+  /// The engine started from the copy it kept of the last download; the network has not confirmed it (yet).
+  final bool stored;
+
+  /// That copy is being checked against the network right now.
+  final bool refreshing;
+
+  /// Why the last download failed while the config in use was kept; empty when it did not.
+  final String refreshError;
 
   final String subscriptionId;
 
@@ -116,7 +143,22 @@ class ConfigSummary {
         lives: json['lives'] as int,
         spider: json['spider'] as String? ?? '',
         wallpaper: json['wallpaper'] as String? ?? '',
+        fetchedAt: (json['fetchedAt'] as num?)?.toInt() ?? 0,
+        stored: json['stored'] as bool? ?? false,
+        refreshing: json['refreshing'] as bool? ?? false,
+        refreshError: json['refreshError'] as String? ?? '',
       );
+}
+
+/// Sizes of the engine's data cache (`/api/v1/cache`).
+class CacheInfo {
+  const CacheInfo({this.bytes = 0, this.entries = 0});
+
+  final int bytes;
+  final int entries;
+
+  factory CacheInfo.fromJson(Map<String, dynamic> json) =>
+      CacheInfo(bytes: (json['bytes'] as num?)?.toInt() ?? 0, entries: (json['entries'] as num?)?.toInt() ?? 0);
 }
 
 enum SiteRuntime { cms, js, jar, py, remote, unknown }

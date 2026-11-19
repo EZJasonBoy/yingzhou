@@ -75,13 +75,31 @@
 - 客户端「直播」页：宽屏为 分组 | 频道（带当前节目和进度）| 播放器 + 节目单；窄屏上下堆叠。↑/↓ 换台（跨分组）、←/→ 换线路、PageUp/PageDown 换分组、F 或双击全屏（频道列表变成浮层）、M 静音、滚轮音量。线路报错或 15 秒没有画面就自动换下一条；记住上次看的频道；离开该页即停止播放，播放器在第一次打开该页时才创建。
 - 蜘蛛直播（`type: 3` + `api`）：向 jar 蜘蛛要 `liveContent(url)`、向 JS 蜘蛛要 `live(url)`（`JsSpider.live`，没写 `url` 时传脚本地址），按同样的格式解析。列表也可以是 JSON。指向 TVBox 内置服务（`127.0.0.1:9978/proxy`）的地址改指本引擎；蜘蛛给出的列表里，这类地址由 `LiveService` 补上 `siteKey`（`live_<直播源名>`，蜘蛛就注册在这个 key 下），`/proxy` 才能把请求交回给出列表的那个蜘蛛，而不是 TVBox 那样交给"最近用过的"。
 - 回看（`Catchup`）：解析时把每条线路的回看规则（M3U `catchup*` 属性，头上的作为默认；JSON 频道的 `catchup`；`lives[].catchup`）挂在 `LiveUrl.catchup` 上（不序列化，留在引擎），列表里每个频道只下发 `catchupDays`。`/live/{i}/catchup` 按规则和时间段拼出地址（类型 `default` / `append` / `shift` / `flussonic` / `xc`，TVBox 与 Kodi IPTV Simple 的占位符），先给所选线路，其余作为 `alternates`。时间用中国时间、`SimpleDateFormat`，不用 `java.time`。客户端在有回看的频道的节目单上方列出可回看的日期，点已结束的节目进入「回看」状态（进度条、`←/→` 快退快进），「回到直播」/ Esc / 换台回到直播；回看地址播不了时依次试 `alternates`。
-- 尚未支持：Python 蜘蛛直播、`hosts` / `headers` 配置项。
+- 尚未支持：Python 蜘蛛直播。
 
 ### 2.7 配置体检（已实现）
 
 `tvbox-engine --check <订阅…>`（`tools/check-configs.sh`）用同一个引擎把订阅里的每个仓库、站点、直播源走一遍并出报告，失败按"引擎兼容 / 不支持 / 网络 / 站点报错"归类。`--demo --check --strict` 是自检：打包脚本在裁剪完 Java 运行时后用它跑一遍演示配置（采集站、JS、jar、嗅探、直播），不通过就不出包——精简运行时缺模块（曾经漏了 `jdk.zipfs`，导致所有 jar 蜘蛛失败）会在这里被拦下。
 
 HTTPS 与 TVBox 一致，不校验证书（`LenientTls`），`--strict-tls` 恢复校验。
+
+### 2.8 配置的网络项与 DNS（已实现）
+
+`core/net/ConfigNetwork` 持有当前配置的 `hosts` / `headers` / `doh` / `ads` 和使用者选的 DoH 服务器，并把三样东西装到引擎唯一的 OkHttp 客户端上（`install`）：一个 `Dns`（先按 `hosts` 换名字，目标是 IP 就直接用；选了 DoH 就问它，问不到退回系统 DNS）、一个网络拦截器（按域名加 `headers`，重定向后的请求也经过）、一个自己的连接池（规则一变就清掉空闲连接，新规则不必等旧连接过期）。引擎里所有发请求的地方——`ConfigLoader`、`SiteHttp`、`JsHttp`、`JsModules`、`JarRepository`——都从这个客户端派生，所以不用逐处接。jar 蜘蛛的宿主类 `com.github.catvod.net.OkHttp` 通过 `HostBridge.baseClient` 也从它派生（保留 TVBox 的 30 秒超时，用单独的 `Dispatcher`，免得蜘蛛 `cancelAll()` 连带取消引擎的请求），`OkDns` 先查蜘蛛自己加的表，再问引擎的 `Dns`。
+
+`Engine.activate` 在新配置生效的同一处调用 `onConfig`；DoH 的选择是 `EngineSettings.doh`，引擎启动时在取任何东西之前就应用。交给播放器的请求头（`PlayInfo.headers`、直播线路）在 `Engine` 里按媒体地址的域名补上。`CdpSniffer` 把 `hosts` 作为 `--host-resolver-rules` 传给浏览器（规则变了就重启浏览器），`ads` 用 `Network.setBlockedURLs` 屏蔽。
+
+播放器自己发的请求不经过引擎，所以 `hosts` 和 DoH 管不到媒体流；要管到，需要让媒体经引擎转发（或给 mpv 配一个由引擎提供的 HTTP 代理），还没做。
+
+### 2.9 数据缓存（已实现）
+
+目的：打开就能用，源慢或断网时还能翻看过的内容。三层，各管各的：
+
+- **配置副本**（引擎，`core/cache/DataCache` 的 `config` 区）：`ConfigLoader` 每次下载并解析成功后，把原始文本按订阅地址存一份（多仓的每一层、最终的配置各一份）。`Engine.restore` 先在"只读副本"模式下走一遍和平时完全相同的激活流程（`LoadTrace(stored = true)` 作为协程上下文带着走，`load` 据此决定读副本还是走网络），所以多仓、嵌套多仓不需要另写一套；然后在后台把这次用到的每个地址重新下载，文本的哈希都没变就只更新时间，有变就正常 `activate` 一次换掉，失败就留着副本并把原因放进摘要。副本缺失或解析不了时退回原来的"等下载"。
+- **站点数据**（引擎，`core/cache/SiteDataCache`，`site` 区）：`home` / `category` / `detail` 的规整结果序列化后保存，键是"配置指纹 | 站点 | 调用 | 参数"。配置指纹由订阅、选中的条目和这次加载到的所有文本的哈希算出，所以换订阅、订阅内容变了都自然失效，不需要显式清理。过期的先返回、后台刷新（同一个键同时只刷新一次）。直播列表（`live` 区）和 `ext` 文件（`ext` 区）是另一种策略：先走网络，失败才用保存的。
+- **海报**（客户端，`ui/poster_cache*.dart`）：自己写的一个按地址存文件的 `ImageProvider`，没有用第三方缓存库（它们在 Windows 上要带 sqlite）。同一张图同时只下载一次，写临时文件再改名；超过上限时按最近使用时间删到八成。
+
+`DataCache` 是"一条一个文件 + 内存里留最近用过的"，没有索引文件，崩溃不会留下不一致的状态；每个区有大小上限和最长保存时间，`config` 区除外（一个订阅一个小文件，启动要靠它）。演示模式（没有数据目录）只在内存里；`--check` 完全不带缓存。
 
 ## 3. 仓库结构
 
