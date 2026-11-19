@@ -23,7 +23,7 @@ export PATH="$JAVA_HOME/bin:$FLUTTER_ROOT/bin:$ANDROID_HOME/platform-tools:$HOME
 
 ```
 engine/          Kotlin/JVM，Gradle 多模块
-  core/          协议逻辑，纯 JVM，Android 上也跑：config / site / search / play / live / cache（播放缓存）
+  core/          协议逻辑，纯 JVM，Android 上也跑：config / site / search / play / live / cache（播放缓存）/ download（离线下载）
   api/           HTTP 路由（Ktor），独立进程和 Android 内置引擎共用
   server/        独立进程入口；演示站（--demo）；CDP 嗅探
   runtime-js/    QuickJS 宿主
@@ -112,6 +112,15 @@ curl -s "http://127.0.0.1:19987/api/v1/drives/<id>/list?path=%2F%E6%BC%94%E7%A4%
 - 《字幕演示》：`/demo/av/master.m3u8`，主列表里有两条 `#EXT-X-MEDIA` 音轨（国语单声道、English 立体声，MPEG-1 Layer II，手写的静音帧，没有编码器所以听不出区别，只能看音轨列表）；`subs` 给三条字幕：`/demo/subs/gbk.srt`（GBK 编码、CRLF、不声明编码）、`/demo/subs/styled.ass`（带样式、顶部提示、UTF-8 BOM）、`/demo/subs/private.srt`（没有 `Referer: …/demo/` 就 403，播放结果的 `header` 里给了）。
 - 《弹幕演示》：`/demo/av/video.m3u8`，蜘蛛给出 `danmaku: /demo/danmaku/dense.xml`：三分钟 3000 条 B 站 XML（固定随机种子，85% 滚动、8% 顶部、7% 底部），像 B 站一样用不带头的 deflate 压缩并声明 `Content-Encoding: deflate`。
 - 演示配置有顶层 `danmaku`：`/demo/danmaku/api?name={name}&episode={episode}`，对任何片名都回答 `{"url": …/demo/danmaku/comments.json?…}`，后者是 80 条弹幕接口常见的 JSON（`comments[].p` = 时间,模式,颜色,用户）。引擎只在「源 → 弹幕」里打开"订阅的弹幕接口"之后才会问它。
+后面四集是给离线下载用的（`DemoDownloads.kt`）：「短片」「短片加密」「短片直链」是同一段视频的前两分钟（20 个分片，约 30 MB），分别是普通播放列表、AES-128 加密、直链文件，演示时几秒到几十秒就能下完；「直播」是一个随时间滑动、没有结尾的播放列表，下载会拒绝它。上面的 `set` 参数对它们同样有效：`kBps` 调慢能看清进度和速度，`refuse=503` 相当于片源下线（播放列表照常给，分片和密钥都拒绝），用来演示下载中途失败、重试，以及片源下线后离线播放。
+
+### 离线下载
+
+代码：`engine/core/.../download/`（`DownloadManager` 队列与下载、`DownloadExport` 导出），`engine/api/.../DownloadRoutes.kt`（`/api/v1/downloads`、`/dl/…`），`StreamStore` 的 `adopt` / `workFile` / `remove`。客户端：`client/lib/engine/downloads.dart`（接口、轮询的 `DownloadsWatcher`）、`download_files*.dart`（把导出存到本机、在文件管理器里显示），`lib/pages/download_sheet.dart`（详情页的下载按钮、选集、每集的状态）、`downloads_tab.dart`（「我的 → 下载」）、`download_settings.dart`（「源 → 离线下载」）。协议见 [protocol.md](protocol.md)"离线下载"，设计见 [architecture.md](architecture.md)"离线下载"。
+
+- 测试：`DownloadManagerTest`（核心：并发上限、重启后继续、钉住与缓存上限、密钥和初始化段、直链断点续传、导出、地址过期、直播、空间不足）、`DownloadRoutesTest`（经 HTTP：片源关掉后离线播放、局域网签名、事件、设置）；客户端 `test/downloads_test.dart`。
+- 手动试：`--demo --port 19988 --data <临时目录>` 启动（带 `--data` 才能试"重启后接着下"），在详情页下载「短片」，或者 `curl -X POST -H 'Content-Type: application/json' -d '{"items":[{"site":"demo","line":"慢速线路","episodeId":"http://localhost:19988/demo/slow/short/index.m3u8"}]}' http://127.0.0.1:19988/api/v1/downloads`。Git Bash 里 curl 发出去的中文会变成问号，片名在列表里就是一串 `?`，从客户端发的不会。
+- **试导出时一定给 `path`**：不给就写进用户真正的「下载」文件夹（桌面引擎的默认导出目录）。
 
 ## 5. 在真实 Windows 应用里跑集成测试
 
@@ -140,6 +149,12 @@ flutter test integration_test/seek_test.dart -d windows --dart-define=ENGINE_URL
 ```
 
 结果也写到 `SHOT_DIR/seek-results.json`。引擎不带 `--data` 时播放缓存在系统临时目录的 `tvbox-next-engine-<端口>/cache/stream`，每次启动清空；测试开始时也会清一次。
+
+`integration_test/download_test.dart` 是离线下载：在详情页下载「短片」，看着选集按钮下的状态从排队到百分比再到"已下载"；然后让慢速片源拒绝一切分片和密钥（`refuse=503`），播放这一集，拖到快结尾、再拖回开头，要求片源一个请求都没收到，播放页写着"离线播放"；再在片源关着的时候下载「短片加密」，它失败并在「我的 → 下载」里写明原因，打开片源后点重试下完。开始前和结束时都删掉引擎里的下载。
+
+```bash
+flutter test integration_test/download_test.dart -d windows --dart-define=ENGINE_URL=http://127.0.0.1:19988 --dart-define=SHOT_DIR=<目录>
+```
 
 ## 6. 打包
 

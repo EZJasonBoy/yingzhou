@@ -17,6 +17,8 @@ data class StreamCacheInfo(
     val maxBytes: Long = 0,
     /** Where it is on the engine's machine. */
     val path: String = "",
+    /** Downloads kept in the same folder (pinned streams): not in [bytes], never removed to make room. */
+    val pinnedBytes: Long = 0,
 )
 
 /** `GET /api/v1/stream-cache/coverage?key=`: the parts of a film that are in the cache, as `[startMs, endMs]` pairs in order. */

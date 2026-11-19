@@ -450,6 +450,7 @@ class _PlayerPageState extends State<PlayerPage> {
     setState(() {
       _status = '正在缓冲…';
       _parsedBy = info.parsedBy;
+      if (info.download.isNotEmpty) _parsedBy = 'offline';
     });
     _cacheKey = info.cache;
     // The subtitle and audio track of the episode before (or of the last visit) are chosen again in this one.
@@ -461,7 +462,7 @@ class _PlayerPageState extends State<PlayerPage> {
     unawaited(_loadDanmaku());
     try {
       // What the player keeps of the video depends on whether the engine keeps it too.
-      await PlayerCache.prepare(_player, engineCached: info.cache.isNotEmpty);
+      await PlayerCache.prepare(_player, engineCached: info.cache.isNotEmpty || info.download.isNotEmpty);
       if (!mounted || seq != _requestSeq) return;
       await _player.open(Media(info.url, httpHeaders: info.headers));
     } catch (e) {
@@ -559,6 +560,7 @@ class _PlayerPageState extends State<PlayerPage> {
   static String _parserLabel(String parsedBy) => switch (parsedBy) {
     'sniff' => '网页嗅探',
     'json' => '经站点解析',
+    'offline' => '离线播放（已下载）',
     _ => '经 $parsedBy 解析',
   };
 

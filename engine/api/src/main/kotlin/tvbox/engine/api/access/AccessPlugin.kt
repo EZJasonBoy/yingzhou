@@ -281,6 +281,8 @@ private class UrlSigner(call: ApplicationCall, private val access: AccessControl
         if (loopbacks.any { trimmed.startsWith(it) }) return sign(trimmed)
         // hls/: the segments, keys and maps of a stream the engine caches (StreamCacheRoutes).
         if (self != null && (trimmed.startsWith(self + "m3u8?") || trimmed.startsWith(self + "proxy?") || trimmed.startsWith(self + "hls/"))) return sign(trimmed)
+        // dl/: the files of a finished download (DownloadRoutes).
+        if (self != null && trimmed.startsWith(self + "dl/")) return sign(trimmed)
         return url
     }
 

@@ -175,6 +175,7 @@ class PlayInfo {
     this.cache = '',
     this.subtitles = const [],
     this.danmaku = '',
+    this.download = '',
   });
 
   /// `direct` or `sniff`.
@@ -192,6 +193,8 @@ class PlayInfo {
 
   /// Where the site's danmaku come from ("" when it named none); the danmaku themselves come from `/danmaku`.
   final String danmaku;
+  /// Not empty when [url] is a finished download on the engine's disk (its id): it plays without the network.
+  final String download;
 
   bool get isDirect => kind == 'direct';
 
@@ -204,6 +207,7 @@ class PlayInfo {
         cache: j['cache'] as String? ?? '',
         subtitles: [for (final s in j['subtitles'] as List<dynamic>? ?? const []) ExternalSubtitle.fromJson(s as Map<String, dynamic>)],
         danmaku: j['danmaku'] as String? ?? '',
+        download: j['download'] as String? ?? '',
       );
 }
 

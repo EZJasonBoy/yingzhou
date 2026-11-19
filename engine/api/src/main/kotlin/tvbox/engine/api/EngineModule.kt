@@ -127,6 +127,8 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
 
         // What the playlists below point at when the engine caches the stream, and the cache's own API.
         streamCacheRoutes(engine)
+        // Episodes downloaded for offline viewing: the queue's API, and what a finished download plays from.
+        downloadRoutes(engine)
 
         // Subtitles (players open them) and danmaku, see MediaExtrasRoutes.
         mediaExtrasRoutes(engine)

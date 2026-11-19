@@ -57,6 +57,7 @@ tvsig=<过期时间，秒，36 进制>.<设备 id 或 local>.<HMAC-SHA256 前 16
 - 只用于 GET / HEAD，路径第一段不能是 `api`（不分大小写），不能含 `.` / `..` 段。设备签名还要求局域网共享开着、设备没被撤销。
 - 有效期：`/play/resolve` 返回的 24 小时；直播列表里的 30 天（客户端整次运行都用同一份列表）；经签名地址取到的播放列表里的地址继承那个签名的过期时间。
 - 签名发生在响应出去之前（Ktor 发送管道）：`PlayInfo.url`、`sniff.pageUrl`、`subtitles[].url`、直播列表里的频道地址，以及 HLS 播放列表正文里的地址。被签的是指向引擎自己的地址：`http://127.0.0.1:<端口>/`、`http://localhost:<端口>/`、`http://<请求的 Host>/`。HLS 正文里请求的 `Host` 可能来自播放器（可能是 CDN 的名字），所以那里按 `Host` 只签 `/m3u8?` 和 `/proxy?`。
+- 签名发生在响应出去之前（Ktor 发送管道）：`PlayInfo.url`、`sniff.pageUrl`、`subtitles[].url`、直播列表里的频道地址，以及 HLS 播放列表正文里的地址。被签的是指向引擎自己的地址：`http://127.0.0.1:<端口>/`、`http://localhost:<端口>/`、`http://<请求的 Host>/`。HLS 正文里请求的 `Host` 可能来自播放器（可能是 CDN 的名字），所以那里按 `Host` 只签 `/m3u8?`、`/proxy?`、`/hls/` 和 `/dl/`（下载的离线副本）。
 - 新加返回引擎地址的接口：返回 `PlayInfo` / `LiveList` 会自动签名；别的形状要自己调用 `AccessControl.sign(url, call.accessGrant.subject, 过期时间)`。
 
 ### 局域网共享（只限本机）
@@ -171,7 +172,8 @@ event: end       data: {"sites":40,"ms":9120}
   ],
   "danmaku": "",                 // 站点给的弹幕来自哪里（地址，或 "inline"）；没有为空。只用于显示，弹幕本身见下面 /danmaku
   "sniff": null,                 // kind=sniff 时：{"pageUrl", "headers", "clickSelector", "timeoutMs"}
-  "cache": "84e291843de2b840"    // 非空：url 由引擎的播放缓存提供，值是查询缓存范围用的 key；空：引擎不缓存这个地址
+  "cache": "84e291843de2b840",   // 非空：url 由引擎的播放缓存提供，值是查询缓存范围用的 key；空：引擎不缓存这个地址
+  "download": ""                 // 非空：这一集已经下载好，url 是引擎磁盘上的离线副本（/dl/…），值是下载的 id
 }
 ```
 
@@ -180,7 +182,10 @@ event: end       data: {"sites":40,"ms":9120}
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/subtitle/convert` | 客户端本地的字幕文件：`{name, data}`（`data` 为文件内容的 base64，最大 32 MB）→ `{format, text}`，`text` 是 UTF-8、播放器能读的格式。编码和格式的识别同 `/subtitle`；`name` 的扩展名只在内容看不出格式时参考 |
-`subtitles`：和这个视频一起的外挂字幕，`[{name, lang, format, url}]`，没有时是空数组（`danmaku` 字段见弹幕的说明）。网盘的视频填的是它旁边同名的字幕文件（见下面"网盘"）：`name` 是文件名，`lang` 是文件名里的语言标记（`film.zh.srt` 的 `zh`，没有为空），`format` 是 `srt` / `ass` / `ssa` / `vtt`，`url` 和视频的地址给法相同（引擎的 `/drive/…` 或 AList 的 `/d/…`）。指向引擎的字幕地址和 `url` 一样按调用方改写主机、签名。
+
+网盘的视频，`subtitles` 填的是它旁边同名的字幕文件（见下面"网盘"）：`name` 是文件名，`lang` 是文件名里的语言标记（`film.zh.srt` 的 `zh`，没有为空），`url` 同样是引擎的 `/subtitle` 地址，引擎从网盘取文件（`/drive/…` 或 AList 的 `/d/…`）再转码。
+
+这一集有**下载完成**的副本时（站点、线路、`episodeId` 都相同），`/play/resolve` 直接返回它，不向站点要地址、不联网：`url` 是 `/dl/<id>/index.m3u8`（HLS）或 `/dl/<id>/film.<扩展名>`（直链下载），`download` 是下载的 id，`headers` 为空，`cache` 为空。见下面"离线下载"。
 
 引擎尽量自己走完解析链（直链 / JSON 解析接口 / `jx` / 网页嗅探）。网页嗅探：桌面与 NAS 引擎用无头 Edge/Chrome（CDP，浏览器装在非标准位置时设 `TVBOX_BROWSER`），Android 内置引擎用 WebView；判定规则同 TVBox（配置 `rules` 的 `host`/`rule`/`filter`，再加内置视频地址正则），返回的 `headers` 带上页面实际使用的 Referer / User-Agent / Cookie。配置的顶层 `headers` 里有播放地址所在域名的条目时，它的请求头也并进 `headers`（同名覆盖）；直播线路的 `headers` 同理。`/info` 的 `capabilities.sniff` 表示引擎能否嗅探；不能时才返回 `kind: "sniff"`，由客户端自行嗅探（或提示换线路）。
 
@@ -220,7 +225,7 @@ event: end       data: {"sites":40,"ms":9120}
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/stream-cache` | `{available, enabled, bytes, files, streams, maxBytes, path}`。`available: false` 表示这台引擎没有播放缓存（如安卓 App 内置的引擎）；`streams` 是有缓存的视频数；`path` 是引擎所在机器上的目录 |
+| GET | `/stream-cache` | `{available, enabled, bytes, files, streams, maxBytes, path, pinnedBytes}`。`available: false` 表示这台引擎没有播放缓存（如安卓 App 内置的引擎）；`streams` 是有缓存的视频数；`path` 是引擎所在机器上的目录；`pinnedBytes` 是放在同一目录里的下载（不算在 `bytes` 里，也不会因为超过容量被删） |
 | DELETE | `/stream-cache` | 清空，返回清空后的同一个对象。正在播放、正被读取的文件会留到用完 |
 | GET | `/stream-cache/coverage?key=` | `{durationMs, ranges: [[startMs, endMs], …]}`：`key` 是 `PlayInfo.cache`；`ranges` 是这部片已经在缓存里的时间段，按顺序、不重叠，给进度条画"已缓冲"用。没有这个 key 的播放列表时返回空 |
 
@@ -233,7 +238,63 @@ event: end       data: {"sites":40,"ms":9120}
 - 播放器跳到没有缓存的分片时，优先取这个分片：片源按连接限速、又支持 `Range` 时把它按字节范围拆成几块并行获取，线路本身是瓶颈时整个取；在它到齐之前（最多 6 秒）这个流的其他下载都暂停。单个连接的速度跟不上视频码率时，播放器接着要的分片也这样一个一个按顺序取。
 - 对播放器的请求立即应答，文件边到边转发；片源说了长度就带 `Content-Length`，否则分块传输。
 - 片源拒绝引擎或一直连不上时：还没开始应答就 302 到片源；已经开始应答就断开连接，播放器重试时再 302。同一个视频刚打开就连续两次被拒，10 分钟内这个视频不再经缓存。
-- 超过容量时删最久没用过的文件（不分是哪一部片）。
+- 超过容量时删最久没用过的文件（不分是哪一部片）。下载（钉住的流）除外。
+
+## 离线下载
+
+引擎替客户端下载剧集，下完不联网也能播。下载队列在引擎里（连着同一个引擎的所有设备看到同一份），保存在引擎数据目录的 `downloads.json`，引擎重启后没下完的接着下。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/downloads` | `{available, items: [DownloadItem]}`；`available: false` 表示这台引擎不能下载（安卓 App 内置的引擎），这时其他接口返回 `501 UNSUPPORTED_SITE` |
+| POST | `/downloads` | `{items: [{site, line, episodeId, vodId?, title?, pic?, episodeName?, episodeIndex?}]}` → `{available, items}`：排队下载。前三项和 `/play/resolve` 一样；其余只是给列表显示的。同一集（站点 + 线路 + `episodeId`）已经在列表里就原样返回那一项，不会重复 |
+| GET | `/downloads/events` | **SSE**：先发一次，之后列表有变化就再发（下载时最多每 0.4 秒一次），`event: downloads`，`data` 同 `GET /downloads`；空闲时每 15 秒一行 `: ping` |
+| POST | `/downloads/{id}/pause` | 暂停（排队中的也可以），返回那一项 |
+| POST | `/downloads/{id}/resume` | 继续暂停的；对失败的就是重试（重新解析地址）。返回那一项 |
+| DELETE | `/downloads/{id}` | 停下并删掉它的文件，`204` |
+| POST | `/downloads/{id}/export` | `{path?}` → `{path, bytes, format}`：在**引擎所在的机器上**写一个文件。`path` 是文件夹（不存在就建）或者以视频扩展名结尾的文件名；不填就是默认的导出目录（桌面引擎：用户的「下载」文件夹）。同名文件已存在时文件名后加 ` (2)`。不能导出时 `501`，`message` 说明原因 |
+| GET | `/downloads/settings` | `{available, dir, path, defaultPath, concurrency, maxConcurrency, freeBytes, reserveBytes, bytes}` |
+| PUT | `/downloads/settings` | `{dir?, concurrency?}`，只改带了的项。`dir` 是引擎所在机器上的完整路径，空串回到默认；不是完整路径或不能写入时 `400` |
+
+`DownloadItem`：
+
+```json
+{
+  "id": "6b81737673da",
+  "site": "demo", "line": "慢速线路", "episodeId": "http://…/short/aes.m3u8",
+  "vodId": "97", "title": "慢速源演示", "pic": "http://…/97.png", "episodeName": "短片加密", "episodeIndex": 6,
+  "state": "running",        // queued | running | paused | done | failed
+  "kind": "hls",             // 解析之前为空；hls | file（直链：mp4 / flv / mkv …）
+  "bytes": 13000000,         // 已经在磁盘上的字节数
+  "totalBytes": -1,          // 直链的文件大小、下完的总大小；HLS 下载中不知道（-1）
+  "progress": 0.42,          // 0–1；HLS 按已下的时长算
+  "speed": 1536000,          // 最近几秒每秒多少字节；不在下载时为 0
+  "partsDone": 9, "parts": 21,   // HLS：分片、密钥、初始化段，已下 / 总数
+  "durationMs": 120000,
+  "error": "",               // failed 时的原因（给人看的中文），如"这是直播流（播放列表没有结尾），不能下载"
+  "createdAt": 1795097507684, "finishedAt": 0
+}
+```
+
+行为要点：
+
+- **每次开始下载（含重试、引擎重启后继续）都重新走一遍 `/play/resolve` 的解析链**：直链、解析接口、嗅探都和播放一样。播放地址会过期；下到一半片源开始拒绝（4xx、返回网页而不是视频）时，引擎再解析一次接着下，已下好的保留；还不行才失败。5xx 和断线会先重试几次。
+- **HLS**：主播放列表取码率最高的一档（音轨单独成流的档位只在没有别的选择时才用）；按配置的广告规则去掉广告，和播放时一样。分片、密钥（`#EXT-X-KEY`）、初始化段（`#EXT-X-MAP`）、字节范围都下下来，每集同时 4 个连接。**没有 `#EXT-X-ENDLIST` 的是直播，拒绝下载。**
+- **直链**：带 `Range` 下载，暂停、重试、引擎重启后都从已下的位置接着下。片源不说文件多大（多半是直播流）时拒绝。
+- 需要客户端嗅探的线路（`kind: "sniff"`）拒绝下载。
+- 同时下载的集数是 `concurrency`（默认 2，1–5），其余排队，按加入的先后。
+- **存在哪**：默认放进播放缓存的目录，作为"钉住"的流：文件名和播放缓存给这一集起的一样，所以看过的部分不用再下，下载中的那一集也可以照常在线播放（共用同一份文件），播放缓存的容量上限和"清空"都不碰它们。`dir` 设成别的目录后，新的下载放到那里，已有的留在原处。
+- **空间**：磁盘剩余少于 `reserveBytes`（500 MB）时停下并失败；HLS 下了几段之后按已下的大小估算整集，放不下也提前停下；直链开始前就按文件大小检查。
+- 下载完成后文件被删（用户清了目录）时，`/play/resolve` 发现后把它标成失败（"下载的文件不见了"），改走网络。
+
+离线副本的地址（不在 `/api/v1` 下，见"兼容端点"）：`/dl/<id>/index.m3u8` 是下载时的播放列表，里面的分片、密钥、初始化段改成 `/dl/<id>/<编号>.<扩展名>`；直链下载是 `/dl/<id>/film.<扩展名>`。都支持 `Range`。和播放缓存的 `/hls/` 一样，局域网里的播放器拿到的这些地址都带 `tvsig` 签名（`/play/resolve` 的返回和播放列表正文都会签），不需要令牌。
+
+**导出为一个文件**：
+
+- HLS：分片按顺序拼接。都是 MPEG-TS 时得到 `.ts`，AES-128 加密的分片先用它的密钥解密（IV 用 `#EXT-X-KEY` 里写的，没写就用分片的序号）；分片是 fMP4（一个 `#EXT-X-MAP`）时得到 `.mp4`（初始化段 + 各个分片）。
+- 直链下载原样复制。
+- 做不到的情况：`SAMPLE-AES` 等其他加密、中途换了初始化段、分片不是标准 MPEG-TS（片源把分片伪装成图片等）。这些需要 ffmpeg 转封装，引擎**不附带也不安装 ffmpeg**，返回 `501` 并说明；这样的下载仍可离线播放。
+- `GET /dl/<id>/export`：同样的文件由引擎边拼边发出（`Content-Disposition: attachment`，`filename*` 是 UTF-8 的"片名 集名.ts"），供另一台设备保存到它自己的磁盘；带令牌访问。
 
 ## 直播
 
@@ -311,6 +372,8 @@ DriveEntry   {name, path, dir, size, modified, type: folder|video|subtitle|other
 | `/subtitle?url=&h=&f=` | `PlayInfo.subtitles` 指向这里：引擎带着请求头（`h`，同 `/m3u8`）取 `url` 上的字幕，识别编码（BOM、UTF-16、UTF-8，否则在 GB18030 与 Big5 中按常用字多少选，不信服务器声明的）和格式，交出 UTF-8 的 SRT / ASS / WebVTT（TTML、LRC、B 站 JSON 字幕转成 SRT）。`f` 是站点声明的格式，内容看不出时才用。取不到时 502 |
 | `/drive/<网盘 id>/<路径>` | 网盘里的一个文件，由引擎取来给播放器（见"网盘"）：本机文件夹直接读文件，WebDAV / AList 由引擎带上账号向网盘要。支持 `GET` / `HEAD` 和单段 `Range`（`bytes=a-b`、`a-`、`-n`；范围不对时 416）；网盘的回答按原样转发状态码和 `Content-Range`，`Content-Type` 是 `application/octet-stream` 时按扩展名改成视频类型。本机文件夹之外的路径 403，`..` 400 |
 | `/hls/<播放列表>/<编号>.<扩展名>` | `/m3u8` 改写出来的地址：播放缓存里的分片（`.ts` / `.m4s` 等，片源的扩展名不像媒体文件时一律 `.ts`）、密钥（`.key`）、初始化段（`.mp4`）。支持 `Range`。引擎取不到时 302 到片源（按字节范围切的分片无法这样退回，返回 502） |
+| `/dl/<下载 id>/index.m3u8`、`/dl/<下载 id>/<编号>.<扩展名>`、`/dl/<下载 id>/film.<扩展名>` | 下载完成的剧集（见"离线下载"）：播放列表和它的分片、密钥、初始化段，或者直链下载的整个文件。只读磁盘，从不联网。支持 `Range`。没有这个下载或文件时 404 |
+| `/dl/<下载 id>/export` | 下载的剧集拼成一个文件发出（见"离线下载"） |
 
 `/play/resolve` 返回的 HLS 地址默认包成 `/m3u8?…`（`headers` 照样返回；经播放缓存时播放器用不上它们，引擎会带着去请求片源，没写 User-Agent 时用播放器自己的）。引擎为自己生成的地址（`/m3u8`、`/hls`、蜘蛛 `/proxy`）用 `127.0.0.1`；局域网里的其他设备请求时，按它访问引擎用的地址（请求的 `Host`）改写，所以电视连 NAS 引擎也能直接播。这些地址都带 `tvsig` 签名（见"鉴权与配对"），播放器不需要令牌。
 

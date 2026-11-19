@@ -115,6 +115,8 @@ data class PlayInfo(
      * danmaku themselves from `/api/v1/danmaku`, which also asks the configured danmaku services.
      */
     val danmaku: String = "",
+    /** Not empty when [url] is a finished download of the episode on the engine's disk (its id): it plays without the network. */
+    val download: String = "",
 )
 
 /** An external subtitle of a [PlayInfo]. */

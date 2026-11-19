@@ -89,6 +89,77 @@ class StreamStore(
         return true
     }
 
+    /**
+     * Moves [finished], a complete file written somewhere in the stream's folder by someone else (a download, see
+     * [workFile]), in as [name]. When [name] is there already (a player had it fetched meanwhile) that copy stays and
+     * [finished] goes. False when the file cannot be moved in yet.
+     */
+    fun adopt(stream: String, name: String, finished: File): Boolean {
+        synchronized(lock) {
+            val s = load().getOrPut(stream) { Stream(dirOf(stream)) }
+            val file = File(s.dir, name)
+            if (s.files.containsKey(name) && file.isFile) {
+                finished.delete()
+                return true
+            }
+            if (!finished.isFile) return false
+            if (file.exists() && !file.delete()) return false
+            if (!finished.renameTo(file)) return false
+            val t = now()
+            file.setLastModified(t)
+            s.files.put(name, Entry(file.length(), t))?.let { if (!s.pinned) total -= it.size }
+            if (!s.pinned) total += file.length()
+        }
+        if (overCap()) trim()
+        return true
+    }
+
+    /**
+     * A file in the stream's folder for work in progress that is not one of the stream's files: the store neither
+     * counts it nor serves it. Its name starts with `_`; one that ends in `.part` is swept away at the next start,
+     * any other (a resumable download's) stays.
+     */
+    fun workFile(stream: String, name: String): File = synchronized(lock) {
+        load()
+        File(dirOf(stream), "_$name")
+    }
+
+    /** Bytes of the stream's finished files. */
+    fun size(stream: String): Long = synchronized(lock) { load()[stream]?.files?.values?.sumOf { it.size } ?: 0L }
+
+    /**
+     * Deletes the stream: its files, notes and work files (a download that was deleted). A file someone is reading
+     * right now stays, no longer pinned, and goes with the cache's next trim. The `.part` files a player's download
+     * is writing are left to it. Returns the bytes freed.
+     */
+    fun remove(stream: String): Long {
+        var freed = 0L
+        synchronized(lock) {
+            val s = load()[stream]
+            if (s == null) {
+                File(root, stream).listFiles()?.forEach { if (it.name.startsWith("_") || !it.name.endsWith(PART)) it.delete() }
+                File(root, stream).delete()
+                return 0
+            }
+            for ((name, entry) in s.files.entries.toList()) {
+                if (!File(s.dir, name).delete()) continue
+                s.files.remove(name)
+                if (!s.pinned) total -= entry.size
+                freed += entry.size
+            }
+            if (s.pinned) {
+                s.pinned = false
+                total += s.files.values.sumOf { it.size }
+            }
+            s.dir.listFiles()?.forEach { f ->
+                if (f.name !in s.files && (f.name.startsWith("_") || !f.name.endsWith(PART))) f.delete()
+            }
+            dropIfEmpty(stream, s)
+        }
+        trim()
+        return freed
+    }
+
     /** Gives up an unfinished file. */
     fun discard(stream: String, name: String) {
         synchronized(lock) { File(File(root, stream), "$name$PART").delete() }

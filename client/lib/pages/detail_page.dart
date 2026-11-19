@@ -3,10 +3,12 @@ import 'dart:ui' as ui;
 import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
+import '../engine/downloads.dart';
 import '../engine/library_models.dart';
 import '../engine/vod_models.dart';
 import '../ui/common.dart';
 import 'browse_page.dart' show errorText;
+import 'download_sheet.dart';
 import 'player_page.dart';
 
 void openDetail(BuildContext context, VodCard vod) {
@@ -31,11 +33,25 @@ class _DetailPageState extends State<DetailPage> {
   bool _favorite = false;
   bool _lineFromHistory = false;
 
+  /// The engine's downloads, for marking the episodes that are downloaded or under way.
+  late final DownloadsWatcher _downloads = DownloadsWatcher(AppScope.read(context).client)..addListener(_downloadsChanged);
+
   @override
   void initState() {
     super.initState();
     _load();
     _loadLibrary();
+    _downloads.start();
+  }
+
+  @override
+  void dispose() {
+    _downloads.dispose();
+    super.dispose();
+  }
+
+  void _downloadsChanged() {
+    if (mounted) setState(() {});
   }
 
   void _load({bool refresh = false}) {
@@ -145,6 +161,8 @@ class _DetailPageState extends State<DetailPage> {
       _line = resume.$1;
     }
     final line = d.lines.isEmpty ? null : d.lines[_line.clamp(0, d.lines.length - 1)];
+    // Some episode of this line is downloaded or under way: every episode button keeps room for its mark.
+    final marked = line != null && line.episodes.any((e) => _downloads.find(d.site, line.name, e.id) != null);
     final meta = [d.year, d.area, d.type, d.remarks].where((s) => s.isNotEmpty).join(' · ');
 
     final poster = ClipRRect(
@@ -193,6 +211,8 @@ class _DetailPageState extends State<DetailPage> {
               icon: Icon(_favorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
                   color: _favorite ? Colors.pinkAccent : null),
             ),
+            if (_downloads.available == true && line != null)
+              DownloadButton(detail: d, line: _line, watcher: _downloads, episode: resume != null && resume.$1 == _line ? resume.$2 : 0),
           ],
         ),
       ],
@@ -252,7 +272,7 @@ class _DetailPageState extends State<DetailPage> {
                         side: BorderSide(color: scheme.outlineVariant),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
-                      child: Text(line.episodes[i].name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                      child: _episodeLabel(line.episodes[i].name, _downloads.find(d.site, line.name, line.episodes[i].id), i, marked),
                     ),
                   ),
               ],
@@ -261,6 +281,18 @@ class _DetailPageState extends State<DetailPage> {
         ],
       ),
     );
+  }
+
+  /// An episode's name, and under it how far its download is when there is one (a downloaded one plays offline).
+  /// When any episode of the line has a download ([marked]), all of them keep room for it, so the buttons line up.
+  Widget _episodeLabel(String name, DownloadItem? download, int i, bool marked) {
+    final text = Text(name, maxLines: 1, overflow: TextOverflow.ellipsis);
+    if (!marked) return text;
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      text,
+      const SizedBox(height: 2),
+      SizedBox(height: 16, child: download == null ? null : EpisodeDownloadMark(key: Key('download-mark-$i'), item: download, compact: true)),
+    ]);
   }
 
   Widget _kv(String k, String v, ColorScheme scheme) => Text.rich(
