@@ -60,6 +60,8 @@ data class EngineModuleOptions(
     val allowLocalhostCors: Boolean = false,
     /** Pairing, tokens and signed media addresses (see [installAccess]); by default only this machine gets in. */
     val access: tvbox.engine.api.access.AccessControl? = null,
+    /** The user's cloud drives and folders (see [driveRoutes]); null: this engine has none. */
+    val drives: tvbox.engine.core.drive.DriveService? = null,
 )
 
 /** Installs protocol v1 (docs/protocol.md) on a Ktor application. Shared by the server and the Android app. */
@@ -126,6 +128,9 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
         // What the playlists below point at when the engine caches the stream, and the cache's own API.
         streamCacheRoutes(engine)
 
+        // Cloud drives and folders: their API and the route that streams their files to players.
+        options.drives?.let { driveRoutes(it) }
+
         // HLS playlists the engine cleans of ads (see M3u8Cleaner). Any trouble sends the player to the original url.
         get("/m3u8") {
             val url = call.parameters["url"].orEmpty()
@@ -185,7 +190,7 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
                     val page = call.parameters["pg"]?.toIntOrNull() ?: 1
                     call.respond(engine.category(call.site(), tid, page, call.filters(), refresh = call.parameters["refresh"] == "1"))
                 }
-                get("/detail") { call.respond(engine.detail(call.site(), call.required("id"), refresh = call.parameters["refresh"] == "1")) }
+                get("/detail") { call.respond(call.driveDetail(options.drives) ?: engine.detail(call.site(), call.required("id"), refresh = call.parameters["refresh"] == "1")) }
                 get("/search") {
                     val page = call.parameters["pg"]?.toIntOrNull() ?: 1
                     call.respond(engine.search(call.site(), call.required("wd"), page))
@@ -234,7 +239,8 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
             }
 
             post("/play/resolve") {
-                call.respond(forClient(engine.resolvePlay(call.receive<PlayRequest>()), call))
+                val request = call.receive<PlayRequest>()
+                call.respond(forClient(call.drivePlay(options.drives, request) ?: engine.resolvePlay(request), call))
             }
 
             route("/history") {
@@ -326,5 +332,5 @@ private fun forClient(info: PlayInfo, call: RoutingCall): PlayInfo {
     val self = call.selfBase() + "/"
     if (self == loopback) return info
     fun fix(url: String) = if (url.startsWith(loopback)) self + url.removePrefix(loopback) else url
-    return info.copy(url = fix(info.url), sniff = info.sniff?.let { it.copy(pageUrl = fix(it.pageUrl)) })
+    return info.copy(url = fix(info.url), sniff = info.sniff?.let { it.copy(pageUrl = fix(it.pageUrl)) }, subtitles = info.subtitles.map { it.copy(url = fix(it.url)) })
 }

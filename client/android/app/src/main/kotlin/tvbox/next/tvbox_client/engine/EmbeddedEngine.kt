@@ -95,7 +95,11 @@ object EmbeddedEngine {
             githubProxy = githubProxy,
             network = network,
         )
-        server = embeddedServer(CIO, port = PORT, host = "127.0.0.1") { engineModule(engine) }.start(wait = false)
+        // AList / WebDAV drives; folders of the device are not offered here.
+        val drives = tvbox.engine.core.drive.DriveService(JsonFileStore(data), client, local, localFolders = false, log = { Log.w(TAG, it) })
+        server = embeddedServer(CIO, port = PORT, host = "127.0.0.1") {
+            engineModule(engine, tvbox.engine.api.EngineModuleOptions(drives = drives))
+        }.start(wait = false)
         Log.i(TAG, "listening on $local")
         runBlocking {
             engine.restore()

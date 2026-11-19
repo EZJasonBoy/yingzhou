@@ -108,6 +108,20 @@ data class PlayInfo(
      * disk, and `/api/v1/stream-cache/coverage?key=` with this value says which parts are there.
      */
     val cache: String = "",
+    /** Subtitles that go with [url] (TVBox `subs`), e.g. the `.srt` / `.ass` / `.vtt` files beside a drive's video. */
+    val subtitles: List<Subtitle> = emptyList(),
+)
+
+/** A subtitle file a player can load next to the video. */
+@Serializable
+data class Subtitle(
+    val url: String,
+    /** For the menu: the file name, or what a spider called it. */
+    val name: String = "",
+    /** Language tag when known (`zh`, `chs`, `en` from `film.zh.srt`); empty when not. */
+    val lang: String = "",
+    /** `srt` | `ass` | `ssa` | `vtt`; empty when not known. */
+    val format: String = "",
 )
 
 /** Aggregated search events (SSE). */
