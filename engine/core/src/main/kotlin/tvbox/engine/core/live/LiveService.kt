@@ -57,8 +57,8 @@ class LiveService(
         else -> "jar"
     }
 
-    /** Only jar spiders have `liveContent`. */
-    private fun supported(spec: LiveSourceSpec) = spec.supported && (spec.api.isEmpty() || (spiderList != null && spiderKind(spec) == "jar"))
+    /** Jar spiders have `liveContent` and JS spiders `live`; Python spiders have no runtime yet. */
+    private fun supported(spec: LiveSourceSpec) = spec.supported && (spec.api.isEmpty() || (spiderList != null && spiderKind(spec) in SPIDER_KINDS))
 
     suspend fun list(index: Int, refresh: Boolean = false): LiveList {
         val spec = spec(index)
@@ -74,21 +74,33 @@ class LiveService(
     private suspend fun load(index: Int, spec: LiveSourceSpec): Loaded {
         val playlist = when {
             spec.inline.isNotEmpty() -> LivePlaylist(spec.inline)
-            spec.api.isNotEmpty() -> LivePlaylistParser.parse(spiderList!!.invoke(spec), spec.headers)
-            else -> {
-                var text = fetchList(spec)
-                // Some playlists are wrapped like configs (base64 in an image, AES).
-                if (!LivePlaylistParser.looksLikePlaylist(text)) text = ConfigDecoder.decode(text)
-                LivePlaylistParser.parse(text, spec.headers)
-            }
+            spec.api.isNotEmpty() -> LivePlaylistParser.parse(spiderText(spec), spec.headers)
+            else -> LivePlaylistParser.parse(downloadedText(spec), spec.headers)
         }
         if (playlist.groups.isEmpty()) throw LiveException("EMPTY", "${spec.name}: the playlist has no channels")
         val groups = playlist.groups.map { g ->
             g.copy(channels = g.channels.map { c ->
-                c.copy(logo = c.logo.ifEmpty { logoFor(spec, c.name) }, urls = c.urls.map { u -> u.copy(url = own(u.url)) })
+                c.copy(logo = c.logo.ifEmpty { logoFor(spec, c.name) }, urls = c.urls.map { u -> u.copy(url = forSpider(own(u.url), spec)) })
             })
         }
         return Loaded(LiveList(index, spec.name, groups), playlist.tvgUrl, System.currentTimeMillis()).also { lists[index] = it }
+    }
+
+    /**
+     * The list of a `type: 3` source: what its spider answers (`liveContent(url)` of a jar, `live(url)` of a script).
+     * TVBox asks a script only when the entry's `url` is the script itself; any other `url` is a playlist it
+     * downloads, and the spider just serves the channels' proxy addresses. So a spider with nothing to say leaves
+     * the `url` as the list.
+     */
+    private suspend fun spiderText(spec: LiveSourceSpec): String {
+        val text = spiderList!!.invoke(spec)
+        return if (text.isBlank() && spec.url.startsWith("http")) downloadedText(spec) else text
+    }
+
+    /** The playlist at the source's `url`. Some are wrapped like configs (base64 in an image, AES). */
+    private suspend fun downloadedText(spec: LiveSourceSpec): String {
+        val text = fetchList(spec)
+        return if (LivePlaylistParser.looksLikePlaylist(text)) text else ConfigDecoder.decode(text)
     }
 
     /** `proxy://` and urls of TVBox's built-in server (`http://127.0.0.1:9978/proxy?`) mean this engine's proxy. */
@@ -96,6 +108,15 @@ class LiveService(
         url.startsWith("proxy://") -> url.replaceFirst("proxy://", proxyBase)
         else -> LiveSourceSpec.LOCAL_PROXY.find(url)?.let { proxyBase + url.substring(it.range.last + 1) } ?: url
     }
+
+    /**
+     * A proxy address in a list that a spider served is meant for that spider. TVBox hands such a request to the
+     * spider used last, which while live TV is on screen is the live one. Here other sites can have been opened in
+     * between, so the address says whose it is: `siteKey`, which TVBox adds to proxy requests itself.
+     */
+    private fun forSpider(url: String, spec: LiveSourceSpec): String =
+        if (spec.api.isEmpty() || !url.startsWith(proxyBase) || SITE_KEY.containsMatchIn(url)) url
+        else url + "&siteKey=" + java.net.URLEncoder.encode(spec.spiderKey, "UTF-8")
 
     private suspend fun fetchList(spec: LiveSourceSpec): String {
         val url = own(spec.url)
@@ -157,6 +178,9 @@ class LiveService(
     private fun spec(index: Int) = specs.getOrNull(index) ?: throw LiveException("NOT_FOUND", "no live source $index")
 
     private companion object {
+        /** The kinds of spider that can be asked for a list. */
+        val SPIDER_KINDS = setOf("jar", "js")
+        val SITE_KEY = Regex("[?&]siteKey=")
         const val LIST_TTL = 30 * 60_000L
         const val EPG_TTL = 30 * 60_000L
         const val XMLTV_TTL = 6 * 3600_000L

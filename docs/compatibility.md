@@ -136,7 +136,8 @@ jar 蜘蛛在桌面上依赖的安卓类是桩类，覆盖了常见用法（`Con
 | `epg`：XMLTV（`.xml` / `.xml.gz`） | ✅ | 也认 M3U 头里的 `x-tvg-url` |
 | `logo`：带 `{name}` 的模板 | ✅ | |
 | `ua`、`referer`、`header` | ✅ | 随线路下发给播放器 |
-| `{type: 3, api, ext, jar}` 蜘蛛直播 | 🟡 | jar 蜘蛛的 `liveContent(url)` 返回的列表按上面的格式解析；JS / Python 蜘蛛直播不支持 |
+| `{type: 3, api, ext, jar, url}` 蜘蛛直播 | 🟡 | 列表由蜘蛛给出：jar 蜘蛛问 `liveContent(url)`，JS 蜘蛛问 `live(url)`（没写 `url` 时传脚本自己的地址，同 TVBox）。返回 TXT / M3U / JSON 文本都行，JS 也可以直接返回分组数组。蜘蛛没有返回、而 `url` 是个地址时，按普通列表下载它（TVBox 对这种写法也只是下载列表，蜘蛛只管频道的代理地址）。Python 蜘蛛直播不支持 |
+| 蜘蛛列表里的 `proxy://…`、`http://127.0.0.1:9978/proxy?do=js&…` | ✅ | 指向本引擎的 `/proxy`，并补上这个直播源的蜘蛛的 `siteKey`，请求一定回到给出列表的那个蜘蛛。TVBox 是交给"最近用过的蜘蛛"；这里看直播的中途可以去点播别的站点，不带 `siteKey` 会串到别的脚本上 |
 | `{type: 3}` 但没有 `api` | ⬜ | 「直播」页标"暂不支持" |
 | `catchup` 回看 | ⬜ | |
 | `playerType`、`timeout`、`boot`、`pass` | ⬜ | 忽略 |

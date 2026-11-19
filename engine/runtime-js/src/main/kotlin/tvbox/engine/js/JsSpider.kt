@@ -67,6 +67,13 @@ class JsSpider private constructor(
     override suspend fun search(key: String, quick: Boolean, pg: String) = invoke("search", key, quick, pg)
     override suspend fun play(flag: String, id: String, vipFlags: List<String>) = invoke("play", flag, id, vipFlags)
 
+    /**
+     * TVBox `JsSpider.liveContent`: the script's `live(url)` answers with the playlist text (TXT, M3U or JSON; a list
+     * handed back as an object is turned into JSON). TVBox passes the address of the list, which for a `lives` entry
+     * without `url` is the script's own address.
+     */
+    override suspend fun live(url: String) = invoke("live", url.ifEmpty { site.api })
+
     override fun destroy() {
         executor.execute {
             runCatching { qjs.close() }
@@ -251,8 +258,9 @@ class JsSpider private constructor(
             qjs.asyncFunction("__host_http_async") { a -> withContext(Dispatchers.IO) { env.http.request(a.s(0), a.s(1)) } }
             qjs.asyncFunction("__host_sleep") { a -> delay((a.getOrNull(0) as? Number)?.toLong() ?: 0L) }
             // The engine serves local and LAN clients from the same address, so `dynamic` makes no difference here.
+            // The key is encoded: a live source's spider is keyed by the source's name, which is seldom plain ASCII.
             qjs.function("__host_js2proxy") { a ->
-                proxy + "&from=catvod&siteType=" + a.s(1) + "&siteKey=" + a.s(2) +
+                proxy + "&from=catvod&siteType=" + a.s(1) + "&siteKey=" + URLEncoder.encode(a.s(2), "UTF-8") +
                     "&header=" + URLEncoder.encode(a.s(4), "UTF-8") + "&url=" + URLEncoder.encode(a.s(3), "UTF-8")
             }
             qjs.define("local") {

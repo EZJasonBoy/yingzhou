@@ -158,6 +158,38 @@ class LiveTest {
     }
 
     @Test
+    fun `script lives are supported, Python ones not, and a spider's proxy addresses name the spider`() = runBlocking {
+        val proxyBase = "http://127.0.0.1:19978/proxy?"
+        val service = LiveService(SiteHttp(OkHttpClient()), proxyBase, spiderList = { spec ->
+            if (spec.api.endsWith(".js")) {
+                "组,#genre#\n甲,http://127.0.0.1:9978/proxy?do=js&ch=1\n乙,proxy://do=js&ch=2&siteKey=other\n丙,http://s.test/3.m3u8"
+            } else {
+                "组,#genre#\n丁,proxy://do=live&id=4"
+            }
+        })
+        service.onConfig(
+            """[{"name":"脚本 直播","type":3,"api":"http://j.test/live.js"},
+               {"name":"jar","type":3,"api":"csp_Live"},
+               {"name":"py","type":3,"api":"http://j.test/live.py"},
+               {"name":"列表","type":0,"url":"http://l.test/tv.txt"}]""",
+        )
+        assertEquals(listOf("js", "jar", "py", ""), service.sources().map { it.spider })
+        assertEquals(listOf(true, true, false, true), service.sources().map { it.supported }, "a script can be asked; Python has no runtime yet")
+        assertEquals(
+            listOf(
+                // TVBox's proxy address means this engine's, and the request has to reach the spider that wrote it.
+                proxyBase + "do=js&ch=1&siteKey=live_%E8%84%9A%E6%9C%AC+%E7%9B%B4%E6%92%AD",
+                proxyBase + "do=js&ch=2&siteKey=other",
+                "http://s.test/3.m3u8",
+            ),
+            service.list(0).groups.single().channels.map { it.urls.single().url },
+        )
+        assertEquals(proxyBase + "do=live&id=4&siteKey=live_jar", service.list(1).groups.single().channels.single().urls.single().url)
+        val python = runCatching { service.list(2) }.exceptionOrNull()
+        assertTrue(python is LiveException && python.code == "UNSUPPORTED", python.toString())
+    }
+
+    @Test
     fun `epg names, json days crossing midnight and xmltv`() {
         assertEquals("CCTV1", Epg.normalize("CCTV-1 综合"))
         assertEquals("CCTV5+", Epg.normalize("CCTV-5+ 体育赛事"))

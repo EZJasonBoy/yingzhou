@@ -118,7 +118,7 @@ class Engine(
 
     /** The playlist text of a `type: 3` live source: its spider's `liveContent(url)`. */
     private suspend fun spiderLive(spec: tvbox.engine.core.live.LiveSourceSpec): String {
-        val bean = tvbox.engine.core.config.SiteBean(key = "live_" + spec.name, name = spec.name, type = 3, api = spec.api, ext = spec.ext, jar = spec.jar)
+        val bean = tvbox.engine.core.config.SiteBean(key = spec.spiderKey, name = spec.name, type = 3, api = spec.api, ext = spec.ext, jar = spec.jar)
         val runtime = runtimes.firstOrNull { it.supports(bean) }
             ?: throw tvbox.engine.core.live.LiveException("UNSUPPORTED", "${spec.name}: no runtime for the live spider ${spec.api}")
         val spider = liveSpiders[bean.key] ?: liveSpiderLock.withLock {

@@ -16,7 +16,8 @@ import tvbox.engine.core.util.Base64Compat
  * - `{"group", "channels": [{"name", "urls": ["proxy://do=live&type=txt&ext=<url or base64 url>"]}]}`: the
  *   playlist url hidden in TVBox's live proxy;
  * - `{"group", "channels": [{"name", "urls": [...]}]}`: channels written into the config;
- * - `{"type": 3, "api", "ext"}`: a spider that serves the list (not supported yet).
+ * - `{"type": 3, "api", "ext", "jar", "url"}`: a spider that serves the list (a jar's `liveContent(url)`, a
+ *   script's `live(url)`).
  */
 data class LiveSourceSpec(
     val name: String,
@@ -31,6 +32,9 @@ data class LiveSourceSpec(
     val ext: String = "",
     val jar: String = "",
 ) {
+    /** The key the source's spider runs under: its `siteKey`, also in the proxy addresses of its channels. */
+    val spiderKey: String get() = "live_$name"
+
     companion object {
         fun parseAll(livesJson: String, locator: ConfigLocator? = null): List<LiveSourceSpec> {
             if (livesJson.isBlank()) return emptyList()
