@@ -16,7 +16,7 @@ import '../engine/vod_models.dart';
 import '../player_backend.dart';
 import '../player_cache.dart';
 import '../settings.dart';
-import '../ui/form_factor.dart';
+import '../ui/device_form.dart';
 import 'browse_page.dart' show errorText;
 import 'danmaku_layer.dart';
 import 'danmaku_panel.dart';
@@ -133,6 +133,7 @@ class _PlayerPageState extends State<PlayerPage> {
   /// ([MobilePlayback]); null on desktops and TVs. [_stageKey] keeps the picture and its controls alive when the
   /// layout around them changes (upright with the episodes below, full screen, picture-in-picture).
   MobilePlayback? _mobile;
+  bool _formKnown = false;
   final _stageKey = GlobalKey();
   Orientation? _orientation;
 
@@ -241,26 +242,30 @@ class _PlayerPageState extends State<PlayerPage> {
     }).catchError((Object _) {});
     _open(_line, _episode, resume: widget.startPosition);
     _pokeControls();
-    if (FormFactors.isMobile) {
-      _mobile = MobilePlayback(
-        onChanged: () {
-          if (mounted) setState(() {});
-        },
-        // Leaving the app without picture-in-picture pauses, as phone players do.
-        onBackground: () => _player.pause(),
-      )
-        ..start()
-        ..attach(_player);
-    }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // Phones and tablets (ui/device_form.dart) get the touch player, decided once when the page first sees the scope.
+    if (!_formKnown) {
+      _formKnown = true;
+      if (isTouch(context)) {
+        _mobile = MobilePlayback(
+          onChanged: () {
+            if (mounted) setState(() {});
+          },
+          // Leaving the app without picture-in-picture pauses, as phone players do.
+          onBackground: () => _player.pause(),
+        )
+          ..start()
+          ..attach(_player);
+      }
+    }
     final mobile = _mobile;
     if (mobile == null) return;
     // A phone's player goes full screen in landscape; a tablet's shows the picture with the bars either way.
-    mobile.rotateToFullScreen = FormFactors.isPhone(context);
+    mobile.rotateToFullScreen = isPhone(context);
     final orientation = MediaQuery.orientationOf(context);
     if (orientation == _orientation) return;
     _orientation = orientation;

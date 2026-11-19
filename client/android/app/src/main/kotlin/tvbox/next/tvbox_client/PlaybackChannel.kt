@@ -25,6 +25,7 @@ import kotlin.math.roundToInt
 /**
  * What the players need from the phone itself (lib/mobile/playback_host.dart), channel `yingzhou/playback`:
  *
+ * - `info`: `{emulator}`, asked once at start.
  * - `keepScreenOn {on}`: the screen does not go off while a video plays.
  * - `getBrightness` / `setBrightness {value}`: the brightness of this window only (0..1; null gives it back to the
  *   system), as phone video players do; the system's own setting is never changed.
@@ -62,6 +63,7 @@ class PlaybackChannel(private val activity: Activity, messenger: BinaryMessenger
     private fun onCall(call: MethodCall, result: MethodChannel.Result) {
         try {
             when (call.method) {
+                "info" -> result.success(mapOf("emulator" to isEmulator()))
                 "keepScreenOn" -> {
                     if (call.argument<Boolean>("on") == true) {
                         activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -101,6 +103,10 @@ class PlaybackChannel(private val activity: Activity, messenger: BinaryMessenger
             result.error("playback", e.message, null)
         }
     }
+
+    /** The Android emulator: its OpenGL cannot host libmpv's video output (see lib/player_backend.dart). */
+    private fun isEmulator(): Boolean =
+        Build.HARDWARE == "ranchu" || Build.HARDWARE == "goldfish" || Build.FINGERPRINT.startsWith("generic") || Build.PRODUCT.contains("sdk_gphone")
 
     /** The window's brightness if the player set one, else the system's (its setting is 0..255 on most phones). */
     private fun brightness(): Double {

@@ -3,7 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
-import 'ui/form_factor.dart';
+import 'mobile/playback_host.dart';
 
 /// A media player and the widget that shows its picture.
 typedef PlayerBackend = ({Player player, Widget view});
@@ -33,6 +33,6 @@ PlayerBackend mediaKitBackend() {
 /// MediaCodec renders straight into the video surface instead (`vo=mediacodec_embed`), which needs no OpenGL in
 /// libmpv. See docs/architecture.md section 4.
 VideoControllerConfiguration androidVideoConfiguration() {
-  if (FormFactors.isAndroidEmulator) return const VideoControllerConfiguration(vo: 'mediacodec_embed', hwdec: 'mediacodec');
+  if (PlaybackHost.isAndroidEmulator) return const VideoControllerConfiguration(vo: 'mediacodec_embed', hwdec: 'mediacodec');
   return const VideoControllerConfiguration();
 }

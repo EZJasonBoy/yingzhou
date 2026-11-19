@@ -12,7 +12,7 @@ import '../engine/live_models.dart';
 import '../player_backend.dart';
 import '../settings.dart';
 import '../ui/engine_image.dart';
-import '../ui/form_factor.dart';
+import '../ui/device_form.dart';
 import '../ui/theme.dart';
 import 'browse_page.dart' show errorText;
 import 'player_mobile.dart';
@@ -85,6 +85,7 @@ class _LivePageState extends State<LivePage> {
   /// Phones and tablets ([MobilePlayback]): gestures on the picture, full screen with the turn to landscape,
   /// picture-in-picture, keeping the screen on; null on desktops and TVs.
   MobilePlayback? _mobile;
+  bool _formKnown = false;
   Orientation? _orientation;
 
   /// Keeps the picture (and its video surface) alive when it moves between the upright layout, full screen and
@@ -144,25 +145,29 @@ class _LivePageState extends State<LivePage> {
     _clock = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) setState(() => _now = DateTime.now());
     });
-    if (FormFactors.isMobile) {
-      _mobile = MobilePlayback(
-        onChanged: _mobileChanged,
-        // In the background without picture-in-picture the channel stops; back in the app it tunes in again.
-        onBackground: () => _playerOrNull?.stop(),
-        onForeground: () {
-          final p = _playing;
-          if (p != null && _list != null && _catchup == null) _play(p.$1, p.$2, line: _line);
-        },
-      )..start();
-      _mobile!.setActive(widget.visible);
-      // The small controls over the picture come with a tap.
-      _overlay = false;
-    }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // Phones and tablets (ui/device_form.dart): decided once, when the page first sees the scope.
+    if (!_formKnown) {
+      _formKnown = true;
+      if (isTouch(context)) {
+        _mobile = MobilePlayback(
+          onChanged: _mobileChanged,
+          // In the background without picture-in-picture the channel stops; back in the app it tunes in again.
+          onBackground: () => _playerOrNull?.stop(),
+          onForeground: () {
+            final p = _playing;
+            if (p != null && _list != null && _catchup == null) _play(p.$1, p.$2, line: _line);
+          },
+        )..start();
+        _mobile!.setActive(widget.visible);
+        // The small controls over the picture come with a tap.
+        _overlay = false;
+      }
+    }
     _mobileOrientation();
     final state = AppScope.of(context);
     final key = state.hasConfig ? '${state.engineUrl}|${state.summary!.subscriptionId}|${state.summary!.url}' : '';
@@ -526,7 +531,7 @@ class _LivePageState extends State<LivePage> {
   void _mobileOrientation() {
     final mobile = _mobile;
     if (mobile == null) return;
-    mobile.rotateToFullScreen = FormFactors.isPhone(context);
+    mobile.rotateToFullScreen = isPhone(context);
     final orientation = MediaQuery.orientationOf(context);
     if (orientation == _orientation || !widget.visible) return;
     _orientation = orientation;

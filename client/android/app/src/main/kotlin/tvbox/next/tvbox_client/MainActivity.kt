@@ -10,7 +10,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        DeviceChannel.register(flutterEngine.dartExecutor.binaryMessenger, this)
+        DeviceChannel.register(flutterEngine, this)
         playback = PlaybackChannel(this, flutterEngine.dartExecutor.binaryMessenger)
     }
 

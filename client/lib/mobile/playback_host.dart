@@ -45,6 +45,17 @@ class PlaybackHost {
     }
   }
 
+  /// The Android emulator, as the Android side said in [init]: the player sets up its video output for it
+  /// (`player_backend.dart`).
+  static bool isAndroidEmulator = false;
+
+  /// Asks Android once, before the app is built (`main`), what the player needs to know before it is created.
+  static Future<void> init() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    final info = await instance._call<Map<Object?, Object?>>('info');
+    isAndroidEmulator = info?['emulator'] == true;
+  }
+
   /// The screen stays on while [on] (a video is playing).
   Future<void> keepScreenOn(bool on) => _call<void>('keepScreenOn', {'on': on});
 

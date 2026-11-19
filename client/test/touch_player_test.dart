@@ -7,7 +7,7 @@ import 'package:tvbox_client/main.dart';
 import 'package:tvbox_client/pages/player_mobile.dart';
 import 'package:tvbox_client/pages/player_page.dart';
 import 'package:tvbox_client/pages/touch_gestures.dart';
-import 'package:tvbox_client/ui/form_factor.dart';
+import 'package:tvbox_client/ui/device_form.dart';
 
 import 'fake_engine.dart';
 import 'fake_player.dart';
@@ -47,7 +47,6 @@ void main() {
   });
 
   tearDown(() {
-    FormFactors.debugOverride = FormFactor.desktop;
     messenger.setMockMethodCallHandler(playbackChannel, null);
     messenger.setMockMethodCallHandler(SystemChannels.platform, null);
   });
@@ -62,15 +61,17 @@ void main() {
   void resize(WidgetTester tester, Size size) => tester.view.physicalSize = size * ratio;
 
   /// Opens 推荐片 (two lines of twelve episodes) and plays its first episode.
-  Future<void> play(WidgetTester tester, {Size size = phone, FormFactor formFactor = FormFactor.phone}) async {
-    FormFactors.debugOverride = formFactor;
+  Future<void> play(WidgetTester tester, {Size size = phone, DeviceForm form = DeviceForm.phone}) async {
     resize(tester, size);
     tester.view.devicePixelRatio = ratio;
     addTearDown(tester.view.reset);
     player = FakePlayer();
     final engine = fakeEngine(hasConfig: true, lines: [fakeLine('线路一', 'a', count: 12), fakeLine('线路二', 'b', count: 12)]);
     await tester.pumpWidget(
-      TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url, httpClient: engine), playerBackend: () => player.backend())),
+      DeviceFormScope.fixed(
+        form,
+        child: TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url, httpClient: engine), playerBackend: () => player.backend())),
+      ),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('推荐片'));
@@ -382,7 +383,7 @@ void main() {
   });
 
   testWidgets('a tablet: episodes under the picture upright, the picture with its bars on its side', (tester) async {
-    await play(tester, size: const Size(800, 1280), formFactor: FormFactor.tablet);
+    await play(tester, size: const Size(800, 1280), form: DeviceForm.tablet);
     expect(find.byType(PlayerPhoneInfo), findsOneWidget);
     await turn(tester, const Size(1280, 800));
     expect(find.byType(PlayerPhoneInfo), findsNothing);
@@ -399,7 +400,7 @@ void main() {
   });
 
   testWidgets('desktops keep the mouse player', (tester) async {
-    await play(tester, size: const Size(1400, 900), formFactor: FormFactor.desktop);
+    await play(tester, size: const Size(1400, 900), form: DeviceForm.desktop);
     expect(find.byType(TouchGestureLayer), findsNothing);
     expect(find.byType(TouchPlayerBars), findsNothing);
     expect(calls('keepScreenOn'), isEmpty);
@@ -408,14 +409,16 @@ void main() {
   });
 
   testWidgets('live TV on a phone: channels and guide under the picture, swipes change channel, full screen', (tester) async {
-    FormFactors.debugOverride = FormFactor.phone;
     resize(tester, phone);
     tester.view.devicePixelRatio = ratio;
     addTearDown(tester.view.reset);
     player = FakePlayer();
     final engine = fakeEngine(hasConfig: true);
     await tester.pumpWidget(
-      TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url, httpClient: engine), playerBackend: () => player.backend())),
+      DeviceFormScope.fixed(
+        DeviceForm.phone,
+        child: TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url, httpClient: engine), playerBackend: () => player.backend())),
+      ),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('直播'));

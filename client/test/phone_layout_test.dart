@@ -4,7 +4,7 @@ import 'package:tvbox_client/app_state.dart';
 import 'package:tvbox_client/engine/engine_client.dart';
 import 'package:tvbox_client/main.dart';
 import 'package:tvbox_client/pages/detail_page.dart';
-import 'package:tvbox_client/ui/form_factor.dart';
+import 'package:tvbox_client/ui/device_form.dart';
 import 'package:tvbox_client/ui/poster.dart';
 
 import 'fake_engine.dart';
@@ -13,20 +13,20 @@ import 'fake_player.dart';
 /// The app on phones and tablets: which navigation each size gets, every tab laid out without overflowing (an
 /// overflow fails the test), touch-sized episodes on the detail page, and the system back going to 首页 first.
 void main() {
-  tearDown(() => FormFactors.debugOverride = FormFactor.desktop);
-
-  Future<FakePlayer> pumpApp(WidgetTester tester, Size size, {FormFactor? formFactor, double ratio = 2.625}) async {
-    // Unset: phone or tablet by the window's size, as on a real device.
-    FormFactors.debugOverride = formFactor;
+  Future<FakePlayer> pumpApp(WidgetTester tester, Size size, {DeviceForm? form, double ratio = 2.625}) async {
     tester.view.physicalSize = size * ratio;
     tester.view.devicePixelRatio = ratio;
     addTearDown(tester.view.reset);
     final player = FakePlayer();
     final engine = fakeEngine(hasConfig: true, lines: [fakeLine('线路一', 'a', count: 40), fakeLine('线路二', 'b', count: 40)]);
+    final app = TvboxApp(
+      state: AppState(clientFactory: (url) => EngineClient(url, httpClient: engine), playerBackend: () => player.backend()),
+    );
+    // Unset: an Android device that is not a TV, phone or tablet by the window's size, as on a real one.
     await tester.pumpWidget(
-      TvboxApp(
-        state: AppState(clientFactory: (url) => EngineClient(url, httpClient: engine), playerBackend: () => player.backend()),
-      ),
+      form != null
+          ? DeviceFormScope.fixed(form, child: app)
+          : DeviceFormScope(controller: DeviceFormController(platform: TargetPlatform.android), child: app),
     );
     await tester.pumpAndSettle();
     return player;
@@ -49,7 +49,7 @@ void main() {
   testWidgets('a phone held upright has the bottom bar, and every tab fits', (tester) async {
     for (final size in [phone, bigPhone]) {
       await pumpApp(tester, size);
-      expect(FormFactors.of(tester.element(find.byType(Scaffold).first)), FormFactor.phone);
+      expect(DeviceFormScope.of(tester.element(find.byType(Scaffold).first)), DeviceForm.phone);
       expect(find.byType(NavigationBar), findsOneWidget, reason: '$size');
       expect(find.byType(NavigationRail), findsNothing);
       await visitEveryTab(tester);
@@ -112,7 +112,7 @@ void main() {
   });
 
   testWidgets('desktops keep their layout at the same sizes', (tester) async {
-    await pumpApp(tester, const Size(1000, 700), formFactor: FormFactor.desktop, ratio: 1);
+    await pumpApp(tester, const Size(1000, 700), form: DeviceForm.desktop, ratio: 1);
     expect(find.byType(NavigationRail), findsOneWidget);
     await tester.tap(find.text('我的'));
     await tester.pumpAndSettle();

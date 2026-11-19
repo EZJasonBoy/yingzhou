@@ -6,7 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:tvbox_client/app_state.dart';
 import 'package:tvbox_client/engine/engine_client.dart';
 import 'package:tvbox_client/main.dart';
-import 'package:tvbox_client/ui/form_factor.dart';
+import 'package:tvbox_client/ui/device_form.dart';
 
 import 'fake_engine.dart';
 import 'fake_player.dart';
@@ -335,8 +335,6 @@ void main() {
   });
 
   testWidgets('on a phone: the download sheet and 我的 → 下载 fit, with touch-sized episodes', (tester) async {
-    FormFactors.debugOverride = FormFactor.phone;
-    addTearDown(() => FormFactors.debugOverride = FormFactor.desktop);
     tester.view.physicalSize = const Size(360, 740) * 3;
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
@@ -344,7 +342,10 @@ void main() {
       {'id': 'r', 'episodeId': '${ep}1.m3u8', 'episodeName': '第1集', 'episodeIndex': 0, 'state': 'running', 'progress': 0.42, 'bytes': 13 * 1024 * 1024, 'speed': 1536 * 1024, 'createdAt': 5},
     ]);
     player = FakePlayer();
-    await tester.pumpWidget(TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url, httpClient: engine), playerBackend: () => player.backend())));
+    await tester.pumpWidget(DeviceFormScope.fixed(
+      DeviceForm.phone,
+      child: TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url, httpClient: engine), playerBackend: () => player.backend())),
+    ));
     await tester.pumpAndSettle();
     await openDetail(tester);
     await tester.tap(find.byKey(const Key('download-button')));

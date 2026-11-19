@@ -7,7 +7,7 @@ import '../pages/library_page.dart';
 import '../pages/live_page.dart';
 import '../pages/search_page.dart';
 import '../pages/sources_page.dart';
-import 'form_factor.dart';
+import 'device_form.dart';
 
 /// Top-level navigation: a rail on wide screens, a bottom bar on phones.
 class AppShell extends StatefulWidget {
@@ -62,7 +62,7 @@ class _AppShellState extends State<AppShell> {
   /// Phones, tablets and TVs: the system's back on another tab goes to 首页 first; on 首页 it leaves the app. Live TV in
   /// full screen handles back itself (it leaves full screen).
   Widget _backToHome(Widget child) {
-    if (FormFactors.isDesktop) return child;
+    if (isDesktop(context)) return child;
     // The status and navigation bars are see-through, their icons following the theme (pages with an app bar set
     // their own).
     final dark = Theme.of(context).brightness == Brightness.dark;
@@ -130,10 +130,10 @@ class _AppShellState extends State<AppShell> {
     );
     if (_immersive && _index == 1) return Scaffold(backgroundColor: Colors.black, body: pages);
     final size = MediaQuery.sizeOf(context);
-    final formFactor = FormFactors.of(context);
+    final form = DeviceFormScope.of(context);
     // Bottom bar only on a phone held upright (or a narrow window); tablets and phones on their side get the rail.
-    final wide = size.width >= 760 || formFactor == FormFactor.tablet || (formFactor == FormFactor.phone && size.width > size.height);
-    if (wide && formFactor != FormFactor.desktop && formFactor != FormFactor.tv) {
+    final wide = size.width >= 760 || form == DeviceForm.tablet || (form == DeviceForm.phone && size.width > size.height);
+    if (wide && (form == DeviceForm.phone || form == DeviceForm.tablet)) {
       return Scaffold(body: Row(children: [_rail(context, size.height < 560), Expanded(child: pages)]));
     }
     if (wide) {

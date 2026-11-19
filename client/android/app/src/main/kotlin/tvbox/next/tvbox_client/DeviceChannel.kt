@@ -1,43 +1,46 @@
 package tvbox.next.tvbox_client
 
+import android.app.Activity
 import android.app.UiModeManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
-import io.flutter.plugin.common.BinaryMessenger
+import android.view.View
+import android.view.ViewGroup
+import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-/**
- * What kind of device this is, for the client's `FormFactors` (lib/ui/form_factor.dart): channel `yingzhou/device`,
- * method `info` → `{tv: Boolean, touchscreen: Boolean}`.
- *
- * A TV is one whose UI mode is television, or that has the leanback feature, or that has no touchscreen at all: many
- * boxes run phone Android and declare neither of the first two.
- */
+/** Tells the Flutter side what kind of device this is: a TV, or a phone / tablet (client/lib/ui/device_form.dart). */
 object DeviceChannel {
-    fun register(messenger: BinaryMessenger, context: Context) {
+    fun register(engine: FlutterEngine, context: Context) {
         val app = context.applicationContext
-        MethodChannel(messenger, "yingzhou/device").setMethodCallHandler { call, result ->
+        MethodChannel(engine.dartExecutor.binaryMessenger, "yingzhou/device").setMethodCallHandler { call, result ->
             when (call.method) {
-                "info" -> result.success(mapOf("tv" to isTv(app), "touchscreen" to hasTouchscreen(app), "emulator" to isEmulator()))
+                "info" -> result.success(info(app))
                 else -> result.notImplemented()
             }
         }
+        // With a D-pad or a keyboard Android outlines the focused view, which here is the whole Flutter view; the app
+        // draws its own focus. The Flutter view is created after this, so it is caught when it takes the focus.
+        (context as? Activity)?.window?.decorView?.let { root ->
+            root.viewTreeObserver.addOnGlobalFocusChangeListener { _, focused -> focused?.let { noFocusHighlight(it) } }
+            root.post { noFocusHighlight(root) }
+        }
     }
 
-    fun isTv(context: Context): Boolean {
-        val uiMode = context.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
-        if (uiMode?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION) return true
+    fun info(context: Context): Map<String, Any> {
+        val ui = context.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
         val pm = context.packageManager
-        @Suppress("DEPRECATION")
-        if (pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION)) return true
-        return !hasTouchscreen(context)
+        return mapOf(
+            "tv" to (ui?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION),
+            "leanback" to (pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || pm.hasSystemFeature("android.software.leanback_only")),
+            "touchscreen" to pm.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN),
+        )
     }
 
-    private fun hasTouchscreen(context: Context): Boolean = context.packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
-
-    /** The Android emulator (its GL cannot host libmpv's video output; see lib/player_backend.dart). */
-    fun isEmulator(): Boolean =
-        Build.HARDWARE == "ranchu" || Build.HARDWARE == "goldfish" || Build.FINGERPRINT.startsWith("generic") || Build.PRODUCT.contains("sdk_gphone")
+    private fun noFocusHighlight(view: View) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) view.defaultFocusHighlightEnabled = false
+        if (view is ViewGroup) for (i in 0 until view.childCount) noFocusHighlight(view.getChildAt(i))
+    }
 }
