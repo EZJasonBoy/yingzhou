@@ -5,7 +5,11 @@ import 'package:material_ui/material_ui.dart';
 import '../app_state.dart';
 import '../engine/vod_models.dart';
 import '../ui/common.dart';
+import '../ui/device_form.dart';
 import '../ui/poster.dart';
+import '../ui/tv/tv_focus.dart';
+import '../ui/tv/tv_keyboard.dart';
+import '../ui/tv/tv_text_input.dart';
 import 'browse_page.dart' show errorText;
 import 'detail_page.dart';
 
@@ -43,6 +47,7 @@ class _SearchPageState extends State<SearchPage> {
   void _search() {
     final q = _field.text.trim();
     if (q.isEmpty) return;
+    if (DeviceFormScope.readIsTv(context)) _rememberQuery(q);
     _sub?.cancel();
     setState(() {
       _query = q;
@@ -89,6 +94,7 @@ class _SearchPageState extends State<SearchPage> {
     final state = AppScope.of(context);
     final scheme = Theme.of(context).colorScheme;
     final visible = _siteFilter == null ? _results : _results.where((v) => v.site == _siteFilter).toList();
+    if (isTv(context)) return _buildTv(context, state, visible);
 
     return Scaffold(
       body: SafeArea(
@@ -179,6 +185,135 @@ class _SearchPageState extends State<SearchPage> {
         final vod = visible[i];
         return PosterCard(vod: vod, caption: state.siteName(vod.site), onTap: () => openDetail(context, vod));
       },
+    );
+  }
+
+  // ---- TV: an on-screen keyboard on the left, the results on the right; recent searches before the first one.
+
+  static const _recentKey = 'search.recent';
+
+  List<String> _recentQueries() =>
+      (AppScope.read(context).settings.getString(_recentKey) ?? '').split('\n').where((s) => s.trim().isNotEmpty).toList();
+
+  void _rememberQuery(String q) {
+    final list = [q, ..._recentQueries().where((s) => s != q)].take(12).toList();
+    AppScope.read(context).settings.setString(_recentKey, list.join('\n'));
+  }
+
+  Widget _buildTv(BuildContext context, AppState state, List<VodCard> visible) {
+    final scheme = Theme.of(context).colorScheme;
+    final recent = _query == null && _error == null ? _recentQueries() : const <String>[];
+    return Scaffold(
+      body: SafeArea(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              width: 296,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 8, 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextField(
+                      key: const Key('tv-search-field'),
+                      controller: _field,
+                      focusNode: widget.focusNode,
+                      enabled: state.hasConfig,
+                      textInputAction: TextInputAction.search,
+                      onSubmitted: (_) => _search(),
+                      style: const TextStyle(fontSize: 20),
+                      decoration: InputDecoration(
+                        hintText: state.hasConfig ? '片名、拼音或首字母' : (state.loadingConfig ? '正在加载订阅…' : '先在"源"里导入订阅'),
+                        prefixIcon: const Icon(Icons.search),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Expanded(
+                      child: TvSearchKeyboard(
+                        controller: _field,
+                        onSearch: _search,
+                        onSystemInput: widget.focusNode == null ? null : () => TvTextInputGate.openKeyboard(widget.focusNode!),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (_query != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+                      child: Text(
+                        '「$_query」${_searching ? '搜索中' : '搜索完成'} · ${_finished.length}/${_started.length} 个站点 · 找到 ${_results.length} 条'
+                        '${_failed.isEmpty ? '' : ' · ${_failed.length} 个站点失败'}',
+                        style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 14),
+                      ),
+                    ),
+                  if (_perSite.length > 1)
+                    SizedBox(
+                      height: 52,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ChoiceChip(label: Text('全部 ${_results.length}'), selected: _siteFilter == null, onSelected: (_) => setState(() => _siteFilter = null)),
+                          ),
+                          for (final e in _perSite.entries)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: ChoiceChip(
+                                label: Text('${state.siteName(e.key)} ${e.value}'),
+                                selected: _siteFilter == e.key,
+                                onSelected: (_) => setState(() => _siteFilter = e.key),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  Expanded(child: recent.isNotEmpty ? _recentOnTv(recent) : _body(visible, state)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _recentOnTv(List<String> recent) {
+    final scheme = Theme.of(context).colorScheme;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+      children: [
+        Text('最近搜索', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 15)),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            for (final q in recent)
+              TvFocusable(
+                onTap: () {
+                  _field.text = q;
+                  _search();
+                },
+                scale: 1.08,
+                borderRadius: BorderRadius.circular(999),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                  decoration: BoxDecoration(color: scheme.surfaceContainerHigh, borderRadius: BorderRadius.circular(999)),
+                  child: Text(q, style: const TextStyle(fontSize: 17)),
+                ),
+              ),
+          ],
+        ),
+      ],
     );
   }
 }

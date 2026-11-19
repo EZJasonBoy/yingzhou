@@ -13,6 +13,7 @@ import 'ui/poster_cache.dart';
 import 'ui/pairing_dialog.dart';
 import 'ui/shell.dart';
 import 'ui/theme.dart';
+import 'ui/tv/tv_app.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -63,14 +64,14 @@ class _TvboxAppState extends State<TvboxApp> {
         debugShowCheckedModeBanner: false,
         themeMode: ThemeMode.dark,
         theme: buildLightTheme(),
-        darkTheme: buildDarkTheme(),
+        darkTheme: tvTheme(context, buildDarkTheme()),
         navigatorKey: _navigator,
         // Desktop habits: the mouse's back button and Alt+Left go back a page.
         builder: (context, child) => Listener(
           onPointerDown: (e) {
             if (e.kind == PointerDeviceKind.mouse && e.buttons & kBackMouseButton != 0) _back();
           },
-          child: CallbackShortcuts(bindings: {const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): _back}, child: child ?? const SizedBox.shrink()),
+          child: CallbackShortcuts(bindings: {const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): _back}, child: TvAppFrame(child: child ?? const SizedBox.shrink())),
         ),
         home: const PairingGate(child: AppShell()),
       ),
