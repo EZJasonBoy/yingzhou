@@ -269,6 +269,22 @@ tvbox-next/
   1. Flutter 图层（已实现）：文字预栅格化缓存、只绘制可见部分，兼容任何内核、可交互。
   2. 桌面 mpv 模式：转成 ASS 交给 libmpv 渲染，几乎零开销（未做，Flutter 图层已经够快，见下）。
 
+#### 手机与平板（已实现）
+
+- **设备形态**：用和电视共用的 `ui/device_form.dart`（`DeviceFormScope.of(context)` → `phone` / `tablet` / `tv` / `desktop`，规则和用户的"界面模式"见电视那一节）。手机和平板按**窗口**的短边分，小于 600 dp 是手机，所以分屏里的平板拿到手机布局。新加的触控行为只认 `isTouch(context)`（手机或平板），电视和桌面不受影响；播放页和直播页在第一次 `didChangeDependencies` 时决定要不要触控那一套。组件测试把要测的形态用 `DeviceFormScope.fixed(...)` 包在应用外面；`test/flutter_test_config.dart` 让没有包的测试按桌面跑（`DeviceFormScope.debugFormWithoutScope`，flutter_test 把平台报成安卓）。
+- **外壳**：手机竖着时底部导航栏，平板和横着的手机用侧边导航栏（高度不够时可滚动、去掉顶上的图标）；状态栏和导航栏透明，图标颜色随主题；手机和平板跟随系统的浅色 / 深色，桌面和电视仍是深色。手机和平板上系统的"返回"在别的页签先回首页，在首页才退出（电视的返回由 `TvShell` 自己处理）。
+- **页面**：海报墙 `PosterGridDelegate` 宽度不足 560 dp 时三列铺满（桌面的最小窗口也到不了这个宽度，桌面不变）。详情页窄屏时小海报和标题并排、按钮在下面，选集按钮按宽度铺满一行（至少三列）。订阅和引擎地址弹出网址键盘，搜索结果一滚动就收起键盘。
+- **点播播放页**（`pages/player_page.dart` 加 `player_mobile.dart`、`touch_gestures.dart`）：
+  - 布局：手机或平板竖着（且不全屏）时，16:9 的画面在顶上，下面是 `PlayerPhoneInfo`：片名、倍速 / 弹幕 / 字幕 / 小窗、线路、选集（52 dp 高的按钮，正在放的那集滚到眼前）；字幕和弹幕面板也在下面这块打开，不压在小画面上。横着或全屏时与桌面同一套层叠，控制条换成 `TouchPlayerBars`（48 dp 按钮，放不下的按钮横向滚动），左边多一个锁。画面和控制条挂在一个 `GlobalKey` 下，竖屏 / 全屏 / 画中画之间切换时视频组件不重建。
+  - 手势（`TouchGestureLayer`，是控制条的兄弟层而不是父层，按钮不用等双击判定）：单击显示 / 隐藏控制条（桌面的"单击暂停"在触屏上不用）；双击左三分之一快退 10 秒、右三分之一快进 10 秒、中间暂停 / 继续，连续双击累加；左右拖动预览目标时间，松手才跳一次，划过整个画面宽度是三分钟（片子更短就是整片）；左半边上下拖是本窗口亮度，右半边是系统媒体音量（拖过画面高度的 80% 从无到满）；长按 2 倍速，松手恢复；锁住时只有单击（叫出锁）有用，返回手势也被拦下并提示。从屏幕边缘系统手势区开始的拖动留给系统（返回、通知栏）。
+  - 全屏与转屏（`MobilePlayback`）：手机上横屏就是全屏——把手机横过来自动全屏（隐藏系统栏，`immersiveSticky`），全屏按钮把屏幕转成横向（竖的视频转成竖向），退出全屏转回竖向并锁住竖向到离开这一页，免得手机还横着就又转回全屏；平板全屏只隐藏系统栏并转横，退出后恢复自由旋转。系统返回依次：解锁提示 → 关面板 → 退出全屏 → 离开页面。离开页面时恢复系统栏、所有方向和系统亮度。
+  - 常亮与后台：播放中保持屏幕常亮（`FLAG_KEEP_SCREEN_ON`），暂停或离开就取消；没进画中画就切到后台（应用被隐藏）时暂停。
+  - 画中画：播放中离开应用（上滑回桌面、最近任务）自动缩成小窗，只剩画面（控制条、锁、提示、弹幕都不画）；小窗里有一个播放 / 暂停按钮；小窗被关掉时应用随即被隐藏，于是按上一条暂停。安卓 12 起用 `setAutoEnterEnabled`，8–11 在 `onUserLeaveHint` 里 `enterPictureInPictureMode`；控制条和竖屏操作区里也有"小窗"按钮（设备支持时才显示）。宽高比跟着视频。
+- **直播页**：手机竖着时画面在上，下面是正在播放的节目、频道 / 节目单两个页签（源、分组、频道在第一个页签）；横过来自动全屏，全屏时单击叫出左侧频道列表（带分组）和右上角的小窗、退出全屏按钮。手势：单击显示控制、双击暂停、左右滑动换上一个 / 下一个频道（回看时改为拖动跳转、长按倍速）、上下拖动亮度 / 音量。画中画、常亮、切后台（直播是停下，回来时重新调台）同点播。
+- **原生一侧**：`MainActivity` 在 `configureFlutterEngine` 里多注册一个通道、转发 `onUserLeaveHint` 和 `onPictureInPictureModeChanged`；`PlaybackChannel.kt`（`yingzhou/playback`：启动时的 `info`（是不是模拟器）、本窗口亮度 `screenBrightness`、`STREAM_MUSIC` 音量（不弹系统音量条）、常亮、画中画参数、小窗按钮用本应用内的广播 `RECEIVER_NOT_EXPORTED`）。没有新增依赖。
+- **安卓上的播放**（`player_backend.dart`）：media_kit 在安卓上默认 `vo=gpu`（libmpv 的 OpenGL ES 画进 Flutter 纹理）、`hwdec=auto-safe`（解码器支持的流走 MediaCodec，不支持的退回软解，所以 libmpv 能读的流都有画面，字幕和弹幕在所有设备上画法一样），并且在模拟器上强制软解。真机保持这个默认。模拟器（`-gpu swiftshader_indirect`）的 OpenGL 不接受 libmpv 要的上下文（logcat：`eglCreateContext: EGL_BAD_ATTRIBUTE`），画面一直是黑的、只有声音；所以**只在模拟器上**（`PlaybackHost.isAndroidEmulator`，启动时问 `PlaybackChannel`）改用 `vo=mediacodec_embed` + `hwdec=mediacodec`，由 MediaCodec 直接把画面送进视频的 Surface，不经过 libmpv 的 OpenGL（模拟器的 `c2.goldfish.h264.decoder`）。这样在模拟器上播放、跳转、转屏、画中画都有画面。
+  - 没在真机上验证的：真机上 `auto-safe` 实际选的是 `mediacodec`（零拷贝）还是 `mediacodec-copy`、发热和掉帧，10 bit HEVC、杜比视界这类流，弱 GPU 的盒子上 `vo=gpu` 的开销（`mediacodec_embed` 更省但没有软解兜底，换不了解码器的流就没画面），以及刘海屏、折叠屏、各家系统对画中画和亮度的处理。
+
 #### 弹幕（已实现）
 
 - **引擎**（`core/danmaku/`）：`DanmakuParser` 把 B 站 XML、各种 JSON、弹幕 ASS 读成一种格式（毫秒、`scroll`/`top`/`bottom`、0xRRGGBB、B 站字号、文字），解压和编码识别与字幕共用 `TextDecoding`。`DanmakuService` 按顺序找一集的弹幕：播放结果里的 `danmaku`（`Engine.resolvePlay` 时按"站点 + 线路 + 剧集"记下）、配置的 `danmaku` 接口（`EngineSettings.danmakuConfigApi` 打开时）、使用者自己的接口（`danmakuApi`），结果在内存里按集保留 30 分钟。接口不内置任何第三方地址，两个开关默认都关。客户端经 `GET /api/v1/danmaku`（带令牌）取，所以局域网客户端不需要签名地址。

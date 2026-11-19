@@ -69,6 +69,7 @@ class _SourcesPageState extends State<SourcesPage> {
                           Expanded(
                             child: TextField(
                               controller: _engineField,
+                              keyboardType: TextInputType.url,
                               decoration: const InputDecoration(labelText: '引擎地址'),
                               onSubmitted: (v) => state.connect(v),
                             ),
@@ -102,6 +103,7 @@ class _SourcesPageState extends State<SourcesPage> {
                       Expanded(
                         child: TextField(
                           controller: _subscriptionField,
+                          keyboardType: TextInputType.url,
                           enabled: state.connected && !state.busy,
                           decoration: const InputDecoration(labelText: '订阅地址', hintText: '支持 http(s)、clan://、;pk; 密钥后缀'),
                           onSubmitted: (v) => state.importSubscription(v),

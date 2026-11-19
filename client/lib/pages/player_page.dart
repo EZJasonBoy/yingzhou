@@ -21,8 +21,10 @@ import '../ui/tv/tv_focus.dart';
 import 'browse_page.dart' show errorText;
 import 'danmaku_layer.dart';
 import 'danmaku_panel.dart';
+import 'player_mobile.dart';
 import 'player_tracks.dart';
 import 'seek_bar.dart';
+import 'touch_gestures.dart';
 
 part 'player_tv.dart';
 
@@ -134,6 +136,14 @@ class _PlayerPageState extends State<PlayerPage> {
 
   bool get _anyPanelOpen => _panelOpen || _tracksOpen || _danmakuOpen;
 
+  /// Phones and tablets: gestures on the picture, full screen and rotation, the lock, picture-in-picture
+  /// ([MobilePlayback]); null on desktops and TVs. [_stageKey] keeps the picture and its controls alive when the
+  /// layout around them changes (upright with the episodes below, full screen, picture-in-picture).
+  MobilePlayback? _mobile;
+  bool _formKnown = false;
+  final _stageKey = GlobalKey();
+  Orientation? _orientation;
+
   static const _volumeKey = 'player.volume';
   static const _speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
 
@@ -242,6 +252,36 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Phones and tablets (ui/device_form.dart) get the touch player, decided once when the page first sees the scope.
+    if (!_formKnown) {
+      _formKnown = true;
+      if (isTouch(context)) {
+        _mobile = MobilePlayback(
+          onChanged: () {
+            if (mounted) setState(() {});
+          },
+          // Leaving the app without picture-in-picture pauses, as phone players do.
+          onBackground: () => _player.pause(),
+        )
+          ..start()
+          ..attach(_player);
+      }
+    }
+    final mobile = _mobile;
+    if (mobile == null) return;
+    // A phone's player goes full screen in landscape; a tablet's shows the picture with the bars either way.
+    mobile.rotateToFullScreen = isPhone(context);
+    final orientation = MediaQuery.orientationOf(context);
+    if (orientation == _orientation) return;
+    _orientation = orientation;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) mobile.orientationChanged(orientation);
+    });
+  }
+
+  @override
   void dispose() {
     _hideTimer?.cancel();
     _saveTimer?.cancel();
@@ -258,6 +298,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _saveProgress();
     _tracks.dispose();
     _danmakuPrefs.dispose();
+    _mobile?.dispose();
     for (final s in _subs) {
       s.cancel();
     }
@@ -678,6 +719,17 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   void _back() {
+    final mobile = _mobile;
+    if (mobile != null && mobile.locked) {
+      // Locked: nothing but the lock button does anything, the back gesture included.
+      _showOsd('屏幕已锁定，点左侧的锁解锁', const Duration(seconds: 2));
+      _pokeControls();
+      return;
+    }
+    if (mobile != null && mobile.fullScreen && !_anyPanelOpen) {
+      mobile.setFullScreen(false);
+      return;
+    }
     if (_window.isFullScreen) {
       _window.fullScreen = false;
       setState(() {});
@@ -733,7 +785,11 @@ class _PlayerPageState extends State<PlayerPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final pip = _mobile?.inPip ?? false;
+    final inline = _inline(context);
+    // The side panels over the picture; upright on a phone they open under it instead (see _buildPhoneInfo).
+    final sidePanels = !inline && !pip;
+    return _touchFrame(context, inline, Scaffold(
       backgroundColor: Colors.black,
       body: Focus(
         focusNode: _focus,
@@ -753,6 +809,8 @@ class _PlayerPageState extends State<PlayerPage> {
                 // The picture alone listens for clicks and double clicks. A button inside this detector would have to
                 // wait until a click can no longer become a double click (0.3 s) before it reacts, so the layers
                 // above are its siblings, and whatever in them is only for show lets clicks through to it.
+                // Phones and tablets: the gestures of phone video players (TouchGestureLayer).
+                if (_mobile != null) _buildTouchLayer() else
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   // Desktop: click pauses, double-click goes fullscreen. Touch: tap shows/hides the controls.
@@ -766,15 +824,32 @@ class _PlayerPageState extends State<PlayerPage> {
                   child: _backend.view,
                 ),
                 // Danmaku over the picture, under everything else; clicks go through to the picture.
-                if (_danmakuPrefs.enabled && _danmaku.items.isNotEmpty)
+                if (_danmakuPrefs.enabled && _danmaku.items.isNotEmpty && !pip)
                   IgnorePointer(child: DanmakuOverlay(key: const Key('danmaku-overlay'), player: _player, comments: _danmaku.items, prefs: _danmakuPrefs)),
                 AnimatedOpacity(
-                  opacity: _controlsVisible ? 1 : 0,
+                  opacity: _barsVisible ? 1 : 0,
                   duration: const Duration(milliseconds: 200),
-                  child: IgnorePointer(ignoring: !_controlsVisible, child: _buildControls(context)),
+                  child: IgnorePointer(ignoring: !_barsVisible, child: _buildControls(context)),
                 ),
-                _buildStatus(),
-                if (_osd != null)
+                // The lock, over the picture when it fills the screen; a locked screen shows nothing else.
+                if (_mobile != null && !inline && !pip)
+                  AnimatedOpacity(
+                    opacity: _controlsVisible ? 1 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: IgnorePointer(
+                      ignoring: !_controlsVisible,
+                      child: PlayerLockButton(
+                        locked: _mobile!.locked,
+                        onPressed: () {
+                          _mobile!.toggleLock();
+                          _showOsd(_mobile!.locked ? '屏幕已锁定' : '屏幕已解锁');
+                          _pokeControls();
+                        },
+                      ),
+                    ),
+                  ),
+                if (!pip) _buildStatus(),
+                if (_osd != null && !pip)
                   IgnorePointer(
                     child: Align(
                       alignment: const Alignment(0, -0.55),
@@ -788,10 +863,10 @@ class _PlayerPageState extends State<PlayerPage> {
                       ),
                     ),
                   ),
-                if (_panelOpen) _tvMode ? _buildTvEpisodePanel(context) : _buildEpisodePanel(context),
+                if (_panelOpen && sidePanels) _tvMode ? _buildTvEpisodePanel(context) : _buildEpisodePanel(context),
                 if (_tvUi.settingsOpen) _buildTvSettings(context),
-                if (_tracksOpen) PlayerSidePanel(onClose: () => setState(() => _tracksOpen = false), child: TracksPanel(tracks: _tracks)),
-                if (_danmakuOpen)
+                if (_tracksOpen && sidePanels) PlayerSidePanel(onClose: () => setState(() => _tracksOpen = false), child: TracksPanel(tracks: _tracks)),
+                if (_danmakuOpen && sidePanels)
                   PlayerSidePanel(
                     onClose: () => setState(() => _danmakuOpen = false),
                     child: DanmakuPanel(
@@ -808,7 +883,7 @@ class _PlayerPageState extends State<PlayerPage> {
           ),
         ),
       ),
-    );
+    ));
   }
 
   Widget _buildStatus() {
@@ -880,7 +955,7 @@ class _PlayerPageState extends State<PlayerPage> {
             ),
           ),
         ),
-        _buildBars(context, title),
+        if (_mobile != null) _buildTouchBars(context, title) else _buildBars(context, title),
       ],
     );
   }
@@ -1083,6 +1158,195 @@ class _PlayerPageState extends State<PlayerPage> {
           ),
         ),
       ),
+    );
+  }
+
+  // ------------------------------------------------------------------ phones and tablets
+
+  /// The bars over the picture: not while the screen is locked or the app is a picture-in-picture window.
+  bool get _barsVisible => _controlsVisible && !(_mobile?.locked ?? false) && !(_mobile?.inPip ?? false);
+
+  /// A phone or tablet held upright, not in full screen: the picture on top, the episodes under it.
+  bool _inline(BuildContext context) {
+    final mobile = _mobile;
+    return mobile != null && !mobile.fullScreen && !mobile.inPip && MediaQuery.orientationOf(context) == Orientation.portrait;
+  }
+
+  /// Around the page on phones and tablets: the back gesture leaves the lock, a panel or full screen before the page;
+  /// upright, the picture is a 16:9 box at the top with the title, lines and episodes under it.
+  Widget _touchFrame(BuildContext context, bool inline, Widget page) {
+    final mobile = _mobile;
+    if (mobile == null) return page;
+    final stage = KeyedSubtree(key: _stageKey, child: AnnotatedRegion<SystemUiOverlayStyle>(value: SystemUiOverlayStyle.light, child: page));
+    return PopScope(
+      canPop: !(mobile.locked || mobile.fullScreen || _anyPanelOpen),
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _back();
+      },
+      child: !inline
+          ? stage
+          : ColoredBox(
+              color: Colors.black,
+              child: Column(
+                children: [
+                  SizedBox(height: MediaQuery.paddingOf(context).top),
+                  AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: MediaQuery.removePadding(context: context, removeTop: true, removeBottom: true, child: stage),
+                  ),
+                  Expanded(child: _buildPhoneInfo(context)),
+                ],
+              ),
+            ),
+    );
+  }
+
+  Widget _buildTouchLayer() {
+    final mobile = _mobile!;
+    return TouchGestureLayer(
+      player: _player,
+      locked: mobile.locked,
+      onTap: () => _controlsVisible ? setState(() => _controlsVisible = false) : _pokeControls(),
+      // Left third back 10 s, right third on 10 s, the middle plays / pauses.
+      onDoubleTap: (side) {
+        if (side == 0) {
+          _player.playOrPause();
+          _pokeControls();
+        } else {
+          _seekBy(Duration(seconds: 10 * side));
+        }
+      },
+      onSeek: (target) {
+        _seekTo(target);
+        _showOsd('${SeekBar.format(target)} / ${SeekBar.format(_player.state.duration)}');
+      },
+      onBrightness: mobile.brightnessTouched,
+      child: _backend.view,
+    );
+  }
+
+  Widget _buildTouchBars(BuildContext context, String title) {
+    final mobile = _mobile!;
+    final compact = _inline(context);
+    final seekBar = ValueListenableBuilder<List<BufferedRange>>(
+      valueListenable: _buffered,
+      builder: (context, buffered, _) => StreamBuilder<Duration>(
+        stream: _player.stream.position,
+        initialData: _player.state.position,
+        builder: (context, snap) => SeekBar(
+          key: const Key('seek-bar'),
+          position: snap.data ?? Duration.zero,
+          duration: _player.state.duration,
+          buffered: buffered,
+          onSeek: _seekTo,
+          onInteraction: _pokeControls,
+          height: 48,
+        ),
+      ),
+    );
+    return TouchPlayerBars(
+      title: compact ? _currentEpisode.name : title,
+      subtitle: _parsedBy.isEmpty ? _currentLine.name : '${_currentLine.name} · ${_parserLabel(_parsedBy)}',
+      player: _player,
+      seekBar: seekBar,
+      compact: compact,
+      fullScreen: mobile.fullScreen,
+      onBack: _back,
+      onFullScreen: () {
+        mobile.setFullScreen(!mobile.fullScreen);
+        _pokeControls();
+      },
+      onPrevious: _hasPrevious ? () => _playEpisode(_episode - 1) : null,
+      onNext: _hasNext ? () => _playEpisode(_episode + 1) : null,
+      onPip: mobile.pipSupported && !compact ? _enterPip : null,
+      actions: [
+        _SpeedButton(player: _player, speeds: _speeds),
+        IconButton(
+          key: const Key('danmaku-toggle'),
+          tooltip: _danmakuPrefs.enabled ? '关闭弹幕' : '打开弹幕',
+          onPressed: _toggleDanmaku,
+          icon: Icon(_danmakuPrefs.enabled ? Icons.chat_bubble_rounded : Icons.chat_bubble_outline_rounded, color: Colors.white),
+        ),
+        TextButton(key: const Key('danmaku-button'), onPressed: () => _openPanel(danmaku: true), child: const Text('弹幕', style: TextStyle(color: Colors.white))),
+        TextButton(key: const Key('tracks-button'), onPressed: () => _openPanel(tracks: true), child: const Text('字幕', style: TextStyle(color: Colors.white))),
+        TextButton(onPressed: () => _openPanel(episodes: true), child: const Text('选集', style: TextStyle(color: Colors.white))),
+      ],
+    );
+  }
+
+  void _openPanel({bool episodes = false, bool tracks = false, bool danmaku = false}) {
+    setState(() {
+      _panelOpen = episodes;
+      _tracksOpen = tracks;
+      _danmakuOpen = danmaku;
+    });
+    _pokeControls();
+  }
+
+  Future<void> _enterPip() async {
+    setState(() => _controlsVisible = false);
+    if (!await _mobile!.host.enterPip()) _showOsd('这台设备不能小窗播放', const Duration(seconds: 2));
+  }
+
+  /// Upright on a phone: what is playing, the actions, lines and episodes; or the panel that was opened.
+  Widget _buildPhoneInfo(BuildContext context) {
+    final mobile = _mobile!;
+    final caption = [_currentEpisode.name, _currentLine.name, if (_parsedBy.isNotEmpty) _parserLabel(_parsedBy)].join(' · ');
+    return PlayerPhoneInfo(
+      title: widget.detail.name,
+      caption: caption,
+      lines: widget.detail.lines,
+      line: _line,
+      episode: _episode,
+      onLine: (i) {
+        if (i != _line) _pickLine(i);
+      },
+      onEpisode: _playEpisode,
+      actions: [
+        StreamBuilder<double>(
+          stream: _player.stream.rate,
+          initialData: _player.state.rate,
+          builder: (context, snap) => MenuAnchor(
+            menuChildren: [
+              for (final s in _speeds)
+                MenuItemButton(leadingIcon: Icon(s == snap.data ? Icons.check : null, size: 18), onPressed: () => _player.setRate(s), child: Text('${s}x')),
+            ],
+            builder: (context, controller, _) => PhoneAction(
+              icon: Icons.speed_rounded,
+              label: snap.data == 1.0 ? '倍速' : '${snap.data}x',
+              selected: snap.data != 1.0,
+              onPressed: () => controller.isOpen ? controller.close() : controller.open(),
+            ),
+          ),
+        ),
+        PhoneAction(
+          key: const Key('phone-danmaku-toggle'),
+          icon: _danmakuPrefs.enabled ? Icons.chat_bubble_rounded : Icons.chat_bubble_outline_rounded,
+          label: _danmakuPrefs.enabled ? '弹幕开' : '弹幕关',
+          selected: _danmakuPrefs.enabled,
+          onPressed: _toggleDanmaku,
+        ),
+        PhoneAction(key: const Key('phone-danmaku-panel'), icon: Icons.tune_rounded, label: '弹幕设置', onPressed: () => _openPanel(danmaku: true)),
+        PhoneAction(key: const Key('phone-tracks'), icon: Icons.subtitles_outlined, label: '字幕', onPressed: () => _openPanel(tracks: true)),
+        if (mobile.pipSupported) PhoneAction(icon: Icons.picture_in_picture_alt_rounded, label: '小窗', onPressed: _enterPip),
+      ],
+      panel: _tracksOpen
+          ? TracksPanel(tracks: _tracks)
+          : _danmakuOpen
+          ? DanmakuPanel(
+              prefs: _danmakuPrefs,
+              list: _danmaku,
+              loading: _danmakuLoading,
+              error: _danmakuError,
+              onReload: () => _loadDanmaku(refresh: true),
+              onLoadFile: _loadDanmakuFile,
+            )
+          : null,
+      panelTitle: _tracksOpen ? '字幕与音轨' : '弹幕',
+      onClosePanel: () => setState(() {
+        _tracksOpen = false;
+        _danmakuOpen = false;
+      }),
     );
   }
 }

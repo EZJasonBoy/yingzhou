@@ -56,7 +56,59 @@ class _AppShellState extends State<AppShell> {
         const SingleActivator(LogicalKeyboardKey.keyF, control: true): _openSearch,
         const SingleActivator(LogicalKeyboardKey.keyF, meta: true): _openSearch,
       },
-      child: Focus(autofocus: true, child: _layout(context)),
+      child: Focus(autofocus: true, child: _backToHome(_layout(context))),
+    );
+  }
+
+  /// Phones and tablets: the system's back on another tab goes to 首页 first; on 首页 it leaves the app. Live TV in full
+  /// screen handles back itself (it leaves full screen). TVs have their own back in TvShell.
+  Widget _backToHome(Widget child) {
+    if (!isTouch(context)) return child;
+    // The status and navigation bars are see-through, their icons following the theme (pages with an app bar set
+    // their own).
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final bars = (dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark).copyWith(
+      statusBarColor: Colors.transparent,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarContrastEnforced: false,
+    );
+    return AnnotatedRegion<SystemUiOverlayStyle>(value: bars, child: PopScope(
+      canPop: _index == 0 && !_immersive,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && !_immersive && _index != 0) _go(0);
+      },
+      child: child,
+    ));
+  }
+
+  /// The rail on a tablet or a phone held sideways. Short windows (a phone in landscape) label only the tab shown,
+  /// and scroll the rail if even that does not fit.
+  Widget _rail(BuildContext context, bool short) {
+    final rail = NavigationRail(
+      selectedIndex: _index,
+      onDestinationSelected: _go,
+      labelType: short ? NavigationRailLabelType.selected : NavigationRailLabelType.all,
+      groupAlignment: -0.9,
+      leading: short
+          ? null
+          : Padding(
+              padding: const EdgeInsets.only(top: 12, bottom: 20),
+              child: Icon(Icons.live_tv_rounded, size: 30, color: Theme.of(context).colorScheme.primary),
+            ),
+      destinations: [
+        for (final d in _destinations) NavigationRailDestination(icon: Icon(d.icon), selectedIcon: Icon(d.selected), label: Text(d.label)),
+      ],
+    );
+    return ColoredBox(
+      color: Theme.of(context).navigationRailTheme.backgroundColor ?? Colors.transparent,
+      child: SafeArea(
+        right: false,
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            child: ConstrainedBox(constraints: BoxConstraints(minHeight: constraints.maxHeight), child: IntrinsicHeight(child: rail)),
+          ),
+        ),
+      ),
     );
   }
 
@@ -80,7 +132,13 @@ class _AppShellState extends State<AppShell> {
     // A TV: big entries on the left, everything driven by the remote (ui/tv/tv_shell.dart).
     if (isTv(context)) return TvShell(index: _index, destinations: _destinations, onSelect: _go, immersive: _immersive && _index == 1, pages: pages);
     if (_immersive && _index == 1) return Scaffold(backgroundColor: Colors.black, body: pages);
-    final wide = MediaQuery.sizeOf(context).width >= 760;
+    final size = MediaQuery.sizeOf(context);
+    final form = DeviceFormScope.of(context);
+    // Bottom bar only on a phone held upright (or a narrow window); tablets and phones on their side get the rail.
+    final wide = size.width >= 760 || form == DeviceForm.tablet || (form == DeviceForm.phone && size.width > size.height);
+    if (wide && (form == DeviceForm.phone || form == DeviceForm.tablet)) {
+      return Scaffold(body: Row(children: [_rail(context, size.height < 560), Expanded(child: pages)]));
+    }
     if (wide) {
       return Scaffold(
         body: Row(

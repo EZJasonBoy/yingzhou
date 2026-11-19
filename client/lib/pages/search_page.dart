@@ -178,6 +178,8 @@ class _SearchPageState extends State<SearchPage> {
       return _searching ? const LoadingView() : StatusView(icon: Icons.search_off, message: '没有找到"$_query"');
     }
     return GridView.builder(
+      // Scrolling the results puts the on-screen keyboard away.
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
       gridDelegate: posterGridDelegate,
       itemCount: visible.length,

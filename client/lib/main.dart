@@ -7,6 +7,7 @@ import 'app_state.dart';
 import 'desktop/desktop_window.dart';
 import 'engine/engine_client.dart';
 import 'engine/local_engine.dart';
+import 'mobile/playback_host.dart';
 import 'settings.dart';
 import 'ui/device_form.dart';
 import 'ui/poster_cache.dart';
@@ -20,6 +21,8 @@ Future<void> main() async {
   MediaKit.ensureInitialized();
   // During development, point the client at another engine with --dart-define=ENGINE_URL=http://127.0.0.1:19978
   const engineUrl = String.fromEnvironment('ENGINE_URL', defaultValue: defaultEngineUrl);
+  // Android: whether this is the emulator, which the player's video output depends on (player_backend.dart).
+  await PlaybackHost.init();
   final settings = await SharedPreferencesSettings.load();
   DesktopWindow.instance.restoreAndTrack(settings);
   // Posters are kept on disk (see ui/poster_cache.dart).
@@ -62,7 +65,8 @@ class _TvboxAppState extends State<TvboxApp> {
       child: MaterialApp(
         title: '映舟',
         debugShowCheckedModeBanner: false,
-        themeMode: ThemeMode.dark,
+        // Phones and tablets follow the system's light / dark setting; desktops and TVs stay dark.
+        themeMode: isTouch(context) ? ThemeMode.system : ThemeMode.dark,
         theme: buildLightTheme(),
         darkTheme: tvTheme(context, buildDarkTheme()),
         navigatorKey: _navigator,

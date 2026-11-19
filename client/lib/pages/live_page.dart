@@ -13,9 +13,12 @@ import '../player_backend.dart';
 import '../settings.dart';
 import '../ui/device_form.dart';
 import '../ui/engine_image.dart';
+import '../ui/theme.dart';
 import '../ui/tv/tv_focus.dart';
 import '../ui/tv/tv_widgets.dart';
 import 'browse_page.dart' show errorText;
+import 'player_mobile.dart';
+import 'touch_gestures.dart';
 
 part 'live_tv.dart';
 
@@ -87,6 +90,16 @@ class _LivePageState extends State<LivePage> {
   String? _osd;
   Timer? _osdTimer;
 
+  /// Phones and tablets ([MobilePlayback]): gestures on the picture, full screen with the turn to landscape,
+  /// picture-in-picture, keeping the screen on; null on desktops and TVs.
+  MobilePlayback? _mobile;
+  bool _formKnown = false;
+  Orientation? _orientation;
+
+  /// Keeps the picture (and its video surface) alive when it moves between the upright layout, full screen and
+  /// picture-in-picture; a new video widget there would show black on Android.
+  final _playerKey = GlobalKey();
+
   static const _lastKey = 'live.last';
   static const _volumeKey = 'player.volume';
 
@@ -123,6 +136,7 @@ class _LivePageState extends State<LivePage> {
       }),
     );
     _subs.add(player.stream.volume.listen((v) => _settings.setString(_volumeKey, v.toStringAsFixed(0))));
+    _mobile?.attach(player);
     return player;
   }
 
@@ -144,6 +158,25 @@ class _LivePageState extends State<LivePage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // Phones and tablets (ui/device_form.dart): decided once, when the page first sees the scope.
+    if (!_formKnown) {
+      _formKnown = true;
+      if (isTouch(context)) {
+        _mobile = MobilePlayback(
+          onChanged: _mobileChanged,
+          // In the background without picture-in-picture the channel stops; back in the app it tunes in again.
+          onBackground: () => _playerOrNull?.stop(),
+          onForeground: () {
+            final p = _playing;
+            if (p != null && _list != null && _catchup == null) _play(p.$1, p.$2, line: _line);
+          },
+        )..start();
+        _mobile!.setActive(widget.visible);
+        // The small controls over the picture come with a tap.
+        _overlay = false;
+      }
+    }
+    _mobileOrientation();
     final state = AppScope.of(context);
     final key = state.hasConfig ? '${state.engineUrl}|${state.summary!.subscriptionId}|${state.summary!.url}' : '';
     _configKey = key;
@@ -161,6 +194,12 @@ class _LivePageState extends State<LivePage> {
   void didUpdateWidget(LivePage old) {
     super.didUpdateWidget(old);
     if (old.visible == widget.visible) return;
+    _mobile?.setActive(widget.visible);
+    if (widget.visible && _mobile != null) {
+      // A phone already on its side when the tab comes up: full screen at once.
+      _orientation = null;
+      _mobileOrientation();
+    }
     if (widget.visible) {
       _loadIfNeeded();
       // Live streams go stale while paused: tune in again.
@@ -188,6 +227,7 @@ class _LivePageState extends State<LivePage> {
     for (final s in _subs) {
       s.cancel();
     }
+    _mobile?.dispose();
     _playerOrNull?.dispose();
     _focus.dispose();
     _tvUi.dispose();
@@ -469,10 +509,54 @@ class _LivePageState extends State<LivePage> {
   }
 
   void _toggleImmersive() {
+    final mobile = _mobile;
+    if (mobile != null) {
+      // Phones and tablets: through MobilePlayback (system bars, landscape), which reports back to _mobileChanged.
+      mobile.setFullScreen(!mobile.fullScreen);
+      return;
+    }
     setState(() => _immersive = !_immersive);
     widget.onImmersiveChanged?.call(_immersive);
     if (_window.supported) _window.fullScreen = _immersive;
     if (_immersive) _showOverlay();
+  }
+
+  /// Full screen or picture-in-picture changed on a phone or tablet: the page shows the picture alone, and the shell
+  /// hides its navigation (told after the frame: this can come while the shell builds).
+  void _mobileChanged() {
+    final mobile = _mobile;
+    if (mobile == null || !mounted) return;
+    final full = mobile.active && (mobile.fullScreen || mobile.inPip);
+    if (full != _immersive) {
+      _immersive = full;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onImmersiveChanged?.call(_immersive);
+      });
+      if (full && !mobile.inPip) _showOverlay();
+    }
+    setState(() {});
+  }
+
+  /// A phone's live picture goes full screen when the phone is turned on its side, and back when turned upright.
+  void _mobileOrientation() {
+    final mobile = _mobile;
+    if (mobile == null) return;
+    mobile.rotateToFullScreen = isPhone(context);
+    final orientation = MediaQuery.orientationOf(context);
+    if (orientation == _orientation || !widget.visible) return;
+    _orientation = orientation;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.visible) mobile.orientationChanged(orientation);
+    });
+  }
+
+  void _toggleOverlay() {
+    if (_overlay) {
+      _overlayTimer?.cancel();
+      setState(() => _overlay = false);
+    } else {
+      _showOverlay();
+    }
   }
 
   void _showOverlay() {
@@ -548,7 +632,7 @@ class _LivePageState extends State<LivePage> {
           ? (_immersive ? _buildTvImmersive(context) : _buildTvLayout(context))
           : (_immersive ? _buildImmersive(context) : _buildLayout(context));
     }
-    return Focus(
+    return _touchBack(Focus(
       focusNode: _focus,
       autofocus: widget.visible,
       onKeyEvent: _onKey,
@@ -557,6 +641,19 @@ class _LivePageState extends State<LivePage> {
         // On a TV the full-screen picture goes to the edges; its overlays keep clear of them themselves.
         body: _immersive && _tvMode ? body : SafeArea(child: body),
       ),
+    ));
+  }
+
+  /// Phones and tablets: the system's back leaves full screen first (the shell leaves this tab after that).
+  Widget _touchBack(Widget child) {
+    final mobile = _mobile;
+    if (mobile == null) return child;
+    return PopScope(
+      canPop: !(widget.visible && mobile.fullScreen),
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && widget.visible && mobile.fullScreen) mobile.setFullScreen(false);
+      },
+      child: child,
     );
   }
 
@@ -582,6 +679,7 @@ class _LivePageState extends State<LivePage> {
   Widget _buildLayout(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 1000;
     final player = _buildPlayer(context);
+    if (!wide && _mobile != null) return _buildPhoneLayout(context, player);
     if (!wide) {
       return Column(
         children: [
@@ -792,6 +890,7 @@ class _LivePageState extends State<LivePage> {
           if (back == null && ch.urls.length > 1) IconButton(tooltip: '换线路 (→)', onPressed: () => _switchLine(1), icon: const Icon(Icons.swap_horiz_rounded)),
           _VolumeButton(player: _player, onToggleMute: _toggleMute),
           if (_window.supported) IconButton(tooltip: '全屏 (F / 双击)', onPressed: _toggleImmersive, icon: const Icon(Icons.fullscreen_rounded)),
+          if (_mobile != null) IconButton(key: const Key('live-fullscreen'), tooltip: '全屏', onPressed: _toggleImmersive, icon: const Icon(Icons.fullscreen_rounded)),
         ],
       ),
     );
@@ -874,7 +973,7 @@ class _LivePageState extends State<LivePage> {
   };
 
   Widget _buildPlayer(BuildContext context) {
-    return MouseRegion(
+    return _keepPlayer(MouseRegion(
       onHover: _immersive ? (_) => _showOverlay() : null,
       cursor: _immersive && !_overlay ? SystemMouseCursors.none : SystemMouseCursors.basic,
       child: Listener(
@@ -884,13 +983,15 @@ class _LivePageState extends State<LivePage> {
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onDoubleTap: _window.supported ? _toggleImmersive : null,
-          onTap: () {
+          // Phones and tablets: the touch layer below takes the taps.
+          onTap: _mobile != null ? null : () {
             _focus.requestFocus();
             if (_immersive) _showOverlay();
           },
           child: Stack(
             fit: StackFit.expand,
             children: [
+              if (_mobile != null && _backend != null) _buildTouchLayer() else
               _backend?.view ?? const ColoredBox(color: Colors.black),
               if (_catchup != null) const IgnorePointer(child: Align(alignment: Alignment(-0.95, -0.9), child: _CatchupBadge())),
               if (_status != null)
@@ -917,10 +1018,135 @@ class _LivePageState extends State<LivePage> {
                     child: Text(_osd!, style: const TextStyle(color: Colors.white, fontSize: 15)),
                   ),
                 ),
+              if (_mobile != null && !_immersive) _buildInlineControls(),
             ],
           ),
         ),
       ),
+    ));
+  }
+
+  /// Phones and tablets: the picture keeps its element across layouts ([_playerKey]).
+  Widget _keepPlayer(Widget player) => _mobile == null ? player : KeyedSubtree(key: _playerKey, child: player);
+
+  // ------------------------------------------------------------------ phones and tablets
+
+  Widget _buildTouchLayer() {
+    final catchup = _catchup != null;
+    return TouchGestureLayer(
+      player: _player,
+      // Live: a swipe to either side changes channel; playing back, it seeks like the video player.
+      swipe: catchup ? TouchSwipe.seek : TouchSwipe.step,
+      onSeek: catchup ? (target) => _player.seek(target) : null,
+      onSwipe: (direction) => _stepChannel(direction),
+      longPressSpeed: catchup,
+      onTap: _toggleOverlay,
+      onDoubleTap: (_) => _player.playOrPause(),
+      onBrightness: _mobile!.brightnessTouched,
+      child: _backend!.view,
+    );
+  }
+
+  /// Over the small picture: play / pause and full screen, for a few seconds after a tap.
+  Widget _buildInlineControls() {
+    return IgnorePointer(
+      ignoring: !_overlay,
+      child: AnimatedOpacity(
+        opacity: _overlay ? 1 : 0,
+        duration: const Duration(milliseconds: 200),
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x00000000), Color(0xA0000000)]),
+            ),
+            child: Row(
+              children: [
+                if (_playerOrNull != null)
+                  StreamBuilder<bool>(
+                    stream: _player.stream.playing,
+                    initialData: _player.state.playing,
+                    builder: (context, snap) => IconButton(
+                      tooltip: snap.data == true ? '暂停' : '播放',
+                      onPressed: _player.playOrPause,
+                      icon: Icon(snap.data == true ? Icons.pause_rounded : Icons.play_arrow_rounded, color: Colors.white),
+                    ),
+                  ),
+                const Spacer(),
+                if (_mobile!.pipSupported)
+                  IconButton(tooltip: '小窗播放', onPressed: _enterPip, icon: const Icon(Icons.picture_in_picture_alt_rounded, color: Colors.white)),
+                IconButton(tooltip: '全屏', onPressed: _toggleImmersive, icon: const Icon(Icons.fullscreen_rounded, color: Colors.white)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _enterPip() async {
+    _overlayTimer?.cancel();
+    setState(() => _overlay = false);
+    if (!await _mobile!.host.enterPip()) _showOsd('这台设备不能小窗播放');
+  }
+
+  /// A phone held upright (or a narrow tablet): the picture on top, what is on under it, then the channels and the
+  /// guide as two tabs.
+  Widget _buildPhoneLayout(BuildContext context, Widget player) {
+    final hasGuide = _source < _sources.length && _sources[_source].hasEpg;
+    final size = MediaQuery.sizeOf(context);
+    final tabs = DefaultTabController(
+      length: hasGuide ? 2 : 1,
+      child: Column(
+        children: [
+          TabBar(
+            tabAlignment: TabAlignment.fill,
+            tabs: [const Tab(text: '频道', height: 44), if (hasGuide) const Tab(text: '节目单', height: 44)],
+          ),
+          Expanded(
+            child: TabBarView(
+              children: [
+                Column(
+                  children: [
+                    if (_sources.length > 1) _buildSourcePicker(context),
+                    SizedBox(height: 56, child: _buildGroupChips(context)),
+                    Expanded(child: _buildChannels(context)),
+                  ],
+                ),
+                if (hasGuide) _buildGuide(context),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    // On its side without full screen (a tablet, or a phone for the moment before it goes full screen): the picture
+    // and what is on at the left, the channels and the guide at the right.
+    if (size.width > size.height) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: Column(
+              children: [
+                Flexible(child: AspectRatio(aspectRatio: 16 / 9, child: player)),
+                _buildNowBar(context),
+                if (_catchup != null) _CatchupBar(player: _player),
+              ],
+            ),
+          ),
+          const VerticalDivider(width: 1),
+          SizedBox(width: 320, child: tabs),
+        ],
+      );
+    }
+    return Column(
+      children: [
+        AspectRatio(aspectRatio: 16 / 9, child: player),
+        _buildNowBar(context),
+        if (_catchup != null) _CatchupBar(player: _player),
+        Expanded(child: tabs),
+      ],
     );
   }
 
@@ -928,37 +1154,66 @@ class _LivePageState extends State<LivePage> {
   Widget _buildImmersive(BuildContext context) {
     final ch = _channel;
     final now = ch == null ? null : _epg[ch.name]?.current(_now);
+    // A picture-in-picture window shows the picture and nothing else.
+    final shown = _overlay && !(_mobile?.inPip ?? false);
     return Stack(
       fit: StackFit.expand,
       children: [
         _buildPlayer(context),
         IgnorePointer(
-          ignoring: !_overlay,
+          ignoring: !shown,
           child: AnimatedOpacity(
-            opacity: _overlay ? 1 : 0,
+            opacity: shown ? 1 : 0,
             duration: const Duration(milliseconds: 200),
             child: Row(
               children: [
                 SizedBox(
                   width: 320,
                   // A Material, so the list tiles can paint their selection and ink.
-                  child: Material(color: Colors.black.withValues(alpha: 0.72), child: _buildChannels(context)),
+                  child: Material(color: Colors.black.withValues(alpha: 0.72), child: _mobile != null ? _buildTouchChannels(context) : _buildChannels(context)),
                 ),
                 const Spacer(),
               ],
             ),
           ),
         ),
+        if (_mobile != null)
+          IgnorePointer(
+            ignoring: !shown,
+            child: AnimatedOpacity(
+              opacity: shown ? 1 : 0,
+              duration: const Duration(milliseconds: 200),
+              child: SafeArea(
+                child: Align(
+                  alignment: Alignment.topRight,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_mobile!.pipSupported)
+                        IconButton(tooltip: '小窗播放', onPressed: _enterPip, icon: const Icon(Icons.picture_in_picture_alt_rounded, color: Colors.white)),
+                      IconButton(
+                        key: const Key('live-exit-fullscreen'),
+                        tooltip: '退出全屏',
+                        onPressed: _toggleImmersive,
+                        icon: const Icon(Icons.fullscreen_exit_rounded, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
         if (ch != null)
           IgnorePointer(
             child: AnimatedOpacity(
-              opacity: _overlay ? 1 : 0,
+              opacity: shown ? 1 : 0,
               duration: const Duration(milliseconds: 200),
               child: Align(
                 alignment: Alignment.bottomCenter,
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.fromLTRB(352, 24, 32, 28),
+                  // A phone still upright for a moment after asking for landscape has no room beside the list.
+                  padding: EdgeInsets.fromLTRB(_mobile != null && MediaQuery.sizeOf(context).width < 700 ? 24 : 352, 24, 32, 28),
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x00000000), Color(0xC0000000)]),
                   ),
@@ -984,7 +1239,9 @@ class _LivePageState extends State<LivePage> {
                       ],
                       const SizedBox(height: 8),
                       Text(
-                        _catchup != null ? '↑/↓ 换台（回到直播）   ←/→ 快退 / 快进   Esc 退出全屏' : '↑/↓ 换台   ←/→ 换线路   Esc 退出全屏',
+                        _mobile != null
+                            ? (_catchup != null ? '左右拖动快退 / 快进   上下滑动调亮度 / 音量   返回退出全屏' : '左右滑动换台   上下滑动调亮度 / 音量   返回退出全屏')
+                            : _catchup != null ? '↑/↓ 换台（回到直播）   ←/→ 快退 / 快进   Esc 退出全屏' : '↑/↓ 换台   ←/→ 换线路   Esc 退出全屏',
                         style: const TextStyle(color: Colors.white38, fontSize: 12),
                       ),
                     ],
@@ -994,6 +1251,33 @@ class _LivePageState extends State<LivePage> {
             ),
           ),
       ],
+    );
+  }
+
+  /// The channel list over the full-screen picture on a touch screen: the groups on top, and touching it keeps it up.
+  Widget _buildTouchChannels(BuildContext context) {
+    return Listener(
+      onPointerDown: (_) => _showOverlay(),
+      // Over the dark picture the list is light on dark, whatever the phone's theme.
+      child: Theme(
+        data: buildDarkTheme(),
+        child: Builder(builder: (context) => _touchChannelList(context)),
+      ),
+    );
+  }
+
+  Widget _touchChannelList(BuildContext context) {
+    return Material(
+      type: MaterialType.transparency,
+      child: SafeArea(
+        right: false,
+        child: Column(
+          children: [
+            SizedBox(height: 56, child: _buildGroupChips(context)),
+            Expanded(child: _buildChannels(context)),
+          ],
+        ),
+      ),
     );
   }
 }
