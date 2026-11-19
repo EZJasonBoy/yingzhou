@@ -1,4 +1,10 @@
-# Desktop packages: Windows zip and installer, macOS DMGs for Apple Silicon and Intel (each Mac build bundles a JRE for its CPU).
+# Desktop packages and releases.
+#
+# - Windows: zip and Inno Setup installer. Engine and client tests run first.
+# - macOS (Apple Silicon): DMG with a JRE for arm64. Never tried on a real Mac yet, so a failure here does not hold
+#   back the release; the Windows packages are published without it.
+# - A tag v* publishes a GitHub Release with whatever was built. A manual run only uploads the packages as
+#   workflow artifacts.
 name: desktop
 
 on:
@@ -6,22 +12,13 @@ on:
   push:
     tags: ["v*"]
 
+permissions:
+  contents: read
+
 jobs:
-  package:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            artifact: yingzhou-windows-x64
-            path: dist/yingzhou-windows-x64*
-          - os: macos-14 # Apple Silicon
-            artifact: yingzhou-macos-arm64
-            path: dist/yingzhou-macos-arm64.dmg
-          - os: macos-13 # Intel
-            artifact: yingzhou-macos-x86_64
-            path: dist/yingzhou-macos-x86_64.dmg
-    runs-on: ${{ matrix.os }}
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -36,6 +33,11 @@ jobs:
           flutter-version: 3.50.0
           cache: true
 
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup --no-progress -y }
+
       - name: Engine tests
         working-directory: engine
         shell: bash
@@ -47,11 +49,77 @@ jobs:
 
       - name: Package
         shell: bash
+        run: bash tools/package-desktop.sh
+
+      - name: Check both packages exist
+        shell: bash
+        run: ls -la dist/yingzhou-windows-x64.zip dist/yingzhou-windows-x64-setup.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yingzhou-windows-x64
+          path: |
+            dist/yingzhou-windows-x64.zip
+            dist/yingzhou-windows-x64-setup.exe
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-14 # Apple Silicon
+    timeout-minutes: 90
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.50.0
+          cache: true
+
+      - name: Package
+        shell: bash
         env:
           SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
         run: bash tools/package-desktop.sh
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.path }}
+          name: yingzhou-macos-arm64
+          path: dist/yingzhou-macos-*.dmg
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v') && !cancelled() && needs.windows.result == 'success'
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          ls -la packages
+          notes="$(mktemp)"
+          {
+            echo "映舟（Yingzhou）桌面版 ${TAG}，自动构建。"
+            echo
+            echo "- Windows：\`yingzhou-windows-x64-setup.exe\` 是安装程序，\`yingzhou-windows-x64.zip\` 是绿色包（解压后运行 yingzhou.exe）。都自带引擎和 Java 运行时。安装程序没有数字签名，第一次运行时 SmartScreen 可能拦一下，点「更多信息 → 仍要运行」。"
+            echo "- macOS（Apple Silicon）：\`.dmg\`，临时签名，第一次需右键 → 打开。尚未在真机上验证；没有这个文件说明这次 macOS 构建失败了。"
+            echo
+            echo "本应用不带任何订阅或影视内容。改动见 [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/CHANGELOG.md)，已知问题见 [docs/status.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/status.md)。"
+          } > "$notes"
+          gh release create "$TAG" packages/* --title "映舟 ${TAG}" --notes-file "$notes" --prerelease --verify-tag
