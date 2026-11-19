@@ -125,6 +125,8 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
 
         // What the playlists below point at when the engine caches the stream, and the cache's own API.
         streamCacheRoutes(engine)
+        // Episodes downloaded for offline viewing: the queue's API, and what a finished download plays from.
+        downloadRoutes(engine)
 
         // HLS playlists the engine cleans of ads (see M3u8Cleaner). Any trouble sends the player to the original url.
         get("/m3u8") {

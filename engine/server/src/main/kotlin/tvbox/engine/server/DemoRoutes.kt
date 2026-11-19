@@ -272,6 +272,11 @@ class DemoSite {
             "字节范围" to "range/index.m3u8",
             // Not HLS: the whole film as one file, the way a direct link serves it.
             "直链" to "film.mpg",
+            // Two minutes of it, for trying out downloads (DemoDownloads.kt); and a live playlist they refuse.
+            "短片" to "short/index.m3u8",
+            "短片加密" to "short/aes.m3u8",
+            "短片直链" to "short.mpg",
+            "直播" to "live.m3u8",
         )
 
         /** Public HLS test stream (Big Buck Bunny, CC BY 3.0), widely used for player development. */
@@ -309,6 +314,7 @@ fun Route.demoRoutes(site: DemoSite) {
         "http://" + (request.headers[io.ktor.http.HttpHeaders.Host] ?: "127.0.0.1")
 
     demoSlowRoutes(site.slow)
+    demoDownloadRoutes(site.slow)
     get("/demo/config.json") { call.respondText(site.configJson(call.base()), ContentType.Application.Json) }
     get("/demo/spider.js") { call.respondText(site.spiderJs, ContentType.Text.JavaScript) }
     get("/demo/spider.jar") {

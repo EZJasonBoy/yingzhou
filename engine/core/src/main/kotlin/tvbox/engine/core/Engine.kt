@@ -477,6 +477,15 @@ class Engine(
         return streamCache?.playlist(url, finalUrl, cleaned, headers, key?.ifEmpty { null }, userAgent, selfBase.removeSuffix("m3u8?") + "hls/") ?: cleaned
     }
 
+    /** Episodes downloaded for offline viewing (see [tvbox.engine.core.download.DownloadManager]); null: this engine does not download. */
+    @Volatile var downloads: tvbox.engine.core.download.DownloadManager? = null
+
+    /** A media playlist cleaned of ads with the active config's rules, as [playlist] does it (for downloads). */
+    fun cleanPlaylist(text: String, url: String, finalUrl: String): String {
+        val rules = active?.config?.let { playResolver.rules(it) } ?: PlayRules.NONE
+        return M3u8Cleaner.clean(text, finalUrl, (rules.adsFor(url) + rules.adsFor(finalUrl)).distinct(), heuristic = true).text
+    }
+
     // ---- live TV ----
 
     fun liveSources(): List<LiveSourceInfo> {
@@ -539,6 +548,8 @@ class Engine(
     }
 
     suspend fun resolvePlay(request: PlayRequest): PlayInfo {
+        // A finished download plays from the engine's disk, without the site or the network.
+        downloads?.offlinePlay(request)?.let { return it }
         val a = current()
         val raw = siteCall(request.site) { it.play(request.line, request.episodeId) }
         return try {

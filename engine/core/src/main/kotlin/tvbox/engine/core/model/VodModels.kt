@@ -108,6 +108,8 @@ data class PlayInfo(
      * disk, and `/api/v1/stream-cache/coverage?key=` with this value says which parts are there.
      */
     val cache: String = "",
+    /** Not empty when [url] is a finished download of the episode on the engine's disk (its id): it plays without the network. */
+    val download: String = "",
 )
 
 /** Aggregated search events (SSE). */

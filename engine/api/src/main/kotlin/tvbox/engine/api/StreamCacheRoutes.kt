@@ -76,7 +76,7 @@ fun Route.streamCacheRoutes(engine: Engine) {
 private fun info(cache: StreamCache?): StreamCacheInfo {
     if (cache == null) return StreamCacheInfo(available = false)
     val stats = cache.store.stats()
-    return StreamCacheInfo(available = true, enabled = cache.enabled, bytes = stats.bytes, files = stats.files, streams = stats.streams, maxBytes = stats.maxBytes, path = cache.store.root.absolutePath)
+    return StreamCacheInfo(available = true, enabled = cache.enabled, bytes = stats.bytes, files = stats.files, streams = stats.streams, maxBytes = stats.maxBytes, path = cache.store.root.absolutePath, pinnedBytes = stats.pinnedBytes)
 }
 
 /** The settings a client sent laid over the current ones: fields the client does not know (or left out) stay as they are. */
@@ -84,12 +84,12 @@ internal fun mergedSettings(current: EngineSettings, sent: JsonObject): EngineSe
     EngineJson.decodeFromJsonElement<EngineSettings>(JsonObject(EngineJson.encodeToJsonElement(current).jsonObject + sent))
 
 /** `bytes=a-b` or `bytes=a-` as (first byte, last byte or -1); null for anything else. */
-private fun byteRange(header: String?): Pair<Long, Long>? {
+internal fun byteRange(header: String?): Pair<Long, Long>? {
     val m = Regex("bytes=(\\d+)-(\\d*)").matchEntire(header?.trim() ?: return null) ?: return null
     return m.groupValues[1].toLong() to (m.groupValues[2].toLongOrNull() ?: -1)
 }
 
-private suspend fun RoutingCall.sendStored(file: File, type: String, range: Pair<Long, Long>?) {
+internal suspend fun RoutingCall.sendStored(file: File, type: String, range: Pair<Long, Long>?) {
     val size = file.length()
     val from = range?.first ?: 0
     val last = if (range == null || range.second < 0) size - 1 else minOf(range.second, size - 1)

@@ -137,6 +137,14 @@ fun main(args: Array<String>) {
         network = network,
         streamCache = streamCache,
     )
+    // Episodes downloaded for offline viewing: pinned streams in the stream cache's folder (or a folder the user picks).
+    val downloads = if (check) null else tvbox.engine.core.download.DownloadManager(
+        client, streamCache.store, stateFile = dataDir?.let { File(it, "downloads.json") },
+        resolver = { engine.config(); engine.resolvePlay(it) }, cleaner = engine::cleanPlaylist, localBase = local,
+        exportDir = { File(System.getProperty("user.home"), "Downloads").takeIf { it.isDirectory } ?: File(work, "exports") },
+        log = { System.err.println(it) },
+    )
+    engine.downloads = downloads
     val demo = if ("--demo" in args) DemoSite() else null
     // Who may use the engine from other devices: pairing, tokens, signed media addresses (see AccessControl).
     val access = tvbox.engine.api.access.AccessControl(store, supported = !check, forced = "--lan" in args)
@@ -206,11 +214,14 @@ fun main(args: Array<String>) {
             ?.onSuccess { println("loaded ${it.url}: ${it.sites} sites, ${it.parses} parses, ${it.lives} live groups") }
             ?.onFailure { println("failed to load the subscription: ${it.message}") }
     }
+    // Downloads that were running when the engine stopped carry on, now that episodes can be resolved.
+    downloads?.start()
 
     Runtime.getRuntime().addShutdownHook(Thread {
         ChildProcesses.killAll()
         lan?.stop()
         server.stop(500, 2000)
+        downloads?.close()
     })
     Thread.currentThread().join()
 }
