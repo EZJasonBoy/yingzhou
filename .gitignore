@@ -4,6 +4,10 @@ engine/**/build/
 engine/.kotlin/
 *.class
 
+# Python (the engine's Python spider bridge, run by hand while developing)
+__pycache__/
+*.pyc
+
 # IDE
 .idea/
 *.iml

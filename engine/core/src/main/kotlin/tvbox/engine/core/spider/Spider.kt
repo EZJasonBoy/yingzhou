@@ -39,6 +39,12 @@ interface SpiderRuntime {
     /** "js", "jar", "py": reported in engine capabilities. */
     val kind: String
 
+    /**
+     * Whether spiders can run now. A runtime that needs something outside the engine (Python) can be present but
+     * not ready; its sites then answer with [SpiderLoadException] and capabilities say false until it is.
+     */
+    val available: Boolean get() = true
+
     fun supports(site: SiteBean): Boolean
 
     /** Creates and initialises the spider for [site] with its resolved [ext]. May be slow (downloads, compilation). */
@@ -54,4 +60,5 @@ interface SpiderRuntime {
     suspend fun proxy(params: Map<String, String>): ProxyResponse? = null
 }
 
-class SpiderLoadException(message: String, cause: Throwable? = null) : Exception(message, cause)
+/** [code] is the API error code clients get (e.g. `PY_MODULE_MISSING` when a Python spider needs a package). */
+class SpiderLoadException(message: String, cause: Throwable? = null, val code: String = "SPIDER_LOAD_FAILED") : Exception(message, cause)

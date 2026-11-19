@@ -172,6 +172,12 @@ class ConfigNetwork(
         )
     }
 
+    /** `hosts` as checked and lower-cased, name (maybe with `*`) to target; for runtimes outside the JVM (Python). */
+    fun hostRules(): Map<String, String> = state.hosts.entries.toMap()
+
+    /** `headers` by host name (maybe with `*`); for runtimes outside the JVM (Python). */
+    fun headerRules(): Map<String, Map<String, String>> = state.headers.entries.associate { (host, headers) -> host to headers.toMap() }
+
     /** Whether the active config names headers for any host. */
     val hasHeaders: Boolean get() = !state.headers.isEmpty
 

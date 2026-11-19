@@ -65,6 +65,9 @@ class SpiderSource(
 
     suspend fun proxy(params: Map<String, String>): ProxyResponse? = spider().proxy(params)
 
+    /** False while the runtime cannot run spiders (no Python yet): searches leave the site out. */
+    val available: Boolean get() = runtime.available
+
     fun destroy() {
         spider?.destroy()
         spider = null

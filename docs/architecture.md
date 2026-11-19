@@ -112,7 +112,7 @@
 - 客户端「直播」页：宽屏为 分组 | 频道（带当前节目和进度）| 播放器 + 节目单；窄屏上下堆叠。↑/↓ 换台（跨分组）、←/→ 换线路、PageUp/PageDown 换分组、F 或双击全屏（频道列表变成浮层）、M 静音、滚轮音量。线路报错或 15 秒没有画面就自动换下一条；记住上次看的频道；离开该页即停止播放，播放器在第一次打开该页时才创建。
 - 蜘蛛直播（`type: 3` + `api`）：向 jar 蜘蛛要 `liveContent(url)`、向 JS 蜘蛛要 `live(url)`（`JsSpider.live`，没写 `url` 时传脚本地址），按同样的格式解析。列表也可以是 JSON。指向 TVBox 内置服务（`127.0.0.1:9978/proxy`）的地址改指本引擎；蜘蛛给出的列表里，这类地址由 `LiveService` 补上 `siteKey`（`live_<直播源名>`，蜘蛛就注册在这个 key 下），`/proxy` 才能把请求交回给出列表的那个蜘蛛，而不是 TVBox 那样交给"最近用过的"。
 - 回看（`Catchup`）：解析时把每条线路的回看规则（M3U `catchup*` 属性，头上的作为默认；JSON 频道的 `catchup`；`lives[].catchup`）挂在 `LiveUrl.catchup` 上（不序列化，留在引擎），列表里每个频道只下发 `catchupDays`。`/live/{i}/catchup` 按规则和时间段拼出地址（类型 `default` / `append` / `shift` / `flussonic` / `xc`，TVBox 与 Kodi IPTV Simple 的占位符），先给所选线路，其余作为 `alternates`。时间用中国时间、`SimpleDateFormat`，不用 `java.time`。客户端在有回看的频道的节目单上方列出可回看的日期，点已结束的节目进入「回看」状态（进度条、`←/→` 快退快进），「回到直播」/ Esc / 换台回到直播；回看地址播不了时依次试 `alternates`。
-- 尚未支持：Python 蜘蛛直播。
+- Python 蜘蛛直播同 jar 蜘蛛，问 `liveContent(url)`（见 2.10）。
 
 ### 2.7 配置体检（已实现）
 
@@ -138,6 +138,30 @@ HTTPS 与 TVBox 一致，不校验证书（`LenientTls`），`--strict-tls` 恢�
 
 `DataCache` 是"一条一个文件 + 内存里留最近用过的"，没有索引文件，崩溃不会留下不一致的状态；每个区有大小上限和最长保存时间，`config` 区除外（一个订阅一个小文件，启动要靠它）。演示模式（没有数据目录）只在内存里；`--check` 完全不带缓存。
 
+### 2.10 Python 蜘蛛（已实现，桌面 / NAS）
+
+TVBox 的安卓分支用 Chaquopy 把 CPython 嵌进 App；JVM 上没有对应物，所以引擎**另起一个 Python 进程**，用一行一个 JSON 的协议和它说话。应用不自带 Python：用本机的，或者用户点按钮下载的。
+
+```
+引擎（JVM）                                    Python 进程（worker.py）
+PyRuntime ── SpiderRuntime(kind=py)            stdin  ← {"id","op":"load|init|call|proxy|destroy|net|setup",…}
+  PySpider ── Spider（每个站点 / 直播源一个）   stdout → {"id","ok","result"|"error"}   （只走协议，ASCII）
+  PyWorker ── 进程、按 id 配对的请求、超时        stderr → 引擎日志（蜘蛛的 print、Python 的报错）
+PythonManager ── 找 Python、下载 CPython、pip 装包     base/spider.py（TVBox 的基类）、base/_host.py（引擎给的网络规则、HTTP、缓存）
+```
+
+- **模块**：`engine/runtime-py`（`tvbox.engine.py`）。Python 一侧的文件在 `src/main/resources/tvbox/py/`：`worker.py`（协议、线程池、把蜘蛛结果转成 JSON 文本、`localProxy` 的返回转成状态码 / 类型 / 响应头 / base64 正文）、`probe.py`（报告版本、pip、能导入哪些模块，不导入任何包）、`base/`（`spider.py` 基类、`_host.py`、`localProxy.py`、移植自 TVBoxOS 的 `htmlParser.py`）。引擎启动时把它们按内容哈希写到 `<数据目录>/python/bridge/<哈希>/`。路由在 `engine/server/.../PythonRoutes.kt`，演示用的三个脚本在 `engine/server/src/main/resources/demo/py/`。
+- **一个进程，多个线程**：每个引擎一个 Python 进程，所有 Python 站点和直播源共用（TVBox 也是一个解释器跑全部），请求在 32 个线程的池里并发执行，回答按 id 对上。每个站点在进程里有自己的一份模块（同一个脚本被两个站点使用也互不影响，TVBox 基类"一个类一个实例"的约定照旧）。比起每个蜘蛛一个进程，省下的是内存（导入 requests + lxml 后一个进程约 30 MB）和启动时间（首次调用约 0.5 秒）；代价是一个蜘蛛弄崩进程会连累正在进行的其他调用——它们报 `PY_CRASHED`，下一次调用起新进程，`PySpider` 发现进程换了就把自己重新加载、初始化一遍。
+- **进程的生命**：第一次用到 Python 蜘蛛时才启动（参数 `-E -X utf8 -u`：忽略 `PYTHON*` 环境变量、UTF-8 模式、不缓冲）。退出有三重保险：`PyRuntime.close` / JVM 关闭钩子 / 服务器的 `ChildProcesses` 杀掉它；引擎被强杀时管道断开，worker 读到 EOF 立即 `os._exit`。卡住的调用（超时后 Python 线程还在跑）超过 8 个就换进程；一分钟内启动 5 次还在崩就暂停并报错。worker 一开始就复制出真正的 stdin / stdout 给协议用，把文件描述符 0、1 指向空设备和 stderr，所以蜘蛛和原生库打印的东西都进不了协议。
+- **网络规则**：引擎在每次调用前比较当前的规则（配置 `hosts` 和 `headers`——取自 `ConfigNetwork.hostRules()` / `headerRules()`——、GitHub 加速代理的开关和前缀、`--strict-tls`），变了就发一条 `net`。worker 里 `socket.getaddrinfo` 按 `hosts` 换名字（一步，同 TVBox，`*` 通配），`requests.Session.request` 被包一层：按域名加 `headers`、GitHub 地址按设置走代理（代理失败再直连）或去掉写死的代理前缀、没指定 `verify` 时不检查证书。基类的 `fetch` / `post` 在没装 `requests` 时用标准库实现同样的规则。DoH 不经过。
+- **找 Python**（`PythonLocator`）：用户填的位置 → `TVBOX_PYTHON` → 本机（Windows 先 `py -3`，再 `PATH` 上的 `python3` / `python`，再 python.org 的默认安装目录，微软商店的占位 `python.exe` 放最后；macOS 加上 Homebrew 和 python.org 的目录，因为从访达启动的应用拿不到 shell 的 `PATH`，苹果自带的 `/usr/bin/python3` 只在装了开发者工具时才碰，否则一运行就弹安装窗口）→ 下载的 CPython。每个候选跑一遍 `probe.py`，第一个 3.8+ 的胜出；`py -3` 和 scoop 的 shim 换成它报告的真实路径。引擎启动时在后台找，`available`（也就是 `capabilities.py`）最多等它 5 秒。
+- **下载 CPython**（只有 Windows）：固定版本 3.14.10 的官方免安装版（amd64 / arm64），大小和 SHA-256 取自 python.org 的发布页并写在代码里，所以换成镜像也安全。下到 `python/download.part`，边下边算哈希，大小或哈希不对就删掉；解压（防路径穿越）到 `runtime.new` 再改名成 `runtime`。没有用户在设置里确认就不会发出任何请求。
+- **装包**（`pip install --target python/packages/<解释器标签> --upgrade --only-binary=:all: --no-input --cache-dir python/pip-cache -- <包>`）：每种解释器（`cp314-win_amd64` 之类）一个目录，换了 Python 不会加载到不兼容的二进制包；worker 把这个目录放在 `sys.path` 的最前面（免安装版的 `._pth` 不认 `PYTHONPATH`，所以由 worker 自己插）。只装 wheel，安装时不运行任何包的 `setup.py`。Python 没有 pip 时（免安装版就没有）先从同一个源的 simple 页面找到最新的、这个 Python 能用的 pip wheel，校验 SHA-256 后存到 `python/pip/`，用 `python pip.whl/pip install …` 运行。一次装多个失败时逐个重试，装好的留着，装不上的列出来。装完换一个 worker 进程，新包立即可用。包名只接受"名字 + 可选的版本条件"，挡掉 `--index-url` 之类的参数注入。
+- **错误**：`SpiderLoadException` 多了 `code`，`Engine.describe` 原样交给 API：`PY_UNAVAILABLE`、`PY_MODULE_MISSING`（Python 一侧的 `ModuleNotFoundError.name`，以及 `from base.spider import *` 时代留下的 `requests` / `etree` 的 `NameError`）、`PY_CRASHED`。蜘蛛方法里抛的异常是 `PySpiderException`，归为站点报错。缺的模块记在 `PyRuntime` 里，经 `/python` 交给设置页。
+- **能力随时变化**：`SpiderRuntime.available`（默认 true）表示"现在能运行"；`Engine.info` 改成每次现算，`capabilities.py = 有 py 运行时 && available`。聚合搜索跳过 `available=false` 的蜘蛛站点，直播源的 `supported` 也看它（`LiveService(moreSpiderKinds)`）。
+- **安卓**：内置引擎不注册 Python 运行时，`capabilities.py` 永远是 false，没有 `/python` 接口；代码不需要改。
+- **Docker 镜像**里没有 Python，NAS 上 Python 站点暂时打不开（要在 `engine/Dockerfile` 里装 `python3` 和常用的包，还没做）。
+
 ## 3. 仓库结构
 
 ```
@@ -150,7 +174,7 @@ tvbox-next/
 │  ├─ runtime-js/           QuickJS 宿主：移植 TVBox 的 Global/Req/Crypto/HtmlParser 等宿主函数
 │  ├─ jar-host/            TVBox 宿主类与 jar 运行时，Android 与桌面共用（源码目录，被两边编译）
 │  ├─ runtime-jar/         桌面/服务器 jar 运行时：dex2jar 转换与修复、安卓桩类
-│  └─ runtime-py/           （M3，未创建）Python 蜘蛛
+│  └─ runtime-py/           Python 蜘蛛：在一个 Python 子进程里运行（桌面 / NAS，见 2.10）
 ├─ client/                  Flutter 客户端
 │  └─ android/              Android 宿主工程，以 Gradle 复合构建引入 engine/core + runtime-*
 └─ tools/                   打包脚本

@@ -25,11 +25,12 @@ import java.util.Date
  * (channel list, programme guide), then says for each failure whose it is:
  *
  * - `compat`: the engine's to fix (a spider that does not load or link here, something not implemented);
- * - `unsupported`: a kind of site the engine does not run yet (Python spiders, ...);
+ * - `unsupported`: a kind of site the engine does not run yet;
  * - `network`: the site or its jar did not answer;
  * - `site`: the site answered with an error of its own.
  *
- * A multi-repository subscription is checked entry by entry, lists inside lists included.
+ * A multi-repository subscription is checked entry by entry, lists inside lists included. Python sites and lives are
+ * skipped (with the reason) when this machine has no Python or lacks a package their spider imports.
  */
 class Checker(private val engine: Engine, private val options: Options, private val log: (String) -> Unit) {
 
@@ -204,6 +205,12 @@ class Checker(private val engine: Engine, private val options: Options, private 
                 is TimeoutCancellationException -> "SITE_TIMEOUT" to "${options.stepTimeoutMs / 1000} 秒内没有结果"
                 else -> "SITE_ERROR" to (e.javaClass.name + ": " + e.message)
             }
+            // No Python on this machine, or not the package the spider imports: the machine's gap, not the site's
+            // or the engine's, and nothing was checked.
+            if (code in MACHINE_GAPS) {
+                log("  [跳过] ${site.name} (${site.runtime}) $code: ${message.take(200)}")
+                return done().copy(verdict = "skipped", step = step, message = "$code: ${message.take(300)}")
+            }
             return done().copy(verdict = "fail", cause = cause(code, message), step = step, message = "$code: ${message.replace(Regex("\\s+"), " ").take(300)}")
         }
     }
@@ -217,6 +224,9 @@ class Checker(private val engine: Engine, private val options: Options, private 
         return sources.map { source ->
             // A list served by a spider runs that spider: only when its kind is being checked.
             if (source.spider.isNotEmpty() && source.spider !in options.only) return@map LiveCheck(source.name, "skipped")
+            if (source.spider == "py" && !engine.info.capabilities.py) {
+                return@map LiveCheck(source.name, "skipped", message = "本机没有可用的 Python").also { log("  [直播 跳过] ${it.name}: ${it.message}") }
+            }
             if (!source.supported) {
                 val why = if (source.spider.isEmpty()) "type 3 但没有指定蜘蛛" else "${source.spider} 蜘蛛直播暂不支持"
                 return@map LiveCheck(source.name, "fail", "unsupported", why).also { log("  [直播 不支持] ${it.name}: ${it.message}") }
@@ -241,7 +251,8 @@ class Checker(private val engine: Engine, private val options: Options, private 
                 if (e is CancellationException && e !is TimeoutCancellationException) throw e
                 val code = (e as? EngineException)?.code ?: if (e is TimeoutCancellationException) "SITE_TIMEOUT" else "SITE_ERROR"
                 val message = e.message ?: e.javaClass.simpleName
-                LiveCheck(source.name, "fail", if (code == "UNSUPPORTED_SITE") "unsupported" else cause(code, message), "$code: ${message.take(300)}")
+                if (code in MACHINE_GAPS) LiveCheck(source.name, "skipped", message = "$code: ${message.take(300)}")
+                else LiveCheck(source.name, "fail", if (code == "UNSUPPORTED_SITE") "unsupported" else cause(code, message), "$code: ${message.take(300)}")
             }
             log("  [直播 ${label(check.verdict, check.cause)}] ${check.name}: " + if (check.verdict == "pass") "${check.groups} 组 ${check.channels} 个频道，${check.epg}" else check.message)
             check
@@ -257,6 +268,9 @@ class Checker(private val engine: Engine, private val options: Options, private 
     }
 
     companion object {
+        /** Errors that say this machine lacks something a Python spider needs; such sites count as skipped. */
+        private val MACHINE_GAPS = setOf("PY_UNAVAILABLE", "PY_MODULE_MISSING")
+
         private val COMPAT = Regex(
             "ClassNotFound|NoClassDefFound|NoSuchMethod|NoSuchField|VerifyError|LinkageError|UnsatisfiedLink|AbstractMethodError|" +
                 "IncompatibleClassChange|IllegalAccessError|ExceptionInInitializer|ClassFormatError|ClassCastException|zipfs|" +

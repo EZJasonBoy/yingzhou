@@ -96,13 +96,25 @@
 | `csp_Xxx` | jar | ✅ | ✅ | 桌面上把 dex 转成 JVM 字节码，配安卓桩类运行 |
 | `csp_Xxx`，jar 带 native 壳（加固） | jar | ⬜ | ✅ | 桌面计划用 unidbg |
 | `….js` | js | ✅ | ✅ | QuickJS，含 drpy 用到的宿主函数 |
-| `….py` | py | ⬜ | ⬜ | 「源」页会标"运行时开发中" |
+| `….py`（`api` 里含 `.py`） | py | ✅（要有 Python 3.8+） | ⬜ | 引擎另起一个 Python 进程运行，见下面"Python 蜘蛛"；安卓内置引擎没有 Python，「源」页标"需要 Python" |
 
 jar 蜘蛛在桌面上依赖的安卓类是桩类，覆盖了常见用法（`Context`、`SharedPreferences`、`Base64`、`Log`、`Looper`、`Bitmap` 等）。用到没有桩的类时会在引擎日志里列出来。
 
+### Python 蜘蛛
+
+TVBox 的安卓分支用 Chaquopy 在 App 里跑 Python；这里由引擎在本机另起一个 Python 进程（每个引擎一个，所有 Python 站点和直播共用，和 TVBox 一样）。
+
+- **用哪个 Python**：依次是「源 → Python 蜘蛛」里填的位置、环境变量 `TVBOX_PYTHON`、本机已装的 Python（Windows：`py -3`、`PATH` 上的 `python3` / `python`、python.org 默认的安装目录；macOS：`PATH` 和 Homebrew、python.org 的目录，苹果自带的 `/usr/bin/python3` 只在装了开发者工具时才用），最后是用户在那里点「下载 Python 运行时」下载的 CPython 3.14.10 免安装版（只有 Windows，约 12 MB，按 python.org 公布的 SHA-256 校验，放在引擎数据目录的 `python/runtime`）。版本要 3.8 或更新。应用不自带 Python，没有用户点击就不下载任何东西。
+- **基类**：`from base.spider import Spider`，方法与 TVBox 的 pyramid 基类相同：`init(extend)`、`homeContent(filter)`、`homeVideoContent()`、`categoryContent(tid, pg, filter, extend)`、`detailContent(ids)`、`searchContent(key, quick, pg)`（只有 `key, quick` 两个参数的旧写法也行）、`playerContent(flag, id, vipFlags)`、`liveContent(url)`、`localProxy(param)`、`getDependence()`；工具函数 `fetch` / `post` / `postJson`（`requests` 没装时退回标准库）、`html` / `xpText`（lxml）、`regStr`（两种参数顺序都认）、`removeHtmlTags`、`cleanText`、`str2json` / `json2str`、`getProxyUrl`、`log`、`getCache` / `setCache` / `delCache`（存在引擎数据目录的文件里）、`loadSpider` / `loadModule`。`base.htmlParser` 的 `jsoup` 和 `base.localProxy` 的 `Proxy` 也有。`ext` 原样交给 `init`（不像 jar 蜘蛛那样把 http 的 `ext` 换成它的内容，同 TVBox）；没写 `ext` 时用地址里的 `?extend=`。
+- **依赖**（`getDependence()`）：先找配置里 `api` 等于这个名字的站点，用它的 `ext` 作为脚本地址；否则在蜘蛛旁边找 `<名字>.py`。加载好的依赖蜘蛛代替 `ext` 传给 `init`（同 TVBox）。
+- **第三方包**：TVBox 的 Python 版自带 `requests`、`lxml`、`pycryptodome`、`beautifulsoup4`、`pyquery`、`ujson`、`jsonpath`、`cachetools`。这里一个也不自带：用户在设置里点「安装常用依赖」后，引擎用 pip（Python 没有 pip 时先从同一个源下载 pip 的 wheel）装到引擎自己的目录 `python/packages/<解释器>`，每种 Python 各一份，从不装进 Python 自己的环境；只装 wheel，不在安装时运行包里的代码。蜘蛛缺包时报 `PY_MODULE_MISSING`，提示里写着包名，设置里列出"哪个站点缺什么"，可以一键安装（包名和模块名不同的，如 `Crypto` → `pycryptodome`、`bs4` → `beautifulsoup4`，按对照表换算）。PyPI 和 Python 下载都可以换成镜像。
+- **网络**：蜘蛛用 `requests`（以及 `fetch` / `post`）发的请求会经过配置的 `hosts`（在名字解析处替换，`socket.getaddrinfo`）、`headers`（按域名加请求头）和「GitHub 加速代理」开关；证书默认不检查（同引擎，`--strict-tls` 时检查，蜘蛛明确写了 `verify=True` 的照办）。不经过的：DoH（Python 用系统 DNS）；`urllib`、`http.client`、`aiohttp` 等其他库发的请求只有 `hosts` 生效。
+- **出问题时**：每次调用有超时（站点的 `timeout`，默认 15 秒），超时的调用在 Python 里继续跑也不影响别的；一个 Python 进程里卡住的调用超过 8 个就换一个新进程。蜘蛛把整个进程搞崩（`os._exit`、原生库崩溃）时，这一次调用报 `PY_CRASHED`，下一次调用自动起新进程、重新加载蜘蛛；一分钟内崩溃 5 次就暂停。蜘蛛 `print` 的内容和 Python 的报错进引擎日志（前缀 `py:`）。引擎退出时 Python 进程一起退出：引擎关掉它，或者引擎异常退出导致管道断开时它自己退出。
+- **不支持的**：`isVideoFormat` / `manualVideoCheck`（嗅探时的自定义判断）没有接；Chaquopy 特有的 `from com.github.catvod import …`（调用安卓 Java 类）没有对应物，用到的蜘蛛加载失败。
+
 ### 蜘蛛的本地代理
 
-蜘蛛返回的 `proxy://…` 和 `http://127.0.0.1:9978/proxy?…` 都指向引擎的 `/proxy`：先交给对应站点的蜘蛛实例，再依次交给各个 jar 的静态 `Proxy.proxy`；`do=js` 交给 JS 蜘蛛。引擎端口不是 9978 时会把端口告诉 jar。
+蜘蛛返回的 `proxy://…` 和 `http://127.0.0.1:9978/proxy?…` 都指向引擎的 `/proxy`：先交给对应站点的蜘蛛实例，再依次交给各个 jar 的静态 `Proxy.proxy`；`do=js` 交给 JS 蜘蛛；`do=py` 只交给 Python 蜘蛛的 `localProxy(param)`（`siteKey` 指名的那个，没有就是最近用过的，同 TVBox），返回 `[状态码, 类型, 内容, 响应头, base64?]`，内容是文本、bytes 或 base64。Python 蜘蛛的 `getProxyUrl()` 会带上自己的 `siteKey`；`playerContent` 里写死的 `http://127.0.0.1:9978/proxy`、`http://127.0.0.1:UndCover/proxy` 换成引擎实际的地址。引擎端口不是 9978 时会把端口告诉 jar。
 
 ## 4. 解析 `parses[]`
 
@@ -148,8 +160,8 @@ jar 蜘蛛在桌面上依赖的安卓类是桩类，覆盖了常见用法（`Con
 | `epg`：XMLTV（`.xml` / `.xml.gz`） | ✅ | 也认 M3U 头里的 `x-tvg-url` |
 | `logo`：带 `{name}` 的模板 | ✅ | |
 | `ua`、`referer`、`header` | ✅ | 随线路下发给播放器 |
-| `{type: 3, api, ext, jar, url}` 蜘蛛直播 | 🟡 | 列表由蜘蛛给出：jar 蜘蛛问 `liveContent(url)`，JS 蜘蛛问 `live(url)`（没写 `url` 时传脚本自己的地址，同 TVBox）。返回 TXT / M3U / JSON 文本都行，JS 也可以直接返回分组数组。蜘蛛没有返回、而 `url` 是个地址时，按普通列表下载它（TVBox 对这种写法也只是下载列表，蜘蛛只管频道的代理地址）。Python 蜘蛛直播不支持 |
-| 蜘蛛列表里的 `proxy://…`、`http://127.0.0.1:9978/proxy?do=js&…` | ✅ | 指向本引擎的 `/proxy`，并补上这个直播源的蜘蛛的 `siteKey`，请求一定回到给出列表的那个蜘蛛。TVBox 是交给"最近用过的蜘蛛"；这里看直播的中途可以去点播别的站点，不带 `siteKey` 会串到别的脚本上 |
+| `{type: 3, api, ext, jar, url}` 蜘蛛直播 | ✅ | 列表由蜘蛛给出：jar 和 Python 蜘蛛问 `liveContent(url)`，JS 蜘蛛问 `live(url)`（没写 `url` 时传脚本自己的地址，同 TVBox）。返回 TXT / M3U / JSON 文本都行，JS 也可以直接返回分组数组，Python 返回的字典 / 列表按 JSON 处理。蜘蛛没有返回、而 `url` 是个地址时，按普通列表下载它（TVBox 对这种写法也只是下载列表，蜘蛛只管频道的代理地址）。Python 蜘蛛直播要本机有 Python，没有时「直播」页标"需要 Python" |
+| 蜘蛛列表里的 `proxy://…`、`http://127.0.0.1:9978/proxy?do=js&…`、`…?do=py&…` | ✅ | 指向本引擎的 `/proxy`，并补上这个直播源的蜘蛛的 `siteKey`，请求一定回到给出列表的那个蜘蛛。TVBox 是交给"最近用过的蜘蛛"；这里看直播的中途可以去点播别的站点，不带 `siteKey` 会串到别的脚本上 |
 | `{type: 3}` 但没有 `api` | ⬜ | 「直播」页标"暂不支持" |
 | `catchup` 回看 | ✅ | 见下面"回看" |
 | `playerType`、`timeout`、`boot`、`pass` | ⬜ | 忽略 |
@@ -226,12 +238,13 @@ jar 蜘蛛在桌面上依赖的安卓类是桩类，覆盖了常见用法（`Con
 ```bash
 tools/check-configs.sh                      # ../tvbox-ysc-config/output 里的配置
 tools/check-configs.sh <订阅地址 | 文件 | 目录>
-ONLY=cms,remote,live tools/check-configs.sh # 只查采集站、远程站和直播（引擎里不装蜘蛛运行时，不会加载任何 jar / js）
+ONLY=cms,remote,live tools/check-configs.sh # 只查采集站、远程站和直播（引擎里不装蜘蛛运行时，不会加载任何 jar / js / py）
+ONLY=py tools/check-configs.sh              # 只查 Python 站点和 Python 蜘蛛直播
 ```
 
-报告把失败分成四类：**引擎兼容**（引擎要修）、**不支持**（还没做的类型）、**网络**、**站点报错**（后两类多半是站点自己失效，在安卓 TVBox 上同样打不开）。它用打包后的精简 Java 运行时跑，所以运行时缺模块之类的问题也会在这里暴露。
+报告把失败分成四类：**引擎兼容**（引擎要修）、**不支持**（还没做的类型）、**网络**、**站点报错**（后两类多半是站点自己失效，在安卓 TVBox 上同样打不开）。Python 站点和直播在本机没有 Python、或者缺蜘蛛要的包时算"跳过"，原因写在报告里（这是这台机器缺东西，装上就好，不是站点或引擎的问题）。它用打包后的精简 Java 运行时跑，所以运行时缺模块之类的问题也会在这里暴露。
 
-> 体检会在本机运行订阅里的蜘蛛代码（jar / js），和你在应用里点开这些站点时做的事一样。只对你信得过的订阅运行。
+> 体检会在本机运行订阅里的蜘蛛代码（jar / js / py），和你在应用里点开这些站点时做的事一样。只对你信得过的订阅运行。
 
 ## 9. 调研数据
 
