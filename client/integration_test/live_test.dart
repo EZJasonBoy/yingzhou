@@ -89,5 +89,29 @@ void main() {
     await wait(tester, const Duration(seconds: 1));
     expect(DesktopWindow.instance.isFullScreen, isFalse);
     expect(find.byType(NavigationRail), findsOneWidget);
+
+    // Catch-up: 回看演示台 offers three days back; a programme of yesterday plays from the demo's catch-up address
+    // (the VOD test stream), with a seek bar, until 回到直播.
+    await tester.tap(find.text('演示频道').first);
+    await until(tester, () => shows('回看演示台'), 'the 演示频道 group');
+    await tester.tap(find.text('回看演示台').first);
+    await until(tester, () => find.widgetWithText(ChoiceChip, '昨天').evaluate().isNotEmpty, 'the days of catch-up');
+    await until(tester, playing, '回看演示台 live', timeout: const Duration(seconds: 40));
+    await tester.tap(find.widgetWithText(ChoiceChip, '昨天'));
+    // A programme marked 回看 that is on screen (the channel's own name contains the word too).
+    final playable = find.text('回看').hitTestable();
+    // Yesterday's list has no programme on air; until it has loaded, today's is still on screen.
+    await until(tester, () => find.text('直播中').evaluate().isEmpty && playable.evaluate().isNotEmpty, 'yesterday\'s guide');
+    await tester.tap(playable.first);
+    await until(tester, () => find.byKey(const Key('back-to-live')).evaluate().isNotEmpty, 'the 回看 state');
+    await until(tester, playing, 'the programme to play back', timeout: const Duration(seconds: 40));
+    await until(tester, () => tester.widget<Slider>(find.byKey(const Key('catchup-seek'))).max > 1, 'a seek bar with the programme\'s length');
+    expect(find.text('回看中'), findsOneWidget, reason: 'the programme played back is marked in the guide');
+    await mark(tester, 'catchup');
+
+    await tester.tap(find.byKey(const Key('back-to-live')));
+    await until(tester, () => find.byKey(const Key('back-to-live')).evaluate().isEmpty, 'live again');
+    await until(tester, playing, '回看演示台 live again', timeout: const Duration(seconds: 40));
+    await mark(tester, 'back-to-live');
   });
 }

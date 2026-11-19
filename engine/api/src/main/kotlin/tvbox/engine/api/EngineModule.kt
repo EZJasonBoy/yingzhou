@@ -203,6 +203,15 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
                     val channel = call.parameters["channel"]?.takeIf { it.isNotBlank() } ?: throw BadRequestException("channel is required")
                     call.respond(engine.epg(index, channel, call.parameters["date"].orEmpty()))
                 }
+                // Catch-up: the address of a past time range of a channel (start / end in epoch milliseconds).
+                get("/{index}/catchup") {
+                    val index = call.parameters["index"]?.toIntOrNull() ?: throw BadRequestException("index must be a number")
+                    val channel = call.parameters["channel"]?.takeIf { it.isNotBlank() } ?: throw BadRequestException("channel is required")
+                    val start = call.parameters["start"]?.toLongOrNull() ?: throw BadRequestException("start must be epoch milliseconds")
+                    val end = call.parameters["end"]?.toLongOrNull() ?: throw BadRequestException("end must be epoch milliseconds")
+                    val line = call.parameters["line"]?.toIntOrNull() ?: 0
+                    call.respond(forClient(engine.liveCatchup(index, call.parameters["group"], channel, line, start, end), call))
+                }
             }
 
             post("/play/resolve") {
@@ -283,6 +292,14 @@ private fun forClient(list: LiveList, call: RoutingCall): LiveList {
     if (self == loopback) return list
     fun fix(url: String) = if (url.startsWith(loopback)) self + url.removePrefix(loopback) else url
     return list.copy(groups = list.groups.map { g -> g.copy(channels = g.channels.map { c -> c.copy(urls = c.urls.map { it.copy(url = fix(it.url)) }) }) })
+}
+
+private fun forClient(catchup: tvbox.engine.core.model.LiveCatchup, call: RoutingCall): tvbox.engine.core.model.LiveCatchup {
+    val loopback = "http://127.0.0.1:${call.request.local.localPort}/"
+    val self = call.selfBase() + "/"
+    if (self == loopback) return catchup
+    fun fix(url: String) = if (url.startsWith(loopback)) self + url.removePrefix(loopback) else url
+    return catchup.copy(url = fix(catchup.url), alternates = catchup.alternates.map { it.copy(url = fix(it.url)) })
 }
 
 private fun forClient(info: PlayInfo, call: RoutingCall): PlayInfo {

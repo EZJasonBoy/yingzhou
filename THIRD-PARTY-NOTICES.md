@@ -7,6 +7,7 @@ Yingzhou (映舟) is licensed under AGPL-3.0 (see `LICENSE`). It includes code a
 - `engine/jar-host/java/com/github/catvod/**`: the host API jar spiders link against (Spider, SpiderApi, OkHttp, Proxy, ...).
 - `engine/runtime-js/src/main/java/**` and the JS spider bootstrap: TVBox's JS spider host (crypto, html parsing rules, module rules).
 - `engine/core/.../play/PlayResolver.kt`, `PlayRules`, `M3u8Cleaner.kt`: the parse chain, `rules` handling and m3u8 ad rules follow TVBoxOS and Box (takagen99, AGPL-3.0), which credit FongMi/TV.
+- `engine/core/.../live/Catchup.kt`: live catch-up (回看) addresses follow `LivePlayActivity` of Box (takagen99, AGPL-3.0: `?playseek=` on `/PLTV/` addresses) and TVBoxOS (the `catchup` object's `type` / `source` / `replace` / `regex`, `${(b)…}` / `${(e)…}` placeholders, `appendCatchupUrl`), and `TxtSubscribe` for the M3U attributes. The catch-up modes and placeholders of M3U playlists (`shift`, `flussonic`, `xc`, `{utc}`, `{duration:N}`, `{offset:N}` …) follow the behaviour documented for Kodi's IPTV Simple PVR client (kodi-pvr/pvr.iptvsimple, GPL-2.0-or-later); no code of it is included.
 
 ## Win-box — MIT
 

@@ -115,6 +115,7 @@ class DemoSite {
                 put("type", 0)
                 put("url", "http://127.0.0.1:9978/proxy?do=live&url=$base/demo/live.m3u")
             })
+            DemoLive.lives(base).forEach { add(it) }
         })
         put("rules", buildJsonArray {
             add(buildJsonObject {
@@ -317,6 +318,7 @@ fun Route.demoRoutes(site: DemoSite) {
             appendLine(DemoSite.TEST_STREAM)
             appendLine("#EXTINF:-1 tvg-logo=\"$base/demo/poster/3.png\" group-title=\"演示频道\",苹果示例台")
             appendLine(DemoSite.BIPBOP)
+            append(demoCatchupEntry(base))
             appendLine("#EXTINF:-1 tvg-logo=\"$base/demo/poster/4.png\" group-title=\"测试\",备用线路演示")
             appendLine("http://127.0.0.1:1/dead.m3u8")
             appendLine("#EXTINF:-1 group-title=\"测试\",备用线路演示")
@@ -327,6 +329,7 @@ fun Route.demoRoutes(site: DemoSite) {
     get("/demo/epg") {
         call.respondText(DemoSite.epg(call.request.queryParameters["ch"].orEmpty(), call.request.queryParameters["date"].orEmpty()), ContentType.Application.Json)
     }
+    demoLiveRoutes()
     get("/demo/ads/index.m3u8") {
         val text = buildString {
             appendLine("#EXTM3U")

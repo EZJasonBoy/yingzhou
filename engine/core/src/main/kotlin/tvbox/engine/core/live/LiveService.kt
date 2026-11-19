@@ -4,7 +4,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import tvbox.engine.core.config.ConfigDecoder
 import tvbox.engine.core.config.ConfigLocator
+import tvbox.engine.core.model.CatchupAddress
+import tvbox.engine.core.model.CatchupTemplate
 import tvbox.engine.core.model.EpgDay
+import tvbox.engine.core.model.LiveCatchup
 import tvbox.engine.core.model.EpgProgram
 import tvbox.engine.core.model.LiveList
 import tvbox.engine.core.model.LiveSourceInfo
@@ -57,8 +60,8 @@ class LiveService(
         else -> "jar"
     }
 
-    /** Only jar spiders have `liveContent`. */
-    private fun supported(spec: LiveSourceSpec) = spec.supported && (spec.api.isEmpty() || (spiderList != null && spiderKind(spec) == "jar"))
+    /** Jar spiders have `liveContent` and JS spiders `live`; Python spiders have no runtime yet. */
+    private fun supported(spec: LiveSourceSpec) = spec.supported && (spec.api.isEmpty() || (spiderList != null && spiderKind(spec) in SPIDER_KINDS))
 
     suspend fun list(index: Int, refresh: Boolean = false): LiveList {
         val spec = spec(index)
@@ -74,21 +77,34 @@ class LiveService(
     private suspend fun load(index: Int, spec: LiveSourceSpec): Loaded {
         val playlist = when {
             spec.inline.isNotEmpty() -> LivePlaylist(spec.inline)
-            spec.api.isNotEmpty() -> LivePlaylistParser.parse(spiderList!!.invoke(spec), spec.headers)
-            else -> {
-                var text = fetchList(spec)
-                // Some playlists are wrapped like configs (base64 in an image, AES).
-                if (!LivePlaylistParser.looksLikePlaylist(text)) text = ConfigDecoder.decode(text)
-                LivePlaylistParser.parse(text, spec.headers)
-            }
+            spec.api.isNotEmpty() -> LivePlaylistParser.parse(spiderText(spec), spec.headers)
+            else -> LivePlaylistParser.parse(downloadedText(spec), spec.headers)
         }
         if (playlist.groups.isEmpty()) throw LiveException("EMPTY", "${spec.name}: the playlist has no channels")
         val groups = playlist.groups.map { g ->
             g.copy(channels = g.channels.map { c ->
-                c.copy(logo = c.logo.ifEmpty { logoFor(spec, c.name) }, urls = c.urls.map { u -> u.copy(url = own(u.url)) })
+                val urls = c.urls.map { u -> u.copy(url = forSpider(own(u.url), spec), catchup = catchupRule(u.catchup, spec)) }
+                c.copy(logo = c.logo.ifEmpty { logoFor(spec, c.name) }, urls = urls, catchupDays = urls.maxOfOrNull { Catchup.days(it.catchup, it.url) } ?: 0)
             })
         }
         return Loaded(LiveList(index, spec.name, groups), playlist.tvgUrl, System.currentTimeMillis()).also { lists[index] = it }
+    }
+
+    /**
+     * The list of a `type: 3` source: what its spider answers (`liveContent(url)` of a jar, `live(url)` of a script).
+     * TVBox asks a script only when the entry's `url` is the script itself; any other `url` is a playlist it
+     * downloads, and the spider just serves the channels' proxy addresses. So a spider with nothing to say leaves
+     * the `url` as the list.
+     */
+    private suspend fun spiderText(spec: LiveSourceSpec): String {
+        val text = spiderList!!.invoke(spec)
+        return if (text.isBlank() && spec.url.startsWith("http")) downloadedText(spec) else text
+    }
+
+    /** The playlist at the source's `url`. Some are wrapped like configs (base64 in an image, AES). */
+    private suspend fun downloadedText(spec: LiveSourceSpec): String {
+        val text = fetchList(spec)
+        return if (LivePlaylistParser.looksLikePlaylist(text)) text else ConfigDecoder.decode(text)
     }
 
     /** `proxy://` and urls of TVBox's built-in server (`http://127.0.0.1:9978/proxy?`) mean this engine's proxy. */
@@ -96,6 +112,15 @@ class LiveService(
         url.startsWith("proxy://") -> url.replaceFirst("proxy://", proxyBase)
         else -> LiveSourceSpec.LOCAL_PROXY.find(url)?.let { proxyBase + url.substring(it.range.last + 1) } ?: url
     }
+
+    /**
+     * A proxy address in a list that a spider served is meant for that spider. TVBox hands such a request to the
+     * spider used last, which while live TV is on screen is the live one. Here other sites can have been opened in
+     * between, so the address says whose it is: `siteKey`, which TVBox adds to proxy requests itself.
+     */
+    private fun forSpider(url: String, spec: LiveSourceSpec): String =
+        if (spec.api.isEmpty() || !url.startsWith(proxyBase) || SITE_KEY.containsMatchIn(url)) url
+        else url + "&siteKey=" + java.net.URLEncoder.encode(spec.spiderKey, "UTF-8")
 
     private suspend fun fetchList(spec: LiveSourceSpec): String {
         val url = own(spec.url)
@@ -109,6 +134,35 @@ class LiveService(
                 ?.let { java.net.URLDecoder.decode(it, "UTF-8") }?.takeIf { it.startsWith("http") } ?: throw e
             http.get(wrapped, headers = spec.headers, timeoutMs = 20_000)
         }
+    }
+
+    /**
+     * A line's catch-up rule: its own when it is complete (TVBox: a channel's `catchup` with a source wins), else
+     * the `lives` entry's, with what the line says (days, correction) kept.
+     */
+    private fun catchupRule(own: CatchupTemplate?, spec: LiveSourceSpec): CatchupTemplate? =
+        if (Catchup.isComplete(own) || spec.catchup == null) own else Catchup.merge(own, spec.catchup)
+
+    /**
+     * Where to play what [channel] (in [group], when names repeat across groups) showed from [startMs] to [endMs]:
+     * line [line] first, then the channel's other lines that have catch-up.
+     */
+    suspend fun catchup(index: Int, group: String?, channel: String, line: Int, startMs: Long, endMs: Long): LiveCatchup {
+        val spec = spec(index)
+        val ch = list(index).groups.filter { group.isNullOrEmpty() || it.name == group }
+            .flatMap { it.channels }.firstOrNull { it.name == channel }
+            ?: throw LiveException("NOT_FOUND", "no channel $channel")
+        val now = System.currentTimeMillis()
+        if (endMs <= startMs) throw LiveException("BAD_REQUEST", "end must be after start")
+        if (startMs >= now) throw LiveException("BAD_REQUEST", "the programme has not started yet")
+        if (ch.catchupDays == 0) throw LiveException("BAD_REQUEST", "$channel has no catch-up")
+        val first = line.coerceIn(0, ch.urls.size - 1)
+        val addresses = (listOf(first) + ch.urls.indices.filter { it != first }).flatMap { i ->
+            val u = ch.urls[i]
+            Catchup.build(u.catchup, u.url, startMs, endMs, now).map { CatchupAddress(forSpider(own(it), spec), u.headers, i) }
+        }.distinctBy { it.url }
+        val best = addresses.firstOrNull() ?: throw LiveException("BAD_REQUEST", "$channel has no catch-up")
+        return LiveCatchup(best.url, best.headers, best.line, addresses.drop(1))
     }
 
     /** The programmes of [channel] on [date] (`yyyy-MM-dd`, China time; today when blank). */
@@ -157,6 +211,9 @@ class LiveService(
     private fun spec(index: Int) = specs.getOrNull(index) ?: throw LiveException("NOT_FOUND", "no live source $index")
 
     private companion object {
+        /** The kinds of spider that can be asked for a list. */
+        val SPIDER_KINDS = setOf("jar", "js")
+        val SITE_KEY = Regex("[?&]siteKey=")
         const val LIST_TTL = 30 * 60_000L
         const val EPG_TTL = 30 * 60_000L
         const val XMLTV_TTL = 6 * 3600_000L

@@ -93,11 +93,14 @@ event: end       data: {"sites":40,"ms":9120}
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/live` | `[{index, name, hasEpg, supported}]`：配置 `lives` 里的每一项是一个直播源 |
-| GET | `/live/{index}?refresh=1` | `{source, name, groups: [{name, channels: [{name, logo, urls: [{url, label, headers}]}]}]}`，缓存半小时 |
-| GET | `/live/{index}/epg?channel=&date=` | `{channel, date, programs: [{start, end, title}]}`，`date` 为 `yyyy-MM-dd`（中国时间，缺省今天），时间为毫秒时间戳 |
+| GET | `/live` | `[{index, name, hasEpg, supported, spider}]`：配置 `lives` 里的每一项是一个直播源；`spider` 是给出列表的蜘蛛的种类（`jar` / `js` / `py`），普通列表为空 |
+| GET | `/live/{index}?refresh=1` | `{source, name, groups: [{name, channels: [{name, logo, catchupDays, urls: [{url, label, headers}]}]}]}`，缓存半小时。`catchupDays`：能回看几天，0 为不能回看 |
+| GET | `/live/{index}/epg?channel=&date=` | `{channel, date, programs: [{start, end, title}]}`，`date` 为 `yyyy-MM-dd`（中国时间，缺省今天；过去的日期也可以，回看用），时间为毫秒时间戳 |
+| GET | `/live/{index}/catchup?channel=&group=&line=&start=&end=` | 回看：`{url, headers, line, alternates: [{url, headers, line}]}`。`start` / `end` 为毫秒时间戳；`group` 可选（频道名在不同分组里重复时用）；`line` 是想先用的线路（缺省 0）。`url` 是先试的地址，`alternates` 是它播不了时再试的：同一线路的其他写法，再是这个频道其他能回看的线路。频道不能回看、节目还没开始、参数不对时 400，频道不存在 404 |
 
-`lives` 支持：`type: 0` 的 TXT（`分组,#genre#`、`频道,url#url2$线路名`）/ M3U（`group-title`、`tvg-logo`、`x-tvg-url`、`#EXTVLCOPT` 的 UA 与 Referer）播放列表；`proxy://do=live&ext=…` 里藏的列表地址；直接写在配置里的 `group`/`channels`；被包成配置格式（图片 base64、AES）的列表。`type: 3`（蜘蛛直播）暂不支持，`supported=false`。频道里的 `proxy://` 指向引擎，局域网客户端拿到的地址按它访问引擎用的地址改写。
+`lives` 支持：`type: 0` 的 TXT（`分组,#genre#`、`频道,url#url2$线路名`）/ M3U（`group-title`、`tvg-logo`、`x-tvg-url`、`#EXTVLCOPT` 的 UA 与 Referer）播放列表；`proxy://do=live&ext=…` 里藏的列表地址；直接写在配置里的 `group`/`channels`；被包成配置格式（图片 base64、AES）的列表。`type: 3`（蜘蛛直播）由 `api` 指定的蜘蛛给出列表：jar 蜘蛛的 `liveContent(url)`、JS 蜘蛛的 `live(url)`；Python 蜘蛛和没写 `api` 的 `supported=false`，取列表时返回 501。频道里的 `proxy://` 指向引擎，局域网客户端拿到的地址按它访问引擎用的地址改写；蜘蛛给出的列表里，这类地址还会带上 `siteKey`（该直播源的蜘蛛），`/proxy` 据此把请求交回给同一个蜘蛛。
+
+回看规则（M3U 的 `catchup*` 属性、`lives[].catchup`、`/PLTV/` 地址）留在引擎里，不随列表下发；客户端只看 `catchupDays`，要播时问 `/catchup`。地址怎么拼见 [compatibility.md](compatibility.md) 第 6 节"回看"。
 
 节目单：`epg` 为带 `{name}`/`{date}` 的模板（返回 `epg_data`），或不带占位符的同类接口（按 `?ch=&date=` 请求），或 XMLTV（`.xml` / `.xml.gz`，也可来自 M3U 的 `x-tvg-url`，缓存 6 小时）。频道名会先规整再查（`CCTV-1 综合` → `CCTV1`，去掉"高清""HD"等后缀），查不到再用原名。`logo` 模板的 `{name}` 同样用规整后的名字。
 

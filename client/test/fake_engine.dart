@@ -166,6 +166,52 @@ MockClient fakeEngine({
           }, 502);
         }
         return json({'kind': 'direct', 'url': body['episodeId'], 'headers': <String, String>{}, 'parsedBy': ''});
+      // Live TV: one source; 回看台 has two days of catch-up, 普通台 none. The guide has a programme every two hours
+      // of the China-time day asked for (today when no date), titled "<MM-dd> 节目 <n>".
+      case ('GET', '/api/v1/live'):
+        return json([
+          {'index': 0, 'name': '测试直播', 'hasEpg': true, 'supported': true, 'spider': ''},
+        ]);
+      case ('GET', '/api/v1/live/0'):
+        return json({
+          'source': 0,
+          'name': '测试直播',
+          'groups': [
+            {
+              'name': '测试组',
+              'channels': [
+                {'name': '回看台', 'logo': '', 'catchupDays': 2, 'urls': [{'url': 'https://cdn.test/live/a.m3u8', 'label': '', 'headers': <String, String>{}}]},
+                {'name': '普通台', 'logo': '', 'catchupDays': 0, 'urls': [{'url': 'https://cdn.test/live/b.m3u8', 'label': '', 'headers': <String, String>{}}]},
+              ],
+            },
+          ],
+        });
+      case ('GET', '/api/v1/live/0/epg'):
+        final now = DateTime.now().toUtc().add(const Duration(hours: 8));
+        final today = '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+        final date = request.url.queryParameters['date'] ?? today;
+        final parts = date.split('-').map(int.parse).toList();
+        final midnight = DateTime.utc(parts[0], parts[1], parts[2]).subtract(const Duration(hours: 8));
+        return json({
+          'channel': request.url.queryParameters['channel'],
+          'date': date,
+          'programs': [
+            for (var i = 0; i < 12; i++)
+              {
+                'start': midnight.add(Duration(hours: 2 * i)).millisecondsSinceEpoch,
+                'end': midnight.add(Duration(hours: 2 * i + 2)).millisecondsSinceEpoch,
+                'title': '${date.substring(5)} 节目 ${i + 1}',
+              },
+          ],
+        });
+      case ('GET', '/api/v1/live/0/catchup'):
+        final q = request.url.queryParameters;
+        if (q['channel'] != '回看台') {
+          return json({
+            'error': {'code': 'BAD_REQUEST', 'message': 'no catch-up'},
+          }, 400);
+        }
+        return json({'url': 'https://cdn.test/catchup/a.m3u8?start=${q['start']}&end=${q['end']}', 'headers': <String, String>{}, 'line': 0, 'alternates': <Object>[]});
       case ('GET', '/api/v1/search/stream'):
         final sse = StringBuffer()
           ..write('event: site\ndata: {"site":"cms","status":"started"}\n\n')
