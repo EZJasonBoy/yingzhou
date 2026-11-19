@@ -76,6 +76,16 @@ data class EngineSettings(
     val streamCache: Boolean = true,
     /** How much disk the stream cache may take, in MB; the files used longest ago go when it is full. */
     val streamCacheMaxMB: Int = 2048,
+    /**
+     * True: ask the config's `danmaku` API for the danmaku of what is played (it is told the title and episode).
+     * False (default): that API is a third party the subscription chose, so the user turns it on.
+     */
+    val danmakuConfigApi: Boolean = false,
+    /**
+     * A danmaku service of the user's own (a dandanplay-compatible API base, or an address with `{name}` /
+     * `{episode}`); asked after the site and the config's API. Empty (default): none.
+     */
+    val danmakuApi: String = "",
 )
 
 @Serializable

@@ -16,6 +16,11 @@ Yingzhou (映舟) is licensed under AGPL-3.0 (see `LICENSE`). It includes code a
 - `engine/core/.../play/Subtitles.kt`: how a play answer's `subt` / `subs` are read (`#name.ext` after the address,
   the MIME types of `format`, lyrics left out) follows `PlayFragment` / `PlayActivity` of TVBoxOS and Box (takagen99,
   AGPL-3.0).
+- `engine/core/.../danmaku/`: how the config's `danmaku` API is asked (`{name}` / `{episode}`, a form to `…/danmaku`,
+  dandanplay-compatible `/api/v2/search/episodes` and `/api/v2/comment/{id}`, the `{url}` answers), the episode
+  matching and the Bilibili XML reading (raw deflate, lenient `<d>` parsing) follow TVBoxOS (`DanmakuApi`, `Danmu`,
+  `player/danmu/Parser`). The JSON forms (`comments[].p` with the colour third) follow MisaTV's `danmaku_xml.dart`
+  (GPL-3.0), described from its behaviour; no code of it is included.
 
 ## Win-box — MIT
 

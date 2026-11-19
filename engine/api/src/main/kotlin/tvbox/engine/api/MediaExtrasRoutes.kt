@@ -14,6 +14,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import tvbox.engine.core.Engine
+import tvbox.engine.core.danmaku.DanmakuList
 import tvbox.engine.core.play.SubtitleConverter
 import tvbox.engine.core.play.Subtitles
 import tvbox.engine.core.util.Base64Compat
@@ -43,7 +44,35 @@ fun Route.mediaExtrasRoutes(engine: Engine) {
         val converted = SubtitleConverter.convert(bytes, hint = Subtitles.formatOfName(name))
         call.respond(ConvertedSubtitle(converted.format, converted.text))
     }
+
+    // Danmaku of an episode, in one form whatever the source gave (see DanmakuService). The client fetches them with
+    // its token like any API call, so nothing here needs signing.
+    get("/api/v1/danmaku") {
+        val p = call.parameters
+        val site = p["site"]?.takeIf { it.isNotBlank() } ?: throw BadRequestException("site is required")
+        val episodeId = p["episodeId"].orEmpty()
+        call.respond(engine.danmaku(site, p["line"].orEmpty(), episodeId, p["title"].orEmpty(), p["episode"].orEmpty(), refresh = p["refresh"] == "1"))
+    }
+    post("/api/v1/danmaku/parse") {
+        val (name, bytes) = call.receiveFile()
+        val items = engine.parseDanmaku(bytes)
+        if (items.isEmpty()) throw tvbox.engine.core.EngineException.BadRequest("这个文件里没有认得出的弹幕（支持 B 站 XML、JSON、ASS）")
+        call.respond(DanmakuList(source = "file", from = name, count = items.size, items = items))
+    }
+    get("/api/v1/danmaku/services") {
+        val (configApi, configApiEnabled, customApi) = engine.danmakuServices()
+        call.respond(DanmakuServices(configApi, configApiEnabled, customApi))
+    }
 }
+
+/** `GET /api/v1/danmaku/services`. */
+@Serializable
+data class DanmakuServices(
+    /** The active config's `danmaku` field; empty when it has none (or no config is active). */
+    val configApi: String,
+    val configApiEnabled: Boolean,
+    val customApi: String,
+)
 
 @Serializable
 data class ConvertedSubtitle(val format: String, val text: String)

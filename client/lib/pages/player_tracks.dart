@@ -573,10 +573,10 @@ class PlayerSidePanel extends StatelessWidget {
             alignment: Alignment.centerRight,
             child: GestureDetector(
               onTap: () {},
-              child: Container(
-                width: width,
+              // A Material of its own: list tiles and switches in the panel draw their ink on it.
+              child: Material(
                 color: scheme.surfaceContainer.withValues(alpha: 0.96),
-                child: SafeArea(child: child),
+                child: SizedBox(width: width, child: SafeArea(child: child)),
               ),
             ),
           ),

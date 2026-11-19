@@ -225,6 +225,8 @@ class Engine(
             it.enabled = settings.streamCache
             it.store.maxBytes = currentSettings.streamCacheMaxMB * 1024L * 1024L
         }
+        // A danmaku service is an http(s) address or nothing.
+        currentSettings = currentSettings.copy(danmakuApi = settings.danmakuApi.trim().takeIf { it.startsWith("http://") || it.startsWith("https://") }.orEmpty())
     }
 
     // ---- subscriptions ----
@@ -567,11 +569,47 @@ class Engine(
     private val subtitleBase = proxyBase.substringBefore("/proxy") + "/subtitle?"
     private val proxyPrefix = proxyBase
 
-    /** The site's subtitles, as engine addresses that serve them as UTF-8 in a format the player reads. */
+    /** Finds the danmaku of what is played: the site's first, then the services the user switched on. */
+    private val danmakuService = tvbox.engine.core.danmaku.DanmakuService(http, proxyBase)
+
+    /**
+     * The site's subtitles, as engine addresses that serve them as UTF-8 in a format the player reads; what the site
+     * said about danmaku is kept for `/danmaku` of this episode.
+     */
     private fun withExtras(info: PlayInfo, raw: tvbox.engine.core.site.RawPlay, request: PlayRequest): PlayInfo {
-        if (info.kind != "direct" || raw.subtitles.isEmpty()) return info
-        return info.copy(subtitles = raw.subtitles.map { tvbox.engine.core.play.Subtitles.track(it, subtitleBase, raw.headers, proxyPrefix) })
+        danmakuService.remember(request.site, request.line, request.episodeId, raw.danmaku)
+        if (info.kind != "direct") return info
+        var out = info
+        if (raw.danmaku.isNotBlank()) out = out.copy(danmaku = danmakuService.describe(raw.danmaku))
+        if (raw.subtitles.isNotEmpty()) out = out.copy(subtitles = raw.subtitles.map { tvbox.engine.core.play.Subtitles.track(it, subtitleBase, raw.headers, proxyPrefix) })
+        return out
     }
+
+    /**
+     * `/danmaku`: the danmaku of an episode. The config's API is asked only when the user switched it on
+     * ([tvbox.engine.core.model.EngineSettings.danmakuConfigApi]): it is told the title and episode of what is played.
+     */
+    suspend fun danmaku(site: String, line: String, episodeId: String, title: String, episode: String, refresh: Boolean = false): tvbox.engine.core.danmaku.DanmakuList {
+        val a = current()
+        val settings = currentSettings
+        return try {
+            danmakuService.episode(
+                site, line, episodeId, title.trim(), episode.trim(),
+                configApi = a.config.danmaku.takeIf { settings.danmakuConfigApi && it.isNotBlank() },
+                customApi = settings.danmakuApi.takeIf { it.isNotBlank() },
+                refresh = refresh,
+            )
+        } catch (e: tvbox.engine.core.danmaku.DanmakuException) {
+            throw EngineException.SiteFailed("DANMAKU_FAILED", e.message ?: "danmaku failed")
+        }
+    }
+
+    /** The danmaku services besides the site: the config's API (and whether it is on) and the user's own. */
+    fun danmakuServices(): Triple<String, Boolean, String> =
+        Triple(active?.config?.danmaku.orEmpty(), currentSettings.danmakuConfigApi, currentSettings.danmakuApi)
+
+    /** A danmaku file from a client. */
+    fun parseDanmaku(bytes: ByteArray): List<tvbox.engine.core.danmaku.DanmakuComment> = danmakuService.parseFile(bytes)
 
     /** `/subtitle?url=&h=&f=`: the file at [url], fetched with [headers], as UTF-8 SRT / ASS / WebVTT. */
     suspend fun subtitle(url: String, headers: Map<String, String>, hint: String = ""): tvbox.engine.core.play.SubtitleConverter.Converted {

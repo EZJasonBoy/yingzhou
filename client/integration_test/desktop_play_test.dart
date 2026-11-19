@@ -3,9 +3,11 @@
 //   flutter test integration_test/desktop_play_test.dart -d windows
 // It prints "MARK:<step>" at each step and, with --dart-define=SHOT_DIR=<dir>, saves a screenshot of the UI there
 // (the video picture itself is a platform texture and may not appear in it).
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -15,6 +17,7 @@ import 'package:tvbox_client/app_state.dart';
 import 'package:tvbox_client/desktop/desktop_window.dart';
 import 'package:tvbox_client/engine/engine_client.dart';
 import 'package:tvbox_client/main.dart';
+import 'package:tvbox_client/pages/danmaku_layer.dart';
 import 'package:tvbox_client/player_backend.dart';
 import 'package:tvbox_client/settings.dart';
 
@@ -132,12 +135,20 @@ void main() {
     await mark(tester, 'back');
   });
 
-  // 字幕演示 on the demo's JS site: three subtitles from the spider (GBK SRT, ASS, one behind a Referer) and two
+  // 字幕演示 and 弹幕演示 on the demo's JS site. 字幕演示: three subtitles from the spider (GBK SRT, ASS, one behind a Referer) and two
   // audio renditions. libmpv draws the subtitles; what it shows is also read back from the player (`sub-text`).
-  testWidgets('subtitles and audio tracks in the real player', (tester) async {
+  testWidgets('subtitles, audio tracks and danmaku in the real player', (tester) async {
     MediaKit.ensureInitialized();
     final settings = MemorySettings();
     await settings.setString('siteKey', 'demo_js');
+    // An earlier run's history would bring back its subtitle and position (that is the feature): start without.
+    await tester.runAsync(() async {
+      final engine = EngineClient(Uri.parse(engineUrl));
+      for (final id in ['98', '99']) {
+        await engine.removeHistory('demo_js', id).catchError((Object _) {});
+      }
+      engine.close();
+    });
     late Player player;
     await tester.pumpWidget(
       TvboxApp(
@@ -197,11 +208,91 @@ void main() {
     expect(shown.any((l) => l.contains('双语字幕')), isTrue, reason: 'the ASS file: $shown');
     await mark(tester, 'subs-ass');
 
+    // ignore: avoid_print
+    print('KEYS:${HardwareKeyboard.instance.logicalKeysPressed} FOCUS:${FocusManager.instance.primaryFocus}');
     await tester.sendKeyEvent(LogicalKeyboardKey.keyX);
     await wait(tester, const Duration(milliseconds: 300));
     expect(find.text('字幕延后 0.5 秒'), findsOneWidget);
     await sub.cancel();
 
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await until(tester, playButton);
+
+    // 弹幕演示: the spider names a danmaku file, 3000 comments in three minutes (Bilibili XML, raw deflate).
+    Navigator.of(tester.element(playButton.first)).pop();
+    await until(tester, find.text('星河往事 第二季'));
+    await tester.scrollUntilVisible(find.text('弹幕演示'), 300, scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(find.text('弹幕演示'));
+    await wait(tester, const Duration(milliseconds: 500));
+    await tester.tap(find.text('弹幕演示'));
+    await until(tester, playButton);
+    await tester.tap(playButton.first);
+    await until(tester, find.byKey(const Key('danmaku-overlay')));
+    final started = DateTime.now().add(const Duration(seconds: 40));
+    while ((clock() ?? Duration.zero) < const Duration(seconds: 3)) {
+      if (DateTime.now().isAfter(started)) fail('playback did not start (clock: ${clock()})');
+      await wait(tester, const Duration(milliseconds: 500));
+    }
+
+    // Frame times, measured the way the app runs: every frame the engine draws, not only the ones the test pumps.
+    final binding = IntegrationTestWidgetsFlutterBinding.instance;
+    binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
+    Future<Map<String, Object>> frames(Duration time) async {
+      final timings = <FrameTiming>[];
+      void collect(List<FrameTiming> t) => timings.addAll(t);
+      SchedulerBinding.instance.addTimingsCallback(collect);
+      DanmakuOverlay.stats.reset();
+      await wait(tester, time);
+      SchedulerBinding.instance.removeTimingsCallback(collect);
+      double pct(List<double> v, double p) => v.isEmpty ? 0 : v[((v.length - 1) * p).round()];
+      final build = [for (final t in timings) t.buildDuration.inMicroseconds / 1000]..sort();
+      final raster = [for (final t in timings) t.rasterDuration.inMicroseconds / 1000]..sort();
+      String ms(double v) => v.toStringAsFixed(2);
+      return {
+        'frames': timings.length,
+        'buildMs': {'p50': ms(pct(build, .5)), 'p90': ms(pct(build, .9)), 'p99': ms(pct(build, .99)), 'max': ms(build.isEmpty ? 0 : build.last)},
+        'rasterMs': {'p50': ms(pct(raster, .5)), 'p90': ms(pct(raster, .9)), 'p99': ms(pct(raster, .99)), 'max': ms(raster.isEmpty ? 0 : raster.last)},
+        'over16ms': timings.where((t) => t.buildDuration + t.rasterDuration > const Duration(microseconds: 16667)).length,
+        'danmaku': DanmakuOverlay.stats.toJson(),
+      };
+    }
+
+    final withDanmaku = await frames(const Duration(seconds: 20));
+    // ignore: avoid_print
+    print('DANMAKU_FRAMES:${jsonEncode({'danmaku': 'on', ...withDanmaku})}');
+    expect(DanmakuOverlay.stats.maxOnScreen, greaterThan(10), reason: 'a dense file fills the screen: $withDanmaku');
+    await mark(tester, 'danmaku');
+
+    // ignore: avoid_print
+    print('KEYS:${HardwareKeyboard.instance.logicalKeysPressed} FOCUS:${FocusManager.instance.primaryFocus}');
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+    await wait(tester, const Duration(seconds: 2));
+    expect(DesktopWindow.instance.isFullScreen, isTrue);
+    expect(find.byKey(const Key('danmaku-overlay')), findsOneWidget);
+    final fullscreen = await frames(const Duration(seconds: 10));
+    // ignore: avoid_print
+    print('DANMAKU_FRAMES:${jsonEncode({'danmaku': 'on, fullscreen', ...fullscreen})}');
+    await mark(tester, 'danmaku-fullscreen');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await wait(tester, const Duration(seconds: 1));
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyD);
+    await wait(tester, const Duration(milliseconds: 500));
+    expect(find.byKey(const Key('danmaku-overlay')), findsNothing);
+    final without = await frames(const Duration(seconds: 10));
+    // ignore: avoid_print
+    print('DANMAKU_FRAMES:${jsonEncode({'danmaku': 'off', ...without})}');
+    binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fadePointers;
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyD);
+    await wait(tester, const Duration(milliseconds: 500));
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await wait(tester, const Duration(milliseconds: 300));
+    await tester.tap(find.byKey(const Key('danmaku-button')));
+    await wait(tester, const Duration(milliseconds: 500));
+    expect(find.text('共 3000 条 · 来自站点'), findsOneWidget);
+    await mark(tester, 'danmaku-panel');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await until(tester, playButton);
   });

@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../app_state.dart';
 import '../engine/models.dart';
 import 'cache_settings.dart';
+import 'danmaku_service_settings.dart';
 import 'network_settings.dart';
 import 'stream_cache_settings.dart';
 import 'lan_section.dart';
@@ -155,6 +156,7 @@ class _SourcesPageState extends State<SourcesPage> {
                 ],
                 const CacheSettings(),
                 const StreamCacheSettings(),
+                const DanmakuServiceSettings(),
                 if (state.busy) const Padding(padding: EdgeInsets.only(top: 12), child: LinearProgressIndicator()),
                 if (state.error != null)
                   Padding(

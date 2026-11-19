@@ -7,14 +7,18 @@ import 'package:media_kit/media_kit.dart';
 
 import '../app_state.dart';
 import '../desktop/desktop_window.dart';
+import '../engine/danmaku_models.dart';
 import '../engine/engine_client.dart';
 import '../engine/library_models.dart';
+import '../engine/media_extras_api.dart';
 import '../engine/models.dart' show EngineException;
 import '../engine/vod_models.dart';
 import '../player_backend.dart';
 import '../player_cache.dart';
 import '../settings.dart';
 import 'browse_page.dart' show errorText;
+import 'danmaku_layer.dart';
+import 'danmaku_panel.dart';
 import 'player_tracks.dart';
 import 'seek_bar.dart';
 
@@ -111,7 +115,16 @@ class _PlayerPageState extends State<PlayerPage> {
   String _savedAudio = '';
   Future<void>? _historyRead;
 
-  bool get _anyPanelOpen => _panelOpen || _tracksOpen;
+  /// Danmaku: how they look (remembered on this device), this episode's, and the 弹幕 panel.
+  late final DanmakuPrefs _danmakuPrefs;
+  DanmakuList _danmaku = DanmakuList.empty;
+  bool _danmakuLoading = false;
+  bool _danmakuAsked = false;
+  String? _danmakuError;
+  bool _danmakuOpen = false;
+  int _danmakuSeq = 0;
+
+  bool get _anyPanelOpen => _panelOpen || _tracksOpen || _danmakuOpen;
 
   static const _volumeKey = 'player.volume';
   static const _speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
@@ -211,6 +224,7 @@ class _PlayerPageState extends State<PlayerPage> {
     );
     _bufferWatch = Timer.periodic(const Duration(seconds: 1), (_) => _readBuffered());
     _tracks = PlayerTracks(player: _player, client: _client, settings: _settings, onNotice: (text) => _showOsd(text, const Duration(seconds: 2)));
+    _danmakuPrefs = DanmakuPrefs(_settings)..addListener(_danmakuPrefsChanged);
     _historyRead = _client.historyFor(widget.detail.site, widget.detail.id).then((h) {
       _savedSubtitle = h?.subtitle ?? '';
       _savedAudio = h?.audio ?? '';
@@ -235,6 +249,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _window.title = '映舟';
     _saveProgress();
     _tracks.dispose();
+    _danmakuPrefs.dispose();
     for (final s in _subs) {
       s.cancel();
     }
@@ -403,6 +418,12 @@ class _PlayerPageState extends State<PlayerPage> {
     _cacheKey = '';
     _engineRanges = const [];
     _buffered.value = const [];
+    // The danmaku of the episode before go; this one's are asked for once its address is known.
+    _danmakuSeq++;
+    _danmaku = DanmakuList.empty;
+    _danmakuAsked = false;
+    _danmakuLoading = false;
+    _danmakuError = null;
     setState(() {
       _line = line;
       _episode = episode;
@@ -437,6 +458,7 @@ class _PlayerPageState extends State<PlayerPage> {
     await _historyRead;
     if (!mounted || seq != _requestSeq) return;
     _tracks.opened(info.subtitles, subtitle: subtitle.isNotEmpty ? subtitle : _savedSubtitle, audio: audio.isNotEmpty ? audio : _savedAudio);
+    unawaited(_loadDanmaku());
     try {
       // What the player keeps of the video depends on whether the engine keeps it too.
       await PlayerCache.prepare(_player, engineCached: info.cache.isNotEmpty);
@@ -449,6 +471,88 @@ class _PlayerPageState extends State<PlayerPage> {
     if (!mounted || seq != _requestSeq) return;
     _opening = false;
     _armWatchdog(seq);
+  }
+
+  /// Asks the engine for this episode's danmaku (the site's, else the services the user switched on). Nothing is
+  /// asked while danmaku are off.
+  Future<void> _loadDanmaku({bool refresh = false}) async {
+    if (!_danmakuPrefs.enabled) return;
+    final seq = ++_danmakuSeq;
+    final line = _currentLine;
+    final episode = _currentEpisode;
+    setState(() {
+      _danmakuAsked = true;
+      _danmakuLoading = true;
+      _danmakuError = null;
+    });
+    try {
+      final list = await _client.danmaku(
+        site: widget.detail.site,
+        line: line.name,
+        episodeId: episode.id,
+        title: widget.detail.name,
+        episode: episode.name,
+        refresh: refresh,
+      );
+      if (!mounted || seq != _danmakuSeq) return;
+      setState(() {
+        _danmaku = list;
+        _danmakuLoading = false;
+      });
+    } catch (e) {
+      if (!mounted || seq != _danmakuSeq) return;
+      setState(() {
+        _danmakuLoading = false;
+        _danmakuError = '弹幕加载失败：${errorText(e)}';
+      });
+    }
+  }
+
+  void _danmakuPrefsChanged() {
+    if (!mounted) return;
+    setState(() {});
+    // Turned on for an episode whose danmaku were not asked for yet.
+    if (_danmakuPrefs.enabled && !_danmakuAsked && !_opening) unawaited(_loadDanmaku());
+  }
+
+  void _toggleDanmaku() {
+    final on = !_danmakuPrefs.enabled;
+    _danmakuPrefs.update(enabled: on);
+    _showOsd(on ? (_danmaku.items.isEmpty && _danmakuAsked && !_danmakuLoading ? '弹幕已开启（这一集没有弹幕）' : '弹幕已开启') : '弹幕已关闭');
+  }
+
+  /// A danmaku file from disk (Bilibili XML, JSON, ASS), read by the engine, for the episode playing.
+  Future<void> _loadDanmakuFile() async {
+    final PickedFile? file;
+    try {
+      file = await filePicker('弹幕', const ['xml', 'json', 'ass']);
+    } catch (e) {
+      _showOsd('打不开文件选择窗口：$e', const Duration(seconds: 3));
+      return;
+    }
+    if (file == null) return;
+    try {
+      final list = await _client.parseDanmaku(file.name, file.bytes);
+      if (!mounted) return;
+      _danmakuSeq++;
+      setState(() {
+        _danmaku = list;
+        _danmakuAsked = true;
+        _danmakuLoading = false;
+        _danmakuError = null;
+      });
+      if (!_danmakuPrefs.enabled) _danmakuPrefs.update(enabled: true);
+      _showOsd('已加载 ${list.items.length} 条弹幕', const Duration(seconds: 2));
+    } catch (e) {
+      _showOsd('弹幕文件读不出来：${errorText(e)}', const Duration(seconds: 3));
+    }
+  }
+
+  bool _danmakuKey(LogicalKeyboardKey key) {
+    final keys = HardwareKeyboard.instance;
+    if (key != LogicalKeyboardKey.keyD || keys.isControlPressed || keys.isAltPressed || keys.isMetaPressed) return false;
+    _toggleDanmaku();
+    return true;
   }
 
   /// The engine names parsers it made up from a site's `playUrl` "sniff" / "json".
@@ -570,6 +674,8 @@ class _PlayerPageState extends State<PlayerPage> {
       setState(() => _panelOpen = false);
     } else if (_tracksOpen) {
       setState(() => _tracksOpen = false);
+    } else if (_danmakuOpen) {
+      setState(() => _danmakuOpen = false);
     } else {
       Navigator.of(context).maybePop();
     }
@@ -604,8 +710,8 @@ class _PlayerPageState extends State<PlayerPage> {
       _playEpisode(_episode - 1);
     } else if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
       _back();
-    } else if (_tracks.handleKey(key)) {
-      // Subtitles and audio: C, J, Z, X, A.
+    } else if (_tracks.handleKey(key) || _danmakuKey(key)) {
+      // Subtitles and audio: C, J, Z, X, A; danmaku: D.
     } else {
       return KeyEventResult.ignored;
     }
@@ -647,6 +753,9 @@ class _PlayerPageState extends State<PlayerPage> {
                   onDoubleTap: _desktop ? _toggleFullScreen : _player.playOrPause,
                   child: _backend.view,
                 ),
+                // Danmaku over the picture, under everything else; clicks go through to the picture.
+                if (_danmakuPrefs.enabled && _danmaku.items.isNotEmpty)
+                  IgnorePointer(child: DanmakuOverlay(key: const Key('danmaku-overlay'), player: _player, comments: _danmaku.items, prefs: _danmakuPrefs)),
                 AnimatedOpacity(
                   opacity: _controlsVisible ? 1 : 0,
                   duration: const Duration(milliseconds: 200),
@@ -669,6 +778,18 @@ class _PlayerPageState extends State<PlayerPage> {
                   ),
                 if (_panelOpen) _buildEpisodePanel(context),
                 if (_tracksOpen) PlayerSidePanel(onClose: () => setState(() => _tracksOpen = false), child: TracksPanel(tracks: _tracks)),
+                if (_danmakuOpen)
+                  PlayerSidePanel(
+                    onClose: () => setState(() => _danmakuOpen = false),
+                    child: DanmakuPanel(
+                      prefs: _danmakuPrefs,
+                      list: _danmaku,
+                      loading: _danmakuLoading,
+                      error: _danmakuError,
+                      onReload: () => _loadDanmaku(refresh: true),
+                      onLoadFile: _loadDanmakuFile,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -831,10 +952,26 @@ class _PlayerPageState extends State<PlayerPage> {
                 const Spacer(),
                 if (_desktop) _VolumeControl(player: _player, onToggleMute: _toggleMute),
                 _SpeedButton(player: _player, speeds: _speeds),
+                IconButton(
+                  key: const Key('danmaku-toggle'),
+                  tooltip: _danmakuPrefs.enabled ? '关闭弹幕 (D)' : '打开弹幕 (D)',
+                  onPressed: _toggleDanmaku,
+                  icon: Icon(_danmakuPrefs.enabled ? Icons.chat_bubble_rounded : Icons.chat_bubble_outline_rounded, color: Colors.white),
+                ),
+                TextButton(
+                  key: const Key('danmaku-button'),
+                  onPressed: () => setState(() {
+                    _panelOpen = false;
+                    _tracksOpen = false;
+                    _danmakuOpen = true;
+                  }),
+                  child: const Text('弹幕', style: TextStyle(color: Colors.white)),
+                ),
                 TextButton.icon(
                   key: const Key('tracks-button'),
                   onPressed: () => setState(() {
                     _panelOpen = false;
+                    _danmakuOpen = false;
                     _tracksOpen = true;
                   }),
                   icon: const Icon(Icons.subtitles_outlined, color: Colors.white),

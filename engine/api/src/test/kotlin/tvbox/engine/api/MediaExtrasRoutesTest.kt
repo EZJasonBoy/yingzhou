@@ -3,6 +3,7 @@ package tvbox.engine.api
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -51,12 +52,20 @@ class MediaExtrasRoutesTest {
                 requests += request
                 val url = request.requestUrl!!
                 return when (url.encodedPath) {
-                    "/tv.json" -> MockResponse().setBody("""{"sites":[{"key":"r","name":"远程","type":4,"api":"${server.url("/spider")}"}]}""")
-                    "/spider" -> MockResponse().setBody(
-                        """{"parse":0,"url":"https://cdn.test/v/1.mp4","header":{"Referer":"https://site.test/"},
-                            "subs":[{"name":"中文","lang":"zh","format":"application/x-subrip","url":"${server.url("/subs/1")}"}],
-                            "subt":"${server.url("/subs/2")}#双语.ass"}""",
+                    "/tv.json" -> MockResponse().setBody(
+                        """{"sites":[{"key":"r","name":"远程","type":4,"api":"${server.url("/spider")}"}],"danmaku":"${server.url("/dmapi")}?name={name}&ep={episode}"}""",
                     )
+                    // Episode 1 comes with danmaku (Bilibili's comment XML), episode 2 without.
+                    "/spider" -> {
+                        val danmaku = if (url.queryParameter("play") == "1") ",\"danmaku\":\"${server.url("/dm/1.xml")}\"" else ""
+                        MockResponse().setBody(
+                            """{"parse":0,"url":"https://cdn.test/v/1.mp4","header":{"Referer":"https://site.test/"},
+                                "subs":[{"name":"中文","lang":"zh","format":"application/x-subrip","url":"${server.url("/subs/1")}"}],
+                                "subt":"${server.url("/subs/2")}#双语.ass"$danmaku}""",
+                        )
+                    }
+                    "/dm/1.xml" -> MockResponse().setBody("""<i><d p="1.5,1,25,16777215">站点弹幕</d><d p="0.5,5,25,255">顶部</d></i>""")
+                    "/dmapi" -> MockResponse().setBody("""{"comments":[{"p":"3,1,16777215,u","m":"接口弹幕：${url.queryParameter("name")} ${url.queryParameter("ep")}"}]}""")
                     // Only with the play answer's Referer, like many sites.
                     "/subs/1" -> if (request.getHeader("Referer") == "https://site.test/") MockResponse().setBody(Buffer().write(gbkSrt)) else MockResponse().setResponseCode(403)
                     "/subs/2" -> MockResponse().setBody(ass)
@@ -100,16 +109,30 @@ class MediaExtrasRoutesTest {
         }
     }
 
-    private suspend fun ApplicationTestBuilder.resolve(host: String? = null): JsonObject = EngineJson.parseToJsonElement(
+    private suspend fun ApplicationTestBuilder.resolve(host: String? = null, episode: String = "1"): JsonObject = EngineJson.parseToJsonElement(
         client.post("/api/v1/play/resolve") {
             contentType(ContentType.Application.Json)
             if (host != null) {
                 header(HttpHeaders.Host, host)
                 header(HttpHeaders.Authorization, "Bearer $token")
             }
-            setBody("""{"site":"r","line":"线路","episodeId":"1"}""")
+            setBody("""{"site":"r","line":"线路","episodeId":"$episode"}""")
         }.bodyAsText(),
     ).jsonObject
+
+    private suspend fun ApplicationTestBuilder.danmaku(episode: String, host: String? = null) = client.get(
+        "/api/v1/danmaku?site=r&line=%E7%BA%BF%E8%B7%AF&episodeId=$episode&title=%E7%89%87%E5%90%8D&episode=%E7%AC%AC${episode}%E9%9B%86",
+    ) {
+        if (host != null) {
+            header(HttpHeaders.Host, host)
+            header(HttpHeaders.Authorization, "Bearer $token")
+        }
+    }
+
+    private suspend fun ApplicationTestBuilder.settings(body: String) = client.put("/api/v1/settings") {
+        contentType(ContentType.Application.Json)
+        setBody(body)
+    }
 
     /** An absolute engine address as a path for the test client. */
     private fun local(url: String) = "/" + url.substringAfter("://").substringAfter('/')
@@ -172,5 +195,75 @@ class MediaExtrasRoutesTest {
         assertEquals(HttpStatusCode.Unauthorized, unsignedRequest.status, "without the signature a LAN player gets nothing")
         val otherFile = client.get(local(urls[0]).replace("%2Fsubs%2F1", "%2Fsubs%2F2")) { header(HttpHeaders.Host, "192.168.1.5:9978") }
         assertEquals(HttpStatusCode.Unauthorized, otherFile.status, "the signature covers the address it was made for")
+    }
+
+    // ---- danmaku ----
+
+    @Test
+    fun `the site's danmaku address is kept with the episode and served in one form`() = withEngine { up ->
+        val info = resolve(episode = "1")
+        assertEquals(up.server.url("/dm/1.xml").toString(), info["danmaku"]!!.jsonPrimitive.content, "where they come from, for display")
+        val list = EngineJson.parseToJsonElement(danmaku("1").bodyAsText()).jsonObject
+        assertEquals("site", list["source"]!!.jsonPrimitive.content)
+        assertEquals(2, list["count"]!!.jsonPrimitive.content.toInt())
+        val items = list["items"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(listOf("顶部", "站点弹幕"), items.map { it["text"]!!.jsonPrimitive.content }, "by time")
+        assertEquals(listOf("top", "scroll"), items.map { it["mode"]!!.jsonPrimitive.content })
+        assertEquals(listOf(500L, 1500L), items.map { it["time"]!!.jsonPrimitive.content.toLong() })
+        assertEquals(255, items[0]["color"]!!.jsonPrimitive.content.toInt())
+    }
+
+    @Test
+    fun `the config's danmaku API is asked only once the user switched it on`() = withEngine { up ->
+        resolve(episode = "2")
+        val off = EngineJson.parseToJsonElement(danmaku("2").bodyAsText()).jsonObject
+        assertEquals("", off["source"]!!.jsonPrimitive.content)
+        assertEquals(0, off["count"]!!.jsonPrimitive.content.toInt())
+        assertTrue(up.requests.none { it.requestUrl!!.encodedPath == "/dmapi" }, "nothing went to the API")
+
+        val services = EngineJson.parseToJsonElement(client.get("/api/v1/danmaku/services").bodyAsText()).jsonObject
+        assertEquals(up.server.url("/dmapi").toString() + "?name={name}&ep={episode}", services["configApi"]!!.jsonPrimitive.content)
+        assertEquals("false", services["configApiEnabled"]!!.jsonPrimitive.content)
+
+        settings("""{"danmakuConfigApi":true}""")
+        val on = EngineJson.parseToJsonElement(danmaku("2").bodyAsText()).jsonObject
+        assertEquals("config", on["source"]!!.jsonPrimitive.content)
+        assertEquals("接口弹幕：片名 第2集", on["items"]!!.jsonArray.single().jsonObject["text"]!!.jsonPrimitive.content)
+        // The site's own danmaku still come first.
+        resolve(episode = "1")
+        assertEquals("site", EngineJson.parseToJsonElement(danmaku("1").bodyAsText()).jsonObject["source"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `the user's own service is a setting, kept only when it is an http address`() = withEngine {
+        val saved = EngineJson.parseToJsonElement(settings("""{"danmakuApi":"  https://dm.example/token  "}""").bodyAsText()).jsonObject
+        assertEquals("https://dm.example/token", saved["danmakuApi"]!!.jsonPrimitive.content)
+        assertEquals("false", saved["danmakuConfigApi"]!!.jsonPrimitive.content, "the other switch is left as it was")
+        val bad = EngineJson.parseToJsonElement(settings("""{"danmakuApi":"file:///etc"}""").bodyAsText()).jsonObject
+        assertEquals("", bad["danmakuApi"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `a danmaku file from the client is read in any of the forms, and one with none is refused`() = withEngine {
+        suspend fun parse(bytes: ByteArray) = client.post("/api/v1/danmaku/parse") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"弹幕.xml","data":"${tvbox.engine.core.util.Base64Compat.encode(bytes)}"}""")
+        }
+        val xml = """<?xml version="1.0" encoding="GBK"?><i><d p="2,1,25,16777215">本地文件</d></i>""".toByteArray(charset("GBK"))
+        val list = EngineJson.parseToJsonElement(parse(xml).bodyAsText()).jsonObject
+        assertEquals("file", list["source"]!!.jsonPrimitive.content)
+        assertEquals("弹幕.xml", list["from"]!!.jsonPrimitive.content)
+        assertEquals("本地文件", list["items"]!!.jsonArray.single().jsonObject["text"]!!.jsonPrimitive.content)
+        assertEquals(HttpStatusCode.BadRequest, parse("hello".toByteArray()).status)
+    }
+
+    @Test
+    fun `a paired device on the LAN gets the danmaku with its token`() = withEngine {
+        resolve(host = "192.168.1.5:9978", episode = "1")
+        val lan = danmaku("1", host = "192.168.1.5:9978")
+        assertEquals(HttpStatusCode.OK, lan.status)
+        assertEquals("site", EngineJson.parseToJsonElement(lan.bodyAsText()).jsonObject["source"]!!.jsonPrimitive.content)
+        val noToken = client.get("/api/v1/danmaku?site=r&episodeId=1") { header(HttpHeaders.Host, "192.168.1.5:9978") }
+        assertEquals(HttpStatusCode.Unauthorized, noToken.status)
     }
 }

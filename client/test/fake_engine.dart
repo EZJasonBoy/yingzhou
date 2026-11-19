@@ -23,6 +23,10 @@ Map<String, Object> fakeLine(String name, String tag, {int count = 3}) => {
 ///
 /// [subtitles] are what `/play/resolve` says the site gave for an episode, by episode id (`*` for every episode).
 /// `POST /api/v1/subtitle/convert` answers SRT text that names the file.
+///
+/// [danmaku] are the site's danmaku by episode id (`*` for every episode), as `GET /api/v1/danmaku` items; the
+/// requests for them are noted in [danmakuAsked]. With [danmakuConfigApi] (the config's `danmaku` field, '' for
+/// none) the engine answers `/danmaku/services`, so the 弹幕 card shows on the 源 page. `POST /api/v1/danmaku/parse` gives one comment that names the file.
 MockClient fakeEngine({
   bool hasConfig = false,
   List<Map<String, Object>> history = const [],
@@ -34,6 +38,9 @@ MockClient fakeEngine({
   List<List<int>> coverage = const [],
   List<Map<String, dynamic>>? settingsSent,
   Map<String, List<Map<String, Object>>> subtitles = const {},
+  Map<String, List<Map<String, Object>>> danmaku = const {},
+  List<Uri>? danmakuAsked,
+  String? danmakuConfigApi,
 }) {
   var configured = hasConfig;
   final historyById = <String, Map<String, dynamic>>{for (final h in history) h['vodId'] as String: h};
@@ -196,6 +203,22 @@ MockClient fakeEngine({
           'cache': streamCache == null ? '' : 'k1',
           'subtitles': subtitles[body['episodeId']] ?? subtitles['*'] ?? const <Object>[],
         });
+      case ('GET', '/api/v1/danmaku'):
+        danmakuAsked?.add(request.url);
+        final items = danmaku[request.url.queryParameters['episodeId']] ?? danmaku['*'];
+        return json({'source': items == null ? '' : 'site', 'from': '', 'count': items?.length ?? 0, 'items': items ?? const <Object>[]});
+      case ('POST', '/api/v1/danmaku/parse'):
+        final name = (jsonDecode(request.body) as Map<String, dynamic>)['name'];
+        return json({
+          'source': 'file',
+          'from': name,
+          'count': 1,
+          'items': [
+            {'time': 0, 'mode': 'scroll', 'color': 16777215, 'size': 25, 'text': 'file:$name'},
+          ],
+        });
+      case ('GET', '/api/v1/danmaku/services') when danmakuConfigApi != null:
+        return json({'configApi': danmakuConfigApi, 'configApiEnabled': settings['danmakuConfigApi'] ?? false, 'customApi': settings['danmakuApi'] ?? ''});
       case ('POST', '/api/v1/subtitle/convert'):
         final name = (jsonDecode(request.body) as Map<String, dynamic>)['name'];
         return json({'format': 'srt', 'text': '1\n00:00:01,000 --> 00:00:02,000\n$name\n'});

@@ -2,7 +2,7 @@
 
 客户端与引擎之间的唯一接口。本机内置引擎和远程引擎使用同一套协议。
 
-> 标了 **（未实现）** 的是已定下形状但还没写的接口：`/events`、`/danmaku`。其余都已实现并有测试。
+> 标了 **（未实现）** 的是已定下形状但还没写的接口：`/events`。其余都已实现并有测试。
 
 ## 约定
 
@@ -98,7 +98,7 @@ tvsig=<过期时间，秒，36 进制>.<设备 id 或 local>.<HMAC-SHA256 前 16
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/settings` | `{githubProxy, githubProxyPrefix, doh, streamCache, streamCacheMaxMB}` |
+| GET | `/settings` | `{githubProxy, githubProxyPrefix, doh, streamCache, streamCacheMaxMB, danmakuConfigApi, danmakuApi}` |
 | PUT | `/settings` | 同样的对象，**可以只带要改的字段**，没带的保持原值；保存并立即生效，返回规整后的完整对象。改 GitHub 代理后当前配置不会自动重新加载，客户端随后重新 `activate` |
 | GET | `/network` | 当前配置的网络项和 DNS 选择，见下 |
 
@@ -118,6 +118,8 @@ tvsig=<过期时间，秒，36 进制>.<设备 id 或 local>.<HMAC-SHA256 前 16
 ```
 
 `dohOptions` 的 `source`：`builtin` 引擎内置，`config` 当前配置的 `doh` 提供，`saved` 之前选的、现在两边都不再列出。`hosts` / `headerHosts` / `ads` 是当前配置里被采用的条目（写错的条目不在其中），语义见 [compatibility.md](compatibility.md) 第 2 节。
+
+`danmakuConfigApi`（默认 `false`）：是否向当前配置顶层的 `danmaku` 接口要弹幕——它会收到所播内容的片名和集数，所以由使用者打开。`danmakuApi`（默认空）：使用者自己的弹幕服务，只接受 http(s) 地址，别的值存成空串。见下面"弹幕"。
 
 `streamCache`（默认 `true`）和 `streamCacheMaxMB`（默认 2048，引擎会限制在 200 到 1048576 之间）控制播放缓存，见下面"播放缓存"一节；改它们不需要重新加载配置。
 
@@ -155,7 +157,6 @@ event: end       data: {"sites":40,"ms":9120}
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/play/resolve` | `{site, line, episodeId}` → `PlayInfo` |
-| GET | `/danmaku?site=&vodId=&title=&episode=` | **（未实现，M3）** 规整弹幕 |
 
 `PlayInfo`：
 
@@ -181,6 +182,36 @@ event: end       data: {"sites":40,"ms":9120}
 | POST | `/subtitle/convert` | 客户端本地的字幕文件：`{name, data}`（`data` 为文件内容的 base64，最大 32 MB）→ `{format, text}`，`text` 是 UTF-8、播放器能读的格式。编码和格式的识别同 `/subtitle`；`name` 的扩展名只在内容看不出格式时参考 |
 
 引擎尽量自己走完解析链（直链 / JSON 解析接口 / `jx` / 网页嗅探）。网页嗅探：桌面与 NAS 引擎用无头 Edge/Chrome（CDP，浏览器装在非标准位置时设 `TVBOX_BROWSER`），Android 内置引擎用 WebView；判定规则同 TVBox（配置 `rules` 的 `host`/`rule`/`filter`，再加内置视频地址正则），返回的 `headers` 带上页面实际使用的 Referer / User-Agent / Cookie。配置的顶层 `headers` 里有播放地址所在域名的条目时，它的请求头也并进 `headers`（同名覆盖）；直播线路的 `headers` 同理。`/info` 的 `capabilities.sniff` 表示引擎能否嗅探；不能时才返回 `kind: "sniff"`，由客户端自行嗅探（或提示换线路）。
+
+## 弹幕
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/danmaku?site=&line=&episodeId=&title=&episode=&refresh=` | 一集的弹幕，见下 |
+| POST | `/danmaku/parse` | 客户端本地的弹幕文件：`{name, data}`（base64，最大 32 MB）→ 同样的列表，`source: "file"`，`from` 是文件名；认不出弹幕时 400 |
+| GET | `/danmaku/services` | `{configApi, configApiEnabled, customApi}`：当前配置的 `danmaku` 接口（没有为空）、它是否打开（`settings.danmakuConfigApi`）、使用者自己的接口（`settings.danmakuApi`） |
+
+`/danmaku` 的 `site` / `line` / `episodeId` 与 `/play/resolve` 的相同，`title` / `episode` 是片名和集名（给弹幕接口用）。按顺序找，第一个有弹幕的来源胜出：
+
+1. `site`：这一集解析播放地址时站点给的 `danmaku`（地址或弹幕本身）。所以先 `/play/resolve` 再要弹幕；引擎重启后要重新解析才有。
+2. `config`：配置的 `danmaku` 接口，仅当 `danmakuConfigApi` 为真。
+3. `custom`：`danmakuApi`，非空时。
+
+```json
+{
+  "source": "site",            // site | config | custom | file；没有任何来源时为空串，items 为空（不是错误）
+  "from": "https://comment.bilibili.com/123.xml",   // 实际取自哪里
+  "count": 2,
+  "items": [                   // 按 time 排序
+    {"time": 1500, "mode": "scroll", "color": 16777215, "size": 25, "text": "前方高能"},
+    {"time": 3000, "mode": "top", "color": 16711680, "size": 36, "text": "顶部红字"}
+  ]
+}
+```
+
+`time` 是视频里的毫秒；`mode` 为 `scroll` | `top` | `bottom`；`color` 是 0xRRGGBB；`size` 用 B 站的字号（25 普通、18 小、36 大）。来源都有、但都没有弹幕时返回空列表；用到的来源全部出错时 `502 DANMAKU_FAILED`，消息里分别写明原因。结果按集在引擎内存里保留 30 分钟，`refresh=1` 重新获取。弹幕列表由客户端用令牌获取（普通 API），不经播放器，所以不需要签名地址。
+
+接口的写法、各种弹幕格式见 [compatibility.md](compatibility.md) 第 7 节"弹幕"。
 
 ## 播放缓存
 
