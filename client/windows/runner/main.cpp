@@ -13,6 +13,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     CreateAndAttachConsole();
   }
 
+  // The installer looks for these mutexes (AppMutex in tools/installer/windows.iss):
+  // setup and uninstall ask the user to close the app instead of failing on files
+  // that are in use. Never closed; Windows releases them when the process ends.
+  // The Global one is for an all-users install seen from another session.
+  ::CreateMutexW(nullptr, FALSE, L"Yingzhou.App.Running");
+  ::CreateMutexW(nullptr, FALSE, L"Global\\Yingzhou.App.Running");
+
   // Initialize COM, so that it is available for use in the library and/or
   // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);

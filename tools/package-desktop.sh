@@ -2,9 +2,11 @@
 # Builds a self-contained desktop package: the Flutter client plus the engine and a trimmed Java runtime.
 #
 #   tools/package-desktop.sh     # Windows (Git Bash): dist/yingzhou-windows-x64.zip
+#                                #                     dist/yingzhou-windows-x64-setup.exe (when Inno Setup is installed)
 #                                # macOS:             dist/yingzhou-macos-<arm64|x86_64>.dmg
 #
 # Needs JDK 21 (JAVA_HOME) and Flutter; on Windows Visual Studio with the C++ desktop workload, on macOS Xcode.
+# The Windows installer (tools/installer/windows.iss) also needs Inno Setup 6.3 or newer; without it only the zip is built.
 # The Java runtime is jlinked from the JDK running the build, so a macOS package only runs on that CPU type
 # (build on Apple Silicon for arm64, on an Intel Mac or `macos-13` CI runner for x86_64).
 # macOS signing: ad-hoc by default; set SIGN_IDENTITY="Developer ID Application: ..." to sign for notarization.
@@ -51,12 +53,31 @@ if [ "$os" = windows ]; then
   mkdir -p "$out/engine"
   cp -r "$root/engine/server/build/install/tvbox-engine/lib" "$out/engine/lib"
   cp -r "$jre" "$out/engine/jre"
+  cp "$root/LICENSE" "$out/LICENSE.txt"
+  cp "$root/THIRD-PARTY-NOTICES.md" "$out/"
 
   echo "== zip"
   zip="$root/dist/yingzhou-windows-x64.zip"
   rm -f "$zip"
   powershell.exe -NoProfile -Command "Compress-Archive -Path '$(cygpath -w "$out")\\*' -DestinationPath '$(cygpath -w "$zip")'"
   echo "done: $zip ($(du -h "$zip" | cut -f1)), folder: $out ($(du -sh "$out" | cut -f1))"
+
+  echo "== installer"
+  # Inno Setup's compiler: $ISCC, or on PATH (scoop install inno-setup), or where its own installer puts it.
+  iscc="${ISCC:-$(command -v iscc || true)}"
+  for dir in "/c/Program Files (x86)/Inno Setup 6" "/c/Program Files/Inno Setup 7" "/c/Program Files (x86)/Inno Setup 7"; do
+    [ -z "$iscc" ] && [ -f "$dir/ISCC.exe" ] && iscc="$dir/ISCC.exe"
+  done
+  if [ -z "$iscc" ]; then
+    echo "skipped: Inno Setup (ISCC.exe) not found; the zip above is complete without it"
+    exit 0
+  fi
+  setup="$root/dist/yingzhou-windows-x64-setup.exe"
+  log="$root/dist/installer.log"
+  rm -f "$setup"
+  "$iscc" "$(cygpath -w "$root/tools/installer/windows.iss")" >"$log" 2>&1 \
+    || { tail -n 30 "$log" >&2; echo "the installer did not build; full output in $log" >&2; exit 1; }
+  echo "done: $setup ($(du -h "$setup" | cut -f1))"
   exit 0
 fi
 

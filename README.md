@@ -22,8 +22,8 @@
 
 ## 使用（Windows）
 
-1. 运行 `tools/package-desktop.sh` 得到 `dist/yingzhou-windows-x64.zip`（或直接用 `client/build/windows/x64/runner/Release` 目录）。
-2. 解压，运行 `yingzhou.exe`。不需要安装 Java，引擎和运行时都在包里。
+1. 运行 `tools/package-desktop.sh` 得到安装程序 `dist/yingzhou-windows-x64-setup.exe`（需要 Inno Setup）和绿色包 `dist/yingzhou-windows-x64.zip`。
+2. 运行安装程序，或解压绿色包后运行 `yingzhou.exe`。不需要安装 Java，引擎和运行时都在包里。
 3. 在左侧「源」页填入订阅地址。订阅、历史、收藏保存在 `~/.tvbox-next/engine`。
 
 网页嗅探用系统里的 Edge 或 Chrome（Windows 10/11 自带 Edge）。各页面的用法和常见问题见 [docs/user-guide.md](docs/user-guide.md)。
@@ -57,7 +57,7 @@ flutter run -d windows
 
 桌面客户端启动时，如果 127.0.0.1:9978 上没有引擎，会自动在后台启动内置引擎（开发时用 `engine/server/build/install/tvbox-engine`，打包后用 `engine/` 目录和自带的精简 JRE），客户端退出时引擎随之退出。
 
-打包桌面版（客户端 + 引擎 + jlink 精简 JRE）：Windows 上输出 `dist/yingzhou-windows-x64.zip`，Mac 上输出 `dist/yingzhou-macos-<arm64|x86_64>.dmg`（JRE 跟构建机的 CPU 走；默认临时签名，设 `SIGN_IDENTITY` 用开发者证书签名）。没有 Mac 时，把仓库推到 GitHub 后用 `.github/workflows/desktop.yml` 一次出三个包。
+打包桌面版（客户端 + 引擎 + jlink 精简 JRE）：Windows 上输出 `dist/yingzhou-windows-x64.zip` 和安装程序 `dist/yingzhou-windows-x64-setup.exe`（装了 Inno Setup 时），Mac 上输出 `dist/yingzhou-macos-<arm64|x86_64>.dmg`（JRE 跟构建机的 CPU 走；默认临时签名，设 `SIGN_IDENTITY` 用开发者证书签名）。没有 Mac 时，把仓库推到 GitHub 后用 `.github/workflows/desktop.yml` 一次出三个包。
 
 ```bash
 tools/package-desktop.sh

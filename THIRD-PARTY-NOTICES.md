@@ -46,3 +46,8 @@ SOFTWARE.
 - ASM — BSD-3-Clause
 - OkHttp, Gson, Jsoup, Ktor, kotlinx — Apache-2.0 / MIT
 - quickjs-kt — Apache-2.0; QuickJS — MIT
+
+## Tools
+
+- The Windows installer is built with [Inno Setup](https://jrsoftware.org/isinfo.php), Copyright (C) 1997-2026 Jordan Russell,
+  portions Copyright (C) 2000-2026 Martijn Laan; its Simplified Chinese messages are by Zhenghan Yang (Kira).

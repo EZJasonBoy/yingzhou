@@ -6,6 +6,7 @@
 
 ### 2026-11-18
 
+- **Windows 安装程序** `yingzhou-windows-x64-setup.exe`（Inno Setup，`tools/installer/windows.iss`）：只装给当前用户、不要管理员权限；开始菜单和可选的桌面快捷方式；在「应用和功能」里卸载；直接运行新版安装程序就是升级。安装、升级、卸载时如果映舟还开着会提示先关闭。卸载默认保留订阅、历史、收藏和设置，会问一句要不要一并删除。向导有简体中文和英文。安装程序没有数字签名。打包脚本在 zip 之后生成它（机器上没有 Inno Setup 就跳过），两种包里都带上了许可证和第三方声明。
 - **名字定为映舟（Yingzhou）**，新 logo：帆是播放键的小船，暮光配色（低饱和靛紫底、珊瑚色船身、三色水波；docs/brand）。Windows 程序改为 yingzhou.exe、包名 yingzhou-windows-x64.zip，macOS 为 Yingzhou.app，窗口标题、安卓与网页图标同步更换。图标由 tools/brand/render-icons.mjs 从 SVG 生成。客户端本地设置（窗口位置、音量）随 Windows 程序名换了存放位置；引擎数据目录 ~/.tvbox-next 不变。
 - **GitHub 加速代理改成开关，默认关闭**（「源」页 → 网络）。很多订阅把 `gh-proxy` 之类的代理写死在 GitHub 地址前面，代理一失效整个订阅就 404（gh-proxy.org 现在就是这样）。关闭时引擎直连 GitHub，并把订阅里写的代理前缀去掉；打开后才经你填的代理获取，代理失败再直连。对配置、jar、脚本、直播列表都生效。新增 `/api/v1/settings`，「当前配置」里会显示实际访问的地址。
 

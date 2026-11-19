@@ -1,4 +1,4 @@
-# Desktop packages: Windows zip, macOS DMGs for Apple Silicon and Intel (each Mac build bundles a JRE for its CPU).
+# Desktop packages: Windows zip and installer, macOS DMGs for Apple Silicon and Intel (each Mac build bundles a JRE for its CPU).
 name: desktop
 
 on:
@@ -14,7 +14,7 @@ jobs:
         include:
           - os: windows-latest
             artifact: yingzhou-windows-x64
-            path: dist/yingzhou-windows-x64.zip
+            path: dist/yingzhou-windows-x64*
           - os: macos-14 # Apple Silicon
             artifact: yingzhou-macos-arm64
             path: dist/yingzhou-macos-arm64.dmg

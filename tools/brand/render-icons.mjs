@@ -2,7 +2,8 @@
 //
 //   node tools/brand/render-icons.mjs
 //
-// Writes the Windows .ico, macOS AppIcon set, Android launcher icons and web icons into client/.
+// Writes the Windows .ico, macOS AppIcon set, Android launcher icons and web icons into client/,
+// and the Windows installer's wizard images into tools/installer/.
 // Set TVBOX_BROWSER to the browser executable when it is not in the usual place.
 //
 // Every size is drawn by the browser from the vector logo at its own pixel size (not scaled down from a big
@@ -34,6 +35,9 @@ const SMALL = dataUrl('yingzhou-logo-small.svg');
 const jobs = [];
 const art = (size) => jobs.push([`art${size}`, size, size <= 32 ? SMALL : FULL, 0]);
 [16, 20, 24, 32, 40, 48, 64, 72, 96, 128, 144, 192, 256, 512].forEach(art);
+// The corner image of the Windows installer's wizard: the square it is drawn in at 100, 125, 150, 200 and 250 % scaling.
+const WIZARD = [58, 77, 97, 124, 159];
+WIZARD.forEach(art);
 [16, 32, 64, 128, 256, 512, 1024].forEach((size) => jobs.push([`mac${size}`, size, size <= 32 ? SMALL : FULL, size <= 32 ? 0.04 : 0.1]));
 
 // Lay them out in rows no wider than 2100 px.
@@ -112,11 +116,26 @@ function encode(rgba, w, h) {
 
 const atlas = decode(fs.readFileSync(shot));
 if (atlas.w < width || atlas.h < height) throw new Error(`screenshot is ${atlas.w}x${atlas.h}, page is ${width}x${height}`);
-const png = {};
+const png = {}, pixels = {};
 for (const p of placed) {
   const out = Buffer.alloc(p.size * p.size * 4);
   for (let r = 0; r < p.size; r++) atlas.rgba.copy(out, r * p.size * 4, ((p.y + r) * atlas.w + p.x) * 4, ((p.y + r) * atlas.w + p.x + p.size) * 4);
+  pixels[p.key] = out;
   png[p.key] = encode(out, p.size, p.size);
+}
+
+/** A 32-bit .bmp with an alpha channel that is not premultiplied (Inno Setup: WizardImageAlphaFormat=defined). */
+function bmp(size) {
+  const rgba = pixels[`art${size}`], head = Buffer.alloc(54), body = Buffer.alloc(size * size * 4);
+  head.write('BM', 0, 'ascii'); head.writeUInt32LE(head.length + body.length, 2); head.writeUInt32LE(head.length, 10);
+  head.writeUInt32LE(40, 14); head.writeInt32LE(size, 18); head.writeInt32LE(size, 22);
+  head.writeUInt16LE(1, 26); head.writeUInt16LE(32, 28); head.writeUInt32LE(body.length, 34);
+  // Rows bottom-up, pixels as blue, green, red, alpha.
+  for (let r = 0; r < size; r++) for (let x = 0; x < size; x++) {
+    const from = (r * size + x) * 4, to = ((size - 1 - r) * size + x) * 4;
+    body[to] = rgba[from + 2]; body[to + 1] = rgba[from + 1]; body[to + 2] = rgba[from]; body[to + 3] = rgba[from + 3];
+  }
+  return Buffer.concat([head, body]);
 }
 
 /** An .ico holding PNG images (Windows Vista and later read these). */
@@ -144,6 +163,7 @@ for (const size of [192, 512]) {
   write(`web/icons/Icon-${size}.png`, png[`art${size}`]);
   write(`web/icons/Icon-maskable-${size}.png`, png[`art${size}`]);
 }
+for (const size of WIZARD) write(`tools/installer/wizard-${size}.bmp`, bmp(size), root);
 write('yingzhou-logo-512.png', png.art512, brand);
 write('yingzhou-icon-32.png', png.art32, brand);
 fs.rmSync(work, { recursive: true, force: true });

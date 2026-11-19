@@ -89,12 +89,28 @@ tools/package-desktop.sh
 ```
 
 - Windows（Git Bash）：`dist/yingzhou-windows-x64.zip`，解压后运行 `yingzhou.exe`。未压缩的目录在 `client/build/windows/x64/runner/Release`。
+- Windows 安装程序：`dist/yingzhou-windows-x64-setup.exe`，机器上有 Inno Setup（6.3 以上，`scoop install inno-setup`）时在 zip 之后生成，没有就跳过。脚本是 `tools/installer/windows.iss`，说明见下面"Windows 安装程序"。
 - macOS：`dist/yingzhou-macos-<arm64|x86_64>.dmg`（应用是 `Yingzhou.app`，显示名"映舟"）。JRE 跟构建机的 CPU 走；默认临时签名，设 `SIGN_IDENTITY` 用开发者证书。
 - 没有 Mac：推到 GitHub 后手动触发或打 `v*` 标签，`.github/workflows/desktop.yml` 出三个包。
 
 包里有：Flutter 应用、`engine/lib`（引擎 jar）、`engine/jre`（jlink 裁出的运行时）。用户不用装 Java。
 
 包在生成前会自检：用裁剪好的运行时跑一遍演示配置里的采集站、JS 蜘蛛、jar 蜘蛛、嗅探和直播（`--demo --check --play --strict`），任何一项失败就中止。精简运行时用的是整个 Java SE 加几个 JDK 模块（见脚本里的 `modules`），因为蜘蛛 jar 是别人的代码，用到什么模块没法靠 `jdeps` 预知。
+
+### Windows 安装程序
+
+`tools/installer/windows.iss`（Inno Setup）把 Release 目录整个装进去，版本号取自 `yingzhou.exe`（即 `client/pubspec.yaml` 的 `version`）。打包脚本会自动调用；Release 目录备好后也可以单独运行 `iscc tools\installer\windows.iss`，编译输出在 `dist/installer.log`。
+
+- **每用户安装**，不要管理员权限，默认装到 `%LOCALAPPDATA%\Programs\Yingzhou`；命令行加 `/ALLUSERS` 才装到 Program Files。
+- **`AppId` 不能改**：升级和卸载靠它找到已装的那一份。
+- **运行中不能装也不能卸**：应用启动时创建命名互斥量 `Yingzhou.App.Running`（`client/windows/runner/main.cpp`），安装和卸载程序看到它就提示先关闭。引擎是应用的子进程，晚一点才退出，所以换文件、删文件之前还会等 `engine\jre\bin\javaw.exe` 解除占用（最多 10 秒）。
+- **升级先删 `engine` 和 `data` 两个目录**再装新的：引擎的类路径是 `engine\lib\*`，旧版留下的 jar 会和新版的一起被加载。
+- **卸载只删装进去的文件**；订阅、历史、收藏（`%USERPROFILE%\.tvbox-next`）和界面设置（`%APPDATA%\Yingzhou`）默认保留，交互卸载时询问，静默卸载从不删。
+- 向导右上角的 logo 是 `tools/installer/wizard-*.bmp`（每种显示缩放一张），和应用图标一样由 `node tools/brand/render-icons.mjs` 生成。
+- 界面语言跟系统走：简体中文或英文。
+- 没有签名。要签名的话用 Inno Setup 的 `SignTool` 配置，脚本里还没接。
+
+改了脚本之后至少手动过一遍：静默安装（`/VERYSILENT`）→ 启动 → 再装一次（升级）→ 卸载，确认目录、开始菜单和「应用和功能」里的条目都干净。
 
 ## 7. 拿真实订阅体检
 
