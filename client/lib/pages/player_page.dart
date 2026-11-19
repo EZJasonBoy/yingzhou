@@ -15,6 +15,7 @@ import '../player_backend.dart';
 import '../player_cache.dart';
 import '../settings.dart';
 import 'browse_page.dart' show errorText;
+import 'player_tracks.dart';
 import 'seek_bar.dart';
 
 /// Full-window player: resolves the episode through the engine, plays it with media_kit (libmpv on desktop),
@@ -101,6 +102,16 @@ class _PlayerPageState extends State<PlayerPage> {
   int _bufferTicks = 0;
   String _cacheKey = '';
   List<BufferedRange> _engineRanges = const [];
+
+  /// Subtitles and audio tracks ([PlayerTracks]); the 字幕 panel. What the title's history says to choose, until
+  /// the user chooses something else.
+  late final PlayerTracks _tracks;
+  bool _tracksOpen = false;
+  String _savedSubtitle = '';
+  String _savedAudio = '';
+  Future<void>? _historyRead;
+
+  bool get _anyPanelOpen => _panelOpen || _tracksOpen;
 
   static const _volumeKey = 'player.volume';
   static const _speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
@@ -199,6 +210,11 @@ class _PlayerPageState extends State<PlayerPage> {
       }),
     );
     _bufferWatch = Timer.periodic(const Duration(seconds: 1), (_) => _readBuffered());
+    _tracks = PlayerTracks(player: _player, client: _client, settings: _settings, onNotice: (text) => _showOsd(text, const Duration(seconds: 2)));
+    _historyRead = _client.historyFor(widget.detail.site, widget.detail.id).then((h) {
+      _savedSubtitle = h?.subtitle ?? '';
+      _savedAudio = h?.audio ?? '';
+    }).catchError((Object _) {});
     _open(_line, _episode, resume: widget.startPosition);
     _pokeControls();
   }
@@ -218,6 +234,7 @@ class _PlayerPageState extends State<PlayerPage> {
     if (_window.isFullScreen) _window.fullScreen = false;
     _window.title = '映舟';
     _saveProgress();
+    _tracks.dispose();
     for (final s in _subs) {
       s.cancel();
     }
@@ -245,10 +262,16 @@ class _PlayerPageState extends State<PlayerPage> {
             episodeIndex: _episode,
             positionMs: position.inMilliseconds,
             durationMs: duration.inMilliseconds,
+            subtitle: _subtitleChoice(),
+            audio: _audioChoice(),
           ),
         )
         .catchError((Object _) {});
   }
+
+  /// The subtitle and audio track to keep for this title: what the user chose here, else what the history had.
+  String _subtitleChoice() => _tracks.subtitleChoice.isNotEmpty ? _savedSubtitle = _tracks.subtitleChoice : _savedSubtitle;
+  String _audioChoice() => _tracks.audioChoice.isNotEmpty ? _savedAudio = _tracks.audioChoice : _savedAudio;
 
   /// The user, or the end of the episode before, chose an episode: it starts from the beginning, and a new round of
   /// lines starts with it.
@@ -408,6 +431,12 @@ class _PlayerPageState extends State<PlayerPage> {
       _parsedBy = info.parsedBy;
     });
     _cacheKey = info.cache;
+    // The subtitle and audio track of the episode before (or of the last visit) are chosen again in this one.
+    final subtitle = _subtitleChoice();
+    final audio = _audioChoice();
+    await _historyRead;
+    if (!mounted || seq != _requestSeq) return;
+    _tracks.opened(info.subtitles, subtitle: subtitle.isNotEmpty ? subtitle : _savedSubtitle, audio: audio.isNotEmpty ? audio : _savedAudio);
     try {
       // What the player keeps of the video depends on whether the engine keeps it too.
       await PlayerCache.prepare(_player, engineCached: info.cache.isNotEmpty);
@@ -433,7 +462,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _hideTimer?.cancel();
     if (!_controlsVisible) setState(() => _controlsVisible = true);
     _hideTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted && _player.state.playing && !_panelOpen) setState(() => _controlsVisible = false);
+      if (mounted && _player.state.playing && !_anyPanelOpen) setState(() => _controlsVisible = false);
     });
   }
 
@@ -539,6 +568,8 @@ class _PlayerPageState extends State<PlayerPage> {
       setState(() {});
     } else if (_panelOpen) {
       setState(() => _panelOpen = false);
+    } else if (_tracksOpen) {
+      setState(() => _tracksOpen = false);
     } else {
       Navigator.of(context).maybePop();
     }
@@ -573,6 +604,8 @@ class _PlayerPageState extends State<PlayerPage> {
       _playEpisode(_episode - 1);
     } else if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
       _back();
+    } else if (_tracks.handleKey(key)) {
+      // Subtitles and audio: C, J, Z, X, A.
     } else {
       return KeyEventResult.ignored;
     }
@@ -635,6 +668,7 @@ class _PlayerPageState extends State<PlayerPage> {
                     ),
                   ),
                 if (_panelOpen) _buildEpisodePanel(context),
+                if (_tracksOpen) PlayerSidePanel(onClose: () => setState(() => _tracksOpen = false), child: TracksPanel(tracks: _tracks)),
               ],
             ),
           ),
@@ -797,6 +831,15 @@ class _PlayerPageState extends State<PlayerPage> {
                 const Spacer(),
                 if (_desktop) _VolumeControl(player: _player, onToggleMute: _toggleMute),
                 _SpeedButton(player: _player, speeds: _speeds),
+                TextButton.icon(
+                  key: const Key('tracks-button'),
+                  onPressed: () => setState(() {
+                    _panelOpen = false;
+                    _tracksOpen = true;
+                  }),
+                  icon: const Icon(Icons.subtitles_outlined, color: Colors.white),
+                  label: const Text('字幕', style: TextStyle(color: Colors.white)),
+                ),
                 TextButton.icon(
                   onPressed: () => setState(() => _panelOpen = true),
                   icon: const Icon(Icons.playlist_play_rounded, color: Colors.white),

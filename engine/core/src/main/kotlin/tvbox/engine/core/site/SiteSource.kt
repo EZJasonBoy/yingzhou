@@ -19,6 +19,10 @@ data class RawPlay(
     /** Site-level parser prefix (`playUrl` from the site config or the result), e.g. `json:http://…?url=`. */
     val playUrl: String = "",
     val flag: String = "",
+    /** `subt` / `subs` of the play answer. */
+    val subtitles: List<tvbox.engine.core.play.RawSubtitle> = emptyList(),
+    /** `danmaku` of the play answer: an address, or the danmaku themselves (XML / JSON). */
+    val danmaku: String = "",
 )
 
 /** One site of the active config, whatever its type. */

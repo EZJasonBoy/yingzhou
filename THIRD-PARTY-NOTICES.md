@@ -13,6 +13,10 @@ Yingzhou (映舟) is licensed under AGPL-3.0 (see `LICENSE`). It includes code a
   its DoH list and `ips` bootstrap, the fallback to the system's DNS, `AdBlocker`) and Box (the longer DoH list); the
   `*` in `hosts` names and the top-level `headers` list follow FongMi/TV (GPL-3.0), described from its behaviour.
 
+- `engine/core/.../play/Subtitles.kt`: how a play answer's `subt` / `subs` are read (`#name.ext` after the address,
+  the MIME types of `format`, lyrics left out) follows `PlayFragment` / `PlayActivity` of TVBoxOS and Box (takagen99,
+  AGPL-3.0).
+
 ## Win-box — MIT
 
 `engine/runtime-jar/src/main/java/android/**`, `androidx/**` and `dalvik/**` started from Win-box's Android stubs
@@ -52,6 +56,7 @@ SOFTWARE.
 - OkHttp (with `okhttp-dnsoverhttps`), Gson, Jsoup, Ktor, kotlinx — Apache-2.0 / MIT
 - quickjs-kt — Apache-2.0; QuickJS — MIT
 - path_provider (Flutter, client) — BSD-3-Clause
+- file_selector (`file_selector` and its platform packages, flutter.dev; picking a subtitle or danmaku file in the client) — BSD-3-Clause
 - JmDNS (`org.jmdns:jmdns`, mDNS announcement of a shared engine) — Apache-2.0
 - bonsoir (`bonsoir`, `bonsoir_platform_interface`, `bonsoir_android`, `bonsoir_darwin`, `bonsoir_linux`, `bonsoir_windows`; finding engines on the LAN in the client), Copyright (c) 2019 Hugo DELAUNAY "Skyost" — MIT
 

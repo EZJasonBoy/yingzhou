@@ -20,6 +20,9 @@ Map<String, Object> fakeLine(String name, String tag, {int count = 3}) => {
 /// With [streamCache] the engine has a stream cache: the map is its `/api/v1/stream-cache` answer (emptied by
 /// DELETE), `/play/resolve` names the cache key `k1`, and [coverage] is what the cache holds of that film, as
 /// `[startMs, endMs]` pairs. [settingsSent] collects the bodies of `PUT /api/v1/settings`.
+///
+/// [subtitles] are what `/play/resolve` says the site gave for an episode, by episode id (`*` for every episode).
+/// `POST /api/v1/subtitle/convert` answers SRT text that names the file.
 MockClient fakeEngine({
   bool hasConfig = false,
   List<Map<String, Object>> history = const [],
@@ -30,6 +33,7 @@ MockClient fakeEngine({
   Map<String, Object>? streamCache,
   List<List<int>> coverage = const [],
   List<Map<String, dynamic>>? settingsSent,
+  Map<String, List<Map<String, Object>>> subtitles = const {},
 }) {
   var configured = hasConfig;
   final historyById = <String, Map<String, dynamic>>{for (final h in history) h['vodId'] as String: h};
@@ -184,7 +188,17 @@ MockClient fakeEngine({
             'error': {'code': 'PLAY_FAILED', 'message': '$line 取不到播放地址'},
           }, 502);
         }
-        return json({'kind': 'direct', 'url': body['episodeId'], 'headers': <String, String>{}, 'parsedBy': '', 'cache': streamCache == null ? '' : 'k1'});
+        return json({
+          'kind': 'direct',
+          'url': body['episodeId'],
+          'headers': <String, String>{},
+          'parsedBy': '',
+          'cache': streamCache == null ? '' : 'k1',
+          'subtitles': subtitles[body['episodeId']] ?? subtitles['*'] ?? const <Object>[],
+        });
+      case ('POST', '/api/v1/subtitle/convert'):
+        final name = (jsonDecode(request.body) as Map<String, dynamic>)['name'];
+        return json({'format': 'srt', 'text': '1\n00:00:01,000 --> 00:00:02,000\n$name\n'});
       // Live TV: one source; 回看台 has two days of catch-up, 普通台 none. The guide has a programme every two hours
       // of the China-time day asked for (today when no date), titled "<MM-dd> 节目 <n>".
       case ('GET', '/api/v1/live'):

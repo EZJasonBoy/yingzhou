@@ -126,6 +126,9 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
         // What the playlists below point at when the engine caches the stream, and the cache's own API.
         streamCacheRoutes(engine)
 
+        // Subtitles (players open them) and danmaku, see MediaExtrasRoutes.
+        mediaExtrasRoutes(engine)
+
         // HLS playlists the engine cleans of ads (see M3u8Cleaner). Any trouble sends the player to the original url.
         get("/m3u8") {
             val url = call.parameters["url"].orEmpty()
@@ -326,5 +329,5 @@ private fun forClient(info: PlayInfo, call: RoutingCall): PlayInfo {
     val self = call.selfBase() + "/"
     if (self == loopback) return info
     fun fix(url: String) = if (url.startsWith(loopback)) self + url.removePrefix(loopback) else url
-    return info.copy(url = fix(info.url), sniff = info.sniff?.let { it.copy(pageUrl = fix(it.pageUrl)) })
+    return info.copy(url = fix(info.url), sniff = info.sniff?.let { it.copy(pageUrl = fix(it.pageUrl)) }, subtitles = info.subtitles.map { it.copy(url = fix(it.url)) })
 }

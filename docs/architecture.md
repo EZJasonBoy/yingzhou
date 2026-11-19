@@ -192,6 +192,7 @@ tvbox-next/
   - 桌面：libmpv（media_kit），硬解（d3d11va / videotoolbox / vaapi）。
   - Android：ExoPlayer（官方 video_player）为默认，libmpv 兜底冷门格式。
   - iOS：AVPlayer 为默认，libmpv 兜底 mkv / flv 等。
+- **字幕与音轨（已实现）**：引擎把站点给的 `subt` / `subs`（`core/play/Subtitles.kt`）变成自己的 `/subtitle?url=&h=` 地址，取的时候识别编码（`core/util/TextDecoding.kt`：BOM、UTF-16、UTF-8，否则 GB18030 / Big5 按常用字打分；gzip / deflate 按内容解压）并把 TTML、LRC、B 站 JSON 字幕转成 SRT（`SubtitleConverter`）；本地文件经 `POST /subtitle/convert` 走同一条路，所以客户端不需要任何编码库。桌面播放器开 libass（`PlayerConfiguration(libass: true)`），字幕由 libmpv 画进视频纹理，ASS 样式原样保留；大小、位置、时间偏移是 libmpv 的 `sub-scale`、`sub-pos`、`sub-delay`（`pages/player_tracks.dart` 的 `PlayerTracks`）。站点的字幕在选中时才 `sub-add`，之后按轨道 id 切换。选的字幕语言和音轨写进观看历史（`HistoryEntry.subtitle` / `audio`）。安卓不开 libass，由 media_kit 画纯文本。
 - **弹幕**：引擎下发统一格式；客户端两种渲染：
   1. Flutter 图层：文字预栅格化缓存、只绘制可见部分，兼容任何内核、可交互。
   2. 桌面 mpv 模式：转成 ASS 交给 libmpv 渲染，几乎零开销。

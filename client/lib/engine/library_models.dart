@@ -12,6 +12,8 @@ class HistoryEntry {
     this.positionMs = 0,
     this.durationMs = 0,
     this.updatedAt = 0,
+    this.subtitle = '',
+    this.audio = '',
   });
 
   final String site;
@@ -25,6 +27,12 @@ class HistoryEntry {
   final int positionMs;
   final int durationMs;
   final int updatedAt;
+
+  /// The subtitle chosen for this title: `off`, `lang:<language>` or `name:<track name>`; empty for the default.
+  final String subtitle;
+
+  /// The audio track chosen: `lang:<language>` or `name:<track name>`; empty for the default.
+  final String audio;
 
   double get progress => durationMs <= 0 ? 0 : (positionMs / durationMs).clamp(0, 1).toDouble();
 
@@ -40,6 +48,8 @@ class HistoryEntry {
         positionMs: j['positionMs'] as int? ?? 0,
         durationMs: j['durationMs'] as int? ?? 0,
         updatedAt: j['updatedAt'] as int? ?? 0,
+        subtitle: j['subtitle'] as String? ?? '',
+        audio: j['audio'] as String? ?? '',
       );
 
   Map<String, dynamic> toJson() => {
@@ -53,6 +63,8 @@ class HistoryEntry {
         'episodeIndex': episodeIndex,
         'positionMs': positionMs,
         'durationMs': durationMs,
+        'subtitle': subtitle,
+        'audio': audio,
       };
 }
 

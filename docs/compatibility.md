@@ -196,9 +196,27 @@ jar 蜘蛛在桌面上依赖的安卓类是桩类，覆盖了常见用法（`Con
 | `header` / `headers` | ✅ | 对象或 JSON 字符串都行 |
 | `flag` | ✅ | |
 | `playUrl` | ✅ | |
-| `subs` / `subt` 字幕 | ⬜ | |
+| `subt` | ✅ | 一个字幕地址；`地址#文件名.ass` 里 `#` 后面是显示的名字（扩展名说明格式），不发给服务器 |
+| `subs` | ✅ | `[{name, lang, format, url}]`，全部列出（Box 只取第一条）；`format` 认 `application/x-subrip`、`text/x-ssa`、`text/vtt`、`text/lrc` 等 MIME 类型；名字里有 lyric / lrc / 歌词的是歌词，不当字幕。也接受写成 JSON 字符串或单个对象 |
 | `danmaku` | ⬜ | |
 | `format` | 🟡 | 引擎按地址和响应判断格式，不看这个字段 |
+
+### 字幕
+
+`subt` 在前，`subs` 依次在后，同一地址只算一次。地址可以是 `http(s)://` 或 `proxy://`（蜘蛛自己的代理）；`file://` 等本地路径不支持。
+
+交给播放器的不是站点的地址，而是引擎的 `/subtitle?url=…`：引擎带上播放结果里的 `header` 去取，再交给播放器 UTF-8 文本——
+
+| 字幕文件 | 支持 | 说明 |
+|---|---|---|
+| SRT、ASS / SSA、WebVTT | ✅ | 原样转交；SRT 时间里的 `.` 改成 `,` |
+| TTML / DFXP、LRC、B 站 JSON 字幕（`{"body":[{from,to,content}]}`） | ✅ | 转成 SRT |
+| MicroDVD 等其他文本格式 | 🟡 | 原样转交，由播放器自己识别 |
+| GBK、Big5、UTF-16（有无 BOM）、UTF-8 | ✅ | 按内容识别，不信服务器声明的编码；GBK 和 Big5 按常用字出现的多少区分 |
+| gzip / deflate 压缩的文件 | ✅ | 按内容识别并解压 |
+| 图形字幕（SUP、VobSub）、`.zip` 字幕包 | ⬜ | |
+
+字幕由 libmpv 用 libass 绘制，ASS 的字体、颜色、位置照原样显示。安卓客户端由 media_kit 画纯文本字幕。
 
 ### 播放地址是 m3u8 时
 

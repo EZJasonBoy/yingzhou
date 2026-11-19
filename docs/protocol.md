@@ -165,12 +165,20 @@ event: end       data: {"sites":40,"ms":9120}
   "url": "https://…/index.m3u8",
   "headers": {"Referer": "…", "User-Agent": "…"},
   "format": "hls",               // 可选：hls | dash | mp4 | flv | …
-  "subtitles": [],
-  "danmaku": null,
+  "subtitles": [                 // 站点给的外挂字幕（subt、subs），没有为空
+    {"name": "简体中文", "lang": "zh", "format": "srt", "url": "http://127.0.0.1:9978/subtitle?url=…&h=…&f=srt&tvsig=…"}
+  ],
+  "danmaku": "",                 // 站点给的弹幕来自哪里（地址，或 "inline"）；没有为空。只用于显示，弹幕本身见下面 /danmaku
   "sniff": null,                 // kind=sniff 时：{"pageUrl", "headers", "clickSelector", "timeoutMs"}
   "cache": "84e291843de2b840"    // 非空：url 由引擎的播放缓存提供，值是查询缓存范围用的 key；空：引擎不缓存这个地址
 }
 ```
+
+`subtitles[].url` 总是引擎的 `/subtitle` 地址（见"兼容端点"），播放器直接打开；`format` 是引擎交出的格式（`srt` | `ass` | `ssa` | `vtt`，TTML、LRC 等转成 `srt`），`lang` 照站点写的原样。局域网客户端拿到的同样是签过名的地址。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/subtitle/convert` | 客户端本地的字幕文件：`{name, data}`（`data` 为文件内容的 base64，最大 32 MB）→ `{format, text}`，`text` 是 UTF-8、播放器能读的格式。编码和格式的识别同 `/subtitle`；`name` 的扩展名只在内容看不出格式时参考 |
 
 引擎尽量自己走完解析链（直链 / JSON 解析接口 / `jx` / 网页嗅探）。网页嗅探：桌面与 NAS 引擎用无头 Edge/Chrome（CDP，浏览器装在非标准位置时设 `TVBOX_BROWSER`），Android 内置引擎用 WebView；判定规则同 TVBox（配置 `rules` 的 `host`/`rule`/`filter`，再加内置视频地址正则），返回的 `headers` 带上页面实际使用的 Referer / User-Agent / Cookie。配置的顶层 `headers` 里有播放地址所在域名的条目时，它的请求头也并进 `headers`（同名覆盖）；直播线路的 `headers` 同理。`/info` 的 `capabilities.sniff` 表示引擎能否嗅探；不能时才返回 `kind: "sniff"`，由客户端自行嗅探（或提示换线路）。
 
@@ -215,11 +223,13 @@ event: end       data: {"sites":40,"ms":9120}
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/history?limit=` | 最近观看 |
-| PUT | `/history/{site}/{vodId}` | `{title, pic, line, episodeId, episodeName, positionMs, durationMs}` |
+| PUT | `/history/{site}/{vodId}` | `{title, pic, line, episodeId, episodeName, positionMs, durationMs, subtitle, audio}` |
 | DELETE | `/history/{site}/{vodId}` | |
 | GET / PUT / DELETE | `/favorites[/{site}/{vodId}]` | 同上 |
 
 数据存在引擎里，因此连接同一个引擎的所有设备自动同步进度。
+
+`subtitle` / `audio` 是给这部片选的字幕和音轨，客户端写、客户端读，引擎不解释：`off`（关闭字幕）、`lang:<语言>`、`name:<轨道名>`，空为播放器默认。
 
 ## 兼容端点（不在 `/api/v1` 下）
 
@@ -228,6 +238,7 @@ event: end       data: {"sites":40,"ms":9120}
 | `/proxy?…` | 兼容 TVBox 9978：先给 `siteKey` 对应的蜘蛛，再给 jar 的 `Proxy.proxy`；`do=js` 给 JS 蜘蛛；`do=ck` 返回 `ok` |
 | `/file/<路径>` | 仅桌面引擎、仅本机访问：本机文件，供 `clan://localhost/`、`file://` 和本机路径的订阅及其 `./` 引用使用 |
 | `/m3u8?url=&h=&k=` | HLS 播放列表：引擎拉取播放列表（`h` 为请求头 JSON 的 URL 安全 base64），把相对地址改成绝对地址，按配置 `rules` 的广告规则和保守的分片路径启发式去掉广告片段；主播放列表的各码率也指回这里（带着同一个 `k`）。点播的媒体播放列表在播放缓存开着时再改写一遍：分片、`#EXT-X-KEY`、`#EXT-X-MAP` 的地址换成 `/hls/…`，`#EXT-X-BYTERANGE` 去掉（范围由引擎向片源请求）。`k` 是 `/play/resolve` 给这一集起的缓存名，可以不带（那就按播放列表地址归档）。直播列表（没有 `#EXT-X-ENDLIST`）不改写、不缓存。拉取失败时 302 到原地址 |
+| `/subtitle?url=&h=&f=` | `PlayInfo.subtitles` 指向这里：引擎带着请求头（`h`，同 `/m3u8`）取 `url` 上的字幕，识别编码（BOM、UTF-16、UTF-8，否则在 GB18030 与 Big5 中按常用字多少选，不信服务器声明的）和格式，交出 UTF-8 的 SRT / ASS / WebVTT（TTML、LRC、B 站 JSON 字幕转成 SRT）。`f` 是站点声明的格式，内容看不出时才用。取不到时 502 |
 | `/hls/<播放列表>/<编号>.<扩展名>` | `/m3u8` 改写出来的地址：播放缓存里的分片（`.ts` / `.m4s` 等，片源的扩展名不像媒体文件时一律 `.ts`）、密钥（`.key`）、初始化段（`.mp4`）。支持 `Range`。引擎取不到时 302 到片源（按字节范围切的分片无法这样退回，返回 502） |
 
 `/play/resolve` 返回的 HLS 地址默认包成 `/m3u8?…`（`headers` 照样返回；经播放缓存时播放器用不上它们，引擎会带着去请求片源，没写 User-Agent 时用播放器自己的）。引擎为自己生成的地址（`/m3u8`、`/hls`、蜘蛛 `/proxy`）用 `127.0.0.1`；局域网里的其他设备请求时，按它访问引擎用的地址（请求的 `Host`）改写，所以电视连 NAS 引擎也能直接播。这些地址都带 `tvsig` 签名（见"鉴权与配对"），播放器不需要令牌。

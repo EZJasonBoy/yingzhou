@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:tvbox_client/pages/player_tracks.dart' show MpvProperties;
 import 'package:tvbox_client/player_backend.dart';
 
 /// A media_kit player without libmpv, for widget tests: the test says what each address does, and moves the
@@ -9,7 +10,7 @@ import 'package:tvbox_client/player_backend.dart';
 ///
 /// An address plays unless it is listed: one in [broken] reports an error and never loads (a dead link), one in
 /// [silent] loads nothing and says nothing (a server that hangs).
-class FakePlayer extends PlatformPlayer {
+class FakePlayer extends PlatformPlayer implements MpvProperties {
   FakePlayer() : super(configuration: const PlayerConfiguration());
 
   final broken = <String>{};
@@ -26,6 +27,44 @@ class FakePlayer extends PlatformPlayer {
   Duration seekDelay = Duration.zero;
 
   final _timers = <Timer>[];
+
+  /// The stream's own audio and subtitle tracks, reported once the media is in (a picture is always there).
+  List<AudioTrack> audioTracks = [const AudioTrack('1', null, null)];
+  List<SubtitleTrack> subtitleTracksInStream = const [];
+
+  /// Every subtitle and audio track the page chose, and the libmpv properties it set (last value of each).
+  final subtitleChoices = <SubtitleTrack>[];
+  final audioChoices = <AudioTrack>[];
+  final mpv = <String, String>{};
+  int _nextTrackId = 100;
+
+  @override
+  Future<void> setMpvProperty(String name, String value) async => mpv[name] = value;
+
+  void _tracks(Tracks tracks) {
+    state = state.copyWith(tracks: tracks);
+    tracksController.add(tracks);
+  }
+
+  @override
+  Future<void> setSubtitleTrack(SubtitleTrack track) async {
+    subtitleChoices.add(track);
+    var chosen = track;
+    // Like libmpv: a subtitle from outside becomes a track of its own, listed with the others.
+    if (track.uri || track.data) {
+      chosen = SubtitleTrack('${_nextTrackId++}', track.title, track.language);
+      _tracks(Tracks(video: state.tracks.video, audio: state.tracks.audio, subtitle: [...state.tracks.subtitle, chosen]));
+    }
+    state = state.copyWith(track: state.track.copyWith(subtitle: chosen));
+    trackController.add(state.track);
+  }
+
+  @override
+  Future<void> setAudioTrack(AudioTrack track) async {
+    audioChoices.add(track);
+    state = state.copyWith(track: state.track.copyWith(audio: track));
+    trackController.add(state.track);
+  }
 
   /// The player for the app, with nothing where the picture would be.
   PlayerBackend backend() => (player: Player(platformPlayer: this), view: const SizedBox.expand());
@@ -58,6 +97,13 @@ class FakePlayer extends PlatformPlayer {
       _later(const Duration(milliseconds: 50), () {
         state = state.copyWith(duration: length);
         durationController.add(length);
+        _tracks(
+          Tracks(
+            video: [VideoTrack.auto(), VideoTrack.no(), const VideoTrack('1', null, null)],
+            audio: [AudioTrack.auto(), AudioTrack.no(), ...audioTracks],
+            subtitle: [SubtitleTrack.auto(), SubtitleTrack.no(), ...subtitleTracksInStream],
+          ),
+        );
       });
       // First frames: the position moves on from wherever it was sent.
       _later(const Duration(milliseconds: 150), () => advance(const Duration(milliseconds: 100)));
@@ -68,6 +114,7 @@ class FakePlayer extends PlatformPlayer {
   @override
   Future<void> stop() async {
     _cancelTimers();
+    _tracks(const Tracks());
     state = state.copyWith(playing: false, completed: false, position: Duration.zero, duration: Duration.zero);
     playingController.add(false);
     completedController.add(false);

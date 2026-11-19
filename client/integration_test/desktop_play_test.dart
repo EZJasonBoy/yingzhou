@@ -15,6 +15,7 @@ import 'package:tvbox_client/app_state.dart';
 import 'package:tvbox_client/desktop/desktop_window.dart';
 import 'package:tvbox_client/engine/engine_client.dart';
 import 'package:tvbox_client/main.dart';
+import 'package:tvbox_client/player_backend.dart';
 import 'package:tvbox_client/settings.dart';
 
 const engineUrl = String.fromEnvironment('ENGINE_URL', defaultValue: 'http://127.0.0.1:19978');
@@ -129,6 +130,80 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await until(tester, playButton);
     await mark(tester, 'back');
+  });
+
+  // 字幕演示 on the demo's JS site: three subtitles from the spider (GBK SRT, ASS, one behind a Referer) and two
+  // audio renditions. libmpv draws the subtitles; what it shows is also read back from the player (`sub-text`).
+  testWidgets('subtitles and audio tracks in the real player', (tester) async {
+    MediaKit.ensureInitialized();
+    final settings = MemorySettings();
+    await settings.setString('siteKey', 'demo_js');
+    late Player player;
+    await tester.pumpWidget(
+      TvboxApp(
+        state: AppState(
+          clientFactory: (url) => EngineClient(url),
+          engineUrl: engineUrl,
+          settings: settings,
+          playerBackend: () {
+            final backend = mediaKitBackend();
+            player = backend.player;
+            return backend;
+          },
+        ),
+      ),
+    );
+    await until(tester, find.text('星河往事 第二季'));
+    await tester.scrollUntilVisible(find.text('字幕演示'), 300, scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(find.text('字幕演示'));
+    await wait(tester, const Duration(milliseconds: 500));
+    await tester.tap(find.text('字幕演示'));
+    await until(tester, playButton);
+    await tester.tap(playButton.first);
+    final end = DateTime.now().add(const Duration(seconds: 40));
+    while ((clock() ?? Duration.zero) < const Duration(seconds: 3)) {
+      if (DateTime.now().isAfter(end)) fail('playback did not start (clock: ${clock()})');
+      await wait(tester, const Duration(milliseconds: 500));
+    }
+    // The site's first subtitle is on by itself (the stream has none): GBK, turned into UTF-8 by the engine.
+    final shown = <String>[];
+    final sub = player.stream.subtitle.listen((lines) => shown.addAll(lines.where((l) => l.isNotEmpty)));
+    await wait(tester, const Duration(seconds: 4));
+    expect(shown.any((l) => l.contains('（GBK 编码）') && l.contains('分片')), isTrue, reason: 'subtitle text the player showed: $shown');
+    expect(player.state.track.subtitle.title, '简体中文（GBK）');
+    await mark(tester, 'subs-gbk');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp); // any key brings the controls back
+    await wait(tester, const Duration(milliseconds: 300));
+    await tester.tap(find.byKey(const Key('tracks-button')));
+    await wait(tester, const Duration(milliseconds: 500));
+    expect(find.text('简体中文（GBK）'), findsOneWidget);
+    expect(find.text('双语特效（ASS）'), findsOneWidget);
+    // Two audio renditions in the playlist: 国语 (mono) and English (stereo).
+    final audioChips = find.textContaining(RegExp(r'^音轨 '));
+    expect(audioChips, findsNWidgets(2), reason: 'audio tracks: ${player.state.tracks.audio}');
+    await mark(tester, 'subs-panel');
+    await tester.tap(find.textContaining('立体声'));
+    await wait(tester, const Duration(milliseconds: 500));
+    expect(player.state.track.audio.channelscount ?? player.state.tracks.audio.firstWhere((a) => a.id == player.state.track.audio.id).channelscount, 2);
+    await tester.tap(find.text('双语特效（ASS）'));
+    await wait(tester, const Duration(milliseconds: 500));
+    await tester.tap(find.text('English (needs Referer)'));
+    await wait(tester, const Duration(milliseconds: 500));
+    await tester.tap(find.text('双语特效（ASS）'));
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    shown.clear();
+    await wait(tester, const Duration(seconds: 5));
+    expect(shown.any((l) => l.contains('双语字幕')), isTrue, reason: 'the ASS file: $shown');
+    await mark(tester, 'subs-ass');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyX);
+    await wait(tester, const Duration(milliseconds: 300));
+    expect(find.text('字幕延后 0.5 秒'), findsOneWidget);
+    await sub.cancel();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await until(tester, playButton);
   });
 
   // The demo's 白昼迷踪 第二季 has a line in front, 失效线路, whose addresses nothing answers.

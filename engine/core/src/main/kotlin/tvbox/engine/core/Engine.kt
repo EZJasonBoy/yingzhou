@@ -542,7 +542,7 @@ class Engine(
         val a = current()
         val raw = siteCall(request.site) { it.play(request.line, request.episodeId) }
         return try {
-            streamCached(playerHeaders(playResolver.resolve(raw, a.config)), request, a.config)
+            withExtras(streamCached(playerHeaders(playResolver.resolve(raw, a.config)), request, a.config), raw, request)
         } catch (e: PlayResolveException) {
             throw EngineException.SiteFailed("PLAY_FAILED", e.message ?: "play failed")
         } catch (e: Exception) {
@@ -561,6 +561,27 @@ class Engine(
         val site = config.sites.firstOrNull { it.key == request.site }?.api.orEmpty()
         val key = tvbox.engine.core.play.HlsRewriter.sha1("$site|${request.site}|${request.line}|${request.episodeId}").take(16)
         return info.copy(url = info.url + "&k=" + key, cache = key)
+    }
+
+    /** What the engine's subtitle addresses begin with (`/subtitle?`, see [subtitle]). */
+    private val subtitleBase = proxyBase.substringBefore("/proxy") + "/subtitle?"
+    private val proxyPrefix = proxyBase
+
+    /** The site's subtitles, as engine addresses that serve them as UTF-8 in a format the player reads. */
+    private fun withExtras(info: PlayInfo, raw: tvbox.engine.core.site.RawPlay, request: PlayRequest): PlayInfo {
+        if (info.kind != "direct" || raw.subtitles.isEmpty()) return info
+        return info.copy(subtitles = raw.subtitles.map { tvbox.engine.core.play.Subtitles.track(it, subtitleBase, raw.headers, proxyPrefix) })
+    }
+
+    /** `/subtitle?url=&h=&f=`: the file at [url], fetched with [headers], as UTF-8 SRT / ASS / WebVTT. */
+    suspend fun subtitle(url: String, headers: Map<String, String>, hint: String = ""): tvbox.engine.core.play.SubtitleConverter.Converted {
+        val bytes = try {
+            http.getBytes(url, headers)
+        } catch (e: Exception) {
+            val (code, message) = describe(e)
+            throw EngineException.SiteFailed(code, message)
+        }
+        return tvbox.engine.core.play.SubtitleConverter.convert(bytes, hint = hint)
     }
 
     /**

@@ -44,11 +44,15 @@ class DemoSite {
     /** The slow source (see [DemoSlowSource]) and its title, listed after the others. */
     val slow = DemoSlowSource()
     private val slowItem = Item(SLOW_ITEM, "4", "慢速源演示", 2026, SLOW_EPISODES.size)
-    private val allItems = items + slowItem
+    /** Subtitles, audio tracks and danmaku (see [DemoMedia]), listed after the slow source. */
+    private val mediaItems = DemoMedia.ITEMS.map { (id, item) -> Item(id, "4", item.first, 2026, 1) }
+    private val allItems = items + slowItem + mediaItems
 
     /** Urls use the host the request came in on, so an emulator or a phone on the LAN gets reachable links. */
     fun configJson(base: String): String = buildJsonObject {
         put("wallpaper", "")
+        // Asked only when the user switches the config's danmaku API on (it sends what is played to the API).
+        put("danmaku", "$base/demo/danmaku/api?name={name}&episode={episode}")
         // The global spider jar also carries the "Json聚合" parser (com.github.catvod.parser.MixDemo).
         put("spider", "$base/demo/spider.jar")
         put("sites", buildJsonArray {
@@ -147,7 +151,7 @@ class DemoSite {
                 put("filters", buildJsonObject {
                     classes.forEach { (id, _) -> put(id, yearFilter()) }
                 })
-                put("list", JsonArray((items.takeLast(18).reversed() + slowItem).map { card(it, detail = false, base) }))
+                put("list", JsonArray((items.takeLast(18).reversed() + slowItem + mediaItems).map { card(it, detail = false, base) }))
             }.toString()
         }
     }
@@ -195,6 +199,12 @@ class DemoSite {
                 // this source is treated like any site's: through the playlist endpoint and the stream cache.
                 val source = base.replace("//127.0.0.1", "//localhost")
                 put("vod_play_url", SLOW_EPISODES.joinToString("#") { (name, path) -> "$name\$$source/demo/slow/$path" })
+                return@buildJsonObject
+            }
+            DemoMedia.ITEMS[item.id]?.let { (_, path, about) ->
+                put("vod_content", about)
+                put("vod_play_from", "演示本地")
+                put("vod_play_url", "正片\$$base$path")
                 return@buildJsonObject
             }
             val eps = (1..item.episodes).map { if (item.episodes == 1) "正片" else "第${it}集" }
@@ -253,7 +263,11 @@ class DemoSite {
         }
         async function detail(id) { return (await req(api + '?ac=detail&ids=' + id, {})).content; }
         async function search(wd, quick) { return (await req(api + '?ac=detail&wd=' + encodeURIComponent(wd), {})).content; }
-        async function play(flag, id) { return JSON.stringify({ parse: id.indexOf('/demo/page/') >= 0 ? 1 : 0, url: id }); }
+        async function play(flag, id) {
+          // The subtitle and danmaku demos: the demo server writes the whole play answer (subs, danmaku, header).
+          if (id.indexOf('/demo/av/') >= 0) return (await req(api.replace('api.php/provide/vod/', 'extras') + '?url=' + encodeURIComponent(id), {})).content;
+          return JSON.stringify({ parse: id.indexOf('/demo/page/') >= 0 ? 1 : 0, url: id });
+        }
         export function __jsEvalReturn() { return { init, home, category, detail, search, play }; }
     """.trimIndent()
 
@@ -309,6 +323,7 @@ fun Route.demoRoutes(site: DemoSite) {
         "http://" + (request.headers[io.ktor.http.HttpHeaders.Host] ?: "127.0.0.1")
 
     demoSlowRoutes(site.slow)
+    demoMediaRoutes()
     get("/demo/config.json") { call.respondText(site.configJson(call.base()), ContentType.Application.Json) }
     get("/demo/spider.js") { call.respondText(site.spiderJs, ContentType.Text.JavaScript) }
     get("/demo/spider.jar") {
