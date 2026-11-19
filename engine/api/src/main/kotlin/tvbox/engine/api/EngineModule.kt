@@ -118,6 +118,9 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
             }
         }
 
+        // What the playlists below point at when the engine caches the stream, and the cache's own API.
+        streamCacheRoutes(engine)
+
         // HLS playlists the engine cleans of ads (see M3u8Cleaner). Any trouble sends the player to the original url.
         get("/m3u8") {
             val url = call.parameters["url"].orEmpty()
@@ -127,7 +130,9 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
                     Json.parseToJsonElement(String(Base64Compat.decode(h))).jsonObject.mapValues { (it.value as JsonPrimitive).content }
                 }.getOrNull()
             } ?: emptyMap()
-            val text = runCatching { engine.playlist(url, headers, call.selfBase() + "/m3u8?") }.getOrNull()
+            val text = runCatching {
+                engine.playlist(url, headers, call.selfBase() + "/m3u8?", key = call.parameters["k"], userAgent = call.request.headers[HttpHeaders.UserAgent])
+            }.getOrNull()
             if (text == null) {
                 call.respondRedirect(url, permanent = false)
             } else {
@@ -156,7 +161,8 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
             get("/config") { call.respond(engine.config()) }
 
             get("/settings") { call.respond(engine.settings()) }
-            put("/settings") { call.respond(engine.updateSettings(call.receive<tvbox.engine.core.model.EngineSettings>())) }
+            // A client may send only the settings it knows; the others stay as they are.
+            put("/settings") { call.respond(engine.updateSettings(mergedSettings(engine.settings(), call.receive<JsonObject>()))) }
             get("/sites") { call.respond(engine.sites()) }
 
             route("/sites/{site}") {

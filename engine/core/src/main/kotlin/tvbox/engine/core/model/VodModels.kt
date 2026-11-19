@@ -103,6 +103,11 @@ data class PlayInfo(
     val sniff: SniffRequest? = null,
     /** Which parser produced the url, for display ("" when none was needed). */
     val parsedBy: String = "",
+    /**
+     * Not empty when the engine's stream cache serves [url]: what was played or read ahead stays on the engine's
+     * disk, and `/api/v1/stream-cache/coverage?key=` with this value says which parts are there.
+     */
+    val cache: String = "",
 )
 
 /** Aggregated search events (SSE). */

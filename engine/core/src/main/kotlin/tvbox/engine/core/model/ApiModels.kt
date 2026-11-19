@@ -64,6 +64,13 @@ data class EngineSettings(
     val githubProxy: Boolean = false,
     /** E.g. `https://ghfast.top/`; the GitHub address is appended to it. */
     val githubProxyPrefix: String = tvbox.engine.core.net.GithubProxy.DEFAULT_PREFIX,
+    /**
+     * True (default): video-on-demand HLS is fetched by the engine and kept on its disk, so that seeking back and
+     * forth does not go back to the source (see `StreamCache`). False: players fetch segments from the source.
+     */
+    val streamCache: Boolean = true,
+    /** How much disk the stream cache may take, in MB; the files used longest ago go when it is full. */
+    val streamCacheMaxMB: Int = 2048,
 )
 
 @Serializable
