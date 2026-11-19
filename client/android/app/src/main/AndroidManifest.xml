@@ -11,7 +11,7 @@
         android:label="映舟"
         android:name=".TvboxApplication"
         android:icon="@mipmap/ic_launcher"
-        android:banner="@mipmap/ic_launcher"
+        android:banner="@drawable/banner"
         android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"

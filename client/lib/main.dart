@@ -8,10 +8,12 @@ import 'desktop/desktop_window.dart';
 import 'engine/engine_client.dart';
 import 'engine/local_engine.dart';
 import 'settings.dart';
+import 'ui/device_form.dart';
 import 'ui/poster_cache.dart';
 import 'ui/pairing_dialog.dart';
 import 'ui/shell.dart';
 import 'ui/theme.dart';
+import 'ui/tv/tv_app.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,9 +24,14 @@ Future<void> main() async {
   DesktopWindow.instance.restoreAndTrack(settings);
   // Posters are kept on disk (see ui/poster_cache.dart).
   PosterCache.instance = await PosterCache.open();
+  // Phone, tablet, TV or desktop (ui/device_form.dart): the system's answer and the user's override.
+  final deviceForm = DeviceFormController(info: await DeviceInfo.load(), settings: settings);
   runApp(
-    TvboxApp(
-      state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings, localEngine: createLocalEngine()),
+    DeviceFormScope(
+      controller: deviceForm,
+      child: TvboxApp(
+        state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings, localEngine: createLocalEngine()),
+      ),
     ),
   );
 }
@@ -57,14 +64,14 @@ class _TvboxAppState extends State<TvboxApp> {
         debugShowCheckedModeBanner: false,
         themeMode: ThemeMode.dark,
         theme: buildLightTheme(),
-        darkTheme: buildDarkTheme(),
+        darkTheme: tvTheme(context, buildDarkTheme()),
         navigatorKey: _navigator,
         // Desktop habits: the mouse's back button and Alt+Left go back a page.
         builder: (context, child) => Listener(
           onPointerDown: (e) {
             if (e.kind == PointerDeviceKind.mouse && e.buttons & kBackMouseButton != 0) _back();
           },
-          child: CallbackShortcuts(bindings: {const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): _back}, child: child ?? const SizedBox.shrink()),
+          child: CallbackShortcuts(bindings: {const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): _back}, child: TvAppFrame(child: child ?? const SizedBox.shrink())),
         ),
         home: const PairingGate(child: AppShell()),
       ),

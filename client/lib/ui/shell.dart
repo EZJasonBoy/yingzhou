@@ -7,6 +7,8 @@ import '../pages/library_page.dart';
 import '../pages/live_page.dart';
 import '../pages/search_page.dart';
 import '../pages/sources_page.dart';
+import 'device_form.dart';
+import 'tv/tv_shell.dart';
 
 /// Top-level navigation: a rail on wide screens, a bottom bar on phones.
 class AppShell extends StatefulWidget {
@@ -75,6 +77,8 @@ class _AppShellState extends State<AppShell> {
         children: [for (var i = 0; i < children.length; i++) TickerMode(enabled: i == _index, child: children[i])],
       ),
     );
+    // A TV: big entries on the left, everything driven by the remote (ui/tv/tv_shell.dart).
+    if (isTv(context)) return TvShell(index: _index, destinations: _destinations, onSelect: _go, immersive: _immersive && _index == 1, pages: pages);
     if (_immersive && _index == 1) return Scaffold(backgroundColor: Colors.black, body: pages);
     final wide = MediaQuery.sizeOf(context).width >= 760;
     if (wide) {

@@ -310,3 +310,39 @@ docker buildx build --platform linux/amd64,linux/arm64 -t yingzhou-engine .   # 
 没有检查：镜像能否构建（Gradle 在容器里、Debian 的 `chromium` 包、arm64 下 QEMU 里的 jlink）、容器里 Chromium 能否嗅探、健康检查、卷的权限、host 网络下的 mDNS。CI 的冒烟测试覆盖前四项中的 amd64 部分。
 
 基础镜像只固定到系列（`eclipse-temurin:21-jdk`、`debian:bookworm-slim`），每次构建会拿到当时的安全更新；需要可重复构建时用 `--build-arg JDK_IMAGE=…@sha256:…` 固定摘要。
+
+## 14. Android 电视（遥控器）
+
+设计见 [architecture.md](architecture.md) 第 4 节"电视与遥控器"。代码：`client/lib/ui/device_form.dart`（是不是电视，和手机会话共用）、`client/lib/ui/tv/`（外框、焦点、外壳、输入框、键盘、对话框）、`client/lib/pages/player_tv.dart`、`live_tv.dart`、`ui_mode_settings.dart`，安卓侧 `DeviceChannel.kt`。
+
+**组件测试**：`flutter test test/tv_focus_test.dart test/tv_player_test.dart`。页面用 `DeviceFormScope.fixed(DeviceForm.tv, child: TvboxApp(...))` 包起来，视口 1920×1080、像素比 2（960×540 逻辑像素，和 1080p 电视一样）。按键用 `tester.sendKeyEvent(key, platform: 'android')` 发，这样和安卓发来的一样（DPAD_CENTER 是 `select`、MENU 是 `contextMenu`）；测试的按键模拟器找不到 BACK（`goBack`）对应的物理键，要加 `physicalKey: PhysicalKeyboardKey.escape`。"系统返回"用 `tester.binding.handlePopRoute()`。
+
+**模拟器**：这台机器上只有手机的系统映像，没有 Android TV 映像。用它建一个横屏 1080p、有方向键的模拟器（不要动用户自己的 `tvbox34`）：
+
+```bash
+echo no | avdmanager create avd -n yz-tv -k "system-images;android-34;google_apis;x86_64"   # Windows 上是 avdmanager.bat
+# 改 ~/.android/avd/yz-tv.avd/config.ini：
+#   hw.lcd.width=1920  hw.lcd.height=1080  hw.lcd.density=320  hw.initialOrientation=landscape
+#   hw.dPad=yes  hw.keyboard=yes  hw.ramSize=4G  hw.gpu.mode=swiftshader_indirect  showDeviceFrame=no
+emulator -avd yz-tv -port 5564 -no-window -gpu swiftshader_indirect -no-snapshot-save -no-boot-anim
+```
+
+手机映像不报告自己是电视，应用会用触屏界面。用 `run-as` 把界面模式写进应用的设置（调试包才行），相当于在「源 → 界面模式」里选「电视遥控」：
+
+```bash
+# shared_prefs/FlutterSharedPreferences.xml 里加一行 <string name="flutter.ui.form">tv</string>
+adb -s emulator-5564 push prefs.xml /data/local/tmp/yz_prefs.xml
+adb -s emulator-5564 shell run-as io.github.sa1koro.yingzhou cp /data/local/tmp/yz_prefs.xml shared_prefs/FlutterSharedPreferences.xml
+```
+
+Git Bash 会把 `/data/...` 这样的参数改成 Windows 路径，adb 命令前加 `MSYS_NO_PATHCONV=1`。
+
+内容用主机上的演示引擎（`--demo --port <端口>`），让模拟器里的内置引擎订阅它：`adb forward tcp:<端口2> tcp:9978` 后对 `http://127.0.0.1:<端口2>/api/v1/subscriptions` POST `{"url":"http://10.0.2.2:<端口>/demo/config.json"}`，再 `POST .../subscriptions/<id>/activate`。直接把客户端指向 `http://10.0.2.2:<端口>` 不行：演示引擎把带外来 `Host` 的请求当成局域网设备，要配对。
+
+遥控器按键用 `adb shell input keyevent`：`DPAD_UP` / `DPAD_DOWN` / `DPAD_LEFT` / `DPAD_RIGHT` / `DPAD_CENTER`、`BACK`、`MENU`、`CHANNEL_UP` / `CHANNEL_DOWN`、`MEDIA_PLAY_PAUSE`、`MEDIA_NEXT`、数字 `0`–`9`；按住用 `--longpress`。截图 `adb exec-out screencap -p > x.png`。注意：
+
+- 模拟器开机后处在"触摸模式"，第一个方向键只用来退出触摸模式，不会传给应用；真电视没有触摸模式。
+- `flutter run` 的热重载要从标准输入读按键，这台机器上没法从后台喂给它；改了代码用 `flutter run --no-resident -d emulator-5564` 重新构建安装（Dart 改动约 2–4 分钟）。
+- 这台机器上无窗口、软件渲染（SwiftShader）的模拟器里，media_kit 能打开媒体（时长显示出来），但播放位置一直不走，画面是黑的，点播线路最后都报"15 秒没有画面"；去掉 `-no-audio` 也一样。按键、面板、焦点不受影响。实际播放要在有 GPU 的模拟器或真机上看。
+- 在这台机器上，系统输入法（Gboard）弹出来时模拟器进程偶尔整个崩溃（退出码 139），和应用无关；重启模拟器即可。不弹输入法也能测输入框：焦点在输入框上时 `adb shell input text "…"` 直接打字（走实体键盘那条路）。
+- 真正的 Android TV 映像或设备会多出：系统报告电视模式（不用改设置）、leanback 桌面上的横幅、没有状态栏、遥控器的语音键和"设置""直播"之类的专用键（应用没有处理），以及电视版输入法（Gboard for TV）的行为。这些在手机映像上都验证不到。

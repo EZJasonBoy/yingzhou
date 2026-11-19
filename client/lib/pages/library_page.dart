@@ -4,7 +4,9 @@ import '../app_state.dart';
 import '../engine/library_models.dart';
 import '../engine/vod_models.dart';
 import '../ui/common.dart';
+import '../ui/device_form.dart';
 import '../ui/poster.dart';
+import '../ui/tv/tv_widgets.dart';
 import 'browse_page.dart' show errorText;
 import 'detail_page.dart';
 import 'downloads_tab.dart';
@@ -90,9 +92,15 @@ class _LibraryPageState extends State<LibraryPage> {
                   ],
                 ),
               ),
-              const Align(
+              Align(
                 alignment: Alignment.centerLeft,
-                child: TabBar(isScrollable: true, tabs: [Tab(text: '观看历史', height: 40), Tab(text: '收藏', height: 40), Tab(text: '下载', height: 40)]),
+                child: Builder(
+                  builder: (context) => TabBar(
+                    isScrollable: true,
+                    onFocusChange: tvTabFollowsFocus(context),
+                    tabs: const [Tab(text: '观看历史', height: 40), Tab(text: '收藏', height: 40), Tab(text: '下载', height: 40)],
+                  ),
+                ),
               ),
               Expanded(
                 child: !state.connected
@@ -188,8 +196,12 @@ class _HistoryCard extends StatelessWidget {
             vod: VodCard(site: entry.site, id: entry.vodId, name: entry.name, pic: entry.pic, remarks: entry.episodeName),
             caption: siteName,
             onTap: onTap,
+            // The remote: hold OK or press the menu key to remove it; the progress grows with the focused poster.
+            onLongPress: onRemove,
+            progress: isTv(context) ? entry.progress : null,
           ),
           // Progress along the bottom edge of the poster.
+          if (!isTv(context))
           Positioned(
             left: 0,
             right: 0,
@@ -212,6 +224,8 @@ class _HistoryCard extends StatelessWidget {
               ),
             ),
           ),
+          // No tiny button on a TV.
+          if (!isTv(context))
           Positioned(
             right: 4,
             top: 4,

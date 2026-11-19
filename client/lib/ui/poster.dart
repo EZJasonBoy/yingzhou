@@ -2,6 +2,8 @@ import 'package:material_ui/material_ui.dart';
 
 import '../engine/vod_models.dart';
 import 'common.dart';
+import 'device_form.dart';
+import 'tv/tv_focus.dart';
 
 /// Grid delegate shared by every poster wall: ~160px wide cards, poster ratio 0.7 plus a two-line title.
 const posterGridDelegate = SliverGridDelegateWithMaxCrossAxisExtent(
@@ -12,10 +14,27 @@ const posterGridDelegate = SliverGridDelegateWithMaxCrossAxisExtent(
 );
 
 class PosterCard extends StatefulWidget {
-  const PosterCard({super.key, required this.vod, required this.onTap, this.caption});
+  const PosterCard({
+    super.key,
+    required this.vod,
+    required this.onTap,
+    this.caption,
+    this.onLongPress,
+    this.focusNode,
+    this.autofocus = false,
+    this.progress,
+  });
 
   final VodCard vod;
   final VoidCallback onTap;
+
+  /// Holding OK on the remote, or the menu key (e.g. remove from the history).
+  final VoidCallback? onLongPress;
+  final FocusNode? focusNode;
+  final bool autofocus;
+
+  /// How far it was watched (0–1), as a line along the bottom of the poster.
+  final double? progress;
 
   /// Extra line under the title, e.g. the site name in search results.
   final String? caption;
@@ -27,30 +46,44 @@ class PosterCard extends StatefulWidget {
 class _PosterCardState extends State<PosterCard> {
   bool _hover = false;
 
+  /// Has the focus (remote or keyboard); on a TV it grows more and gets the brand outline.
+  bool _focus = false;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final vod = widget.vod;
+    final tv = isTv(context);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
+      child: TvFocusable(
         onTap: widget.onTap,
+        onLongPress: widget.onLongPress,
+        onMenu: widget.onLongPress,
+        focusNode: widget.focusNode,
+        autofocus: widget.autofocus,
+        outline: false,
+        scale: 1,
+        onFocusChange: (f) => setState(() => _focus = f),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             AspectRatio(
               aspectRatio: 0.7,
               child: AnimatedScale(
-                scale: _hover ? 1.04 : 1,
+                scale: _focus && tv ? 1.1 : (_hover || _focus ? 1.04 : 1),
                 duration: const Duration(milliseconds: 160),
                 curve: Curves.easeOut,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    boxShadow: _hover
+                    border: _focus && tv ? Border.all(color: TvColors.coral, width: 3, strokeAlign: BorderSide.strokeAlignOutside) : null,
+                    boxShadow: _focus && tv
+                        ? [BoxShadow(color: TvColors.yellow.withValues(alpha: 0.4), blurRadius: 18, spreadRadius: 2)]
+                        : _hover || _focus
                         ? [BoxShadow(color: Colors.black.withValues(alpha: 0.45), blurRadius: 18, offset: const Offset(0, 8))]
                         : const [],
                   ),
@@ -84,6 +117,13 @@ class _PosterCardState extends State<PosterCard> {
                               ),
                             ),
                           ),
+                        if (widget.progress != null)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: LinearProgressIndicator(value: widget.progress, minHeight: 3, backgroundColor: Colors.white24, color: scheme.primary),
+                          ),
                       ],
                     ),
                   ),
@@ -96,7 +136,7 @@ class _PosterCardState extends State<PosterCard> {
               maxLines: widget.caption == null ? 2 : 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: _hover ? scheme.primary : scheme.onSurface,
+                color: _hover || _focus ? scheme.primary : scheme.onSurface,
                 fontWeight: FontWeight.w500,
                 height: 1.3,
               ),

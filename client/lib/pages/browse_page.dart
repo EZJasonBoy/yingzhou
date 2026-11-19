@@ -4,7 +4,9 @@ import '../app_state.dart';
 import '../engine/models.dart';
 import '../engine/vod_models.dart';
 import '../ui/common.dart';
+import '../ui/device_form.dart';
 import '../ui/poster.dart';
+import '../ui/tv/tv_widgets.dart';
 import 'detail_page.dart';
 
 /// 首页：current site's recommendations and categories.
@@ -120,7 +122,9 @@ class _SiteBrowserState extends State<_SiteBrowser> {
               header,
               Align(
                 alignment: Alignment.centerLeft,
-                child: TabBar(isScrollable: true, tabs: [for (final t in tabs) Tab(text: t, height: 40)]),
+                child: Builder(
+                  builder: (context) => TabBar(isScrollable: true, onFocusChange: tvTabFollowsFocus(context), tabs: [for (final t in tabs) Tab(text: t, height: 40)]),
+                ),
               ),
               Expanded(
                 child: TabBarView(
@@ -175,7 +179,7 @@ class _Header extends StatelessWidget {
             builder: (context, controller, _) => ActionChip(
               avatar: const Icon(Icons.dns_outlined, size: 18),
               label: Row(mainAxisSize: MainAxisSize.min, children: [Text(site.name), const Icon(Icons.arrow_drop_down, size: 20)]),
-              onPressed: () => controller.isOpen ? controller.close() : controller.open(),
+              onPressed: isTv(context) ? () => _pickSiteOnTv(context, state) : () => controller.isOpen ? controller.close() : controller.open(),
             ),
           ),
           const SizedBox(width: 4),
@@ -184,6 +188,17 @@ class _Header extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The site list as a dialog for the remote (the menu above is for the mouse).
+Future<void> _pickSiteOnTv(BuildContext context, AppState state) async {
+  final key = await showTvChoiceDialog<String>(
+    context,
+    title: '选择站点',
+    items: [for (final s in state.browsableSites) (s.key, s.name)],
+    selected: state.currentSiteKey,
+  );
+  if (key != null) state.selectSite(key);
 }
 
 /// A category: filter bar + paged poster wall that loads more as you scroll.

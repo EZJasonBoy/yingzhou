@@ -5,6 +5,7 @@ import '../engine/drives.dart';
 import '../engine/library_models.dart';
 import '../engine/models.dart' show EngineException;
 import '../ui/common.dart';
+import '../ui/tv/tv_focus.dart';
 import 'browse_page.dart' show errorText;
 import 'drive_form.dart';
 import 'player_page.dart';
@@ -421,7 +422,7 @@ class _DriveFolderPageState extends State<DriveFolderPage> {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       reverse: true,
-      padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+      padding: EdgeInsets.fromLTRB(8 + MediaQuery.paddingOf(context).left, 4, 8 + MediaQuery.paddingOf(context).right, 4),
       child: Row(children: crumbs),
     );
   }
@@ -464,9 +465,11 @@ class _DriveFolderPageState extends State<DriveFolderPage> {
             if (e.isSubtitle) e.name.split('.').first.toLowerCase(),
         };
         return ListView.builder(
-          padding: const EdgeInsets.only(bottom: 24),
+          // Clear of the safe area at the sides (a TV's overscan margin); none on a desktop.
+          padding: EdgeInsets.fromLTRB(MediaQuery.paddingOf(context).left, 0, MediaQuery.paddingOf(context).right, 24),
           itemCount: entries.length,
-          itemBuilder: (context, i) => _entry(context, entries[i], subtitled),
+          // The remote starts on the folder's first entry (TvAutofocus does nothing off TV).
+          itemBuilder: (context, i) => i == 0 ? TvAutofocus(child: _entry(context, entries[i], subtitled)) : _entry(context, entries[i], subtitled),
         );
       },
     );

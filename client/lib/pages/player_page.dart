@@ -16,11 +16,15 @@ import '../engine/vod_models.dart';
 import '../player_backend.dart';
 import '../player_cache.dart';
 import '../settings.dart';
+import '../ui/device_form.dart';
+import '../ui/tv/tv_focus.dart';
 import 'browse_page.dart' show errorText;
 import 'danmaku_layer.dart';
 import 'danmaku_panel.dart';
 import 'player_tracks.dart';
 import 'seek_bar.dart';
+
+part 'player_tv.dart';
 
 /// Full-window player: resolves the episode through the engine, plays it with media_kit (libmpv on desktop),
 /// and draws its own controls so they work the same with mouse, touch and keyboard.
@@ -54,6 +58,10 @@ class _PlayerPageState extends State<PlayerPage> {
   late final PlayerBackend _backend = AppScope.read(context).playerBackend();
   late final EngineClient _client;
   final _focus = FocusNode();
+
+  /// The remote control on a TV (player_tv.dart).
+  final _tvUi = _TvPlayerUi();
+  void _tvSet(VoidCallback change) => setState(change);
   final _subs = <StreamSubscription<dynamic>>[];
 
   late int _line = widget.line;
@@ -255,6 +263,7 @@ class _PlayerPageState extends State<PlayerPage> {
     }
     _player.dispose();
     _focus.dispose();
+    _tvUi.dispose();
     super.dispose();
   }
 
@@ -684,6 +693,7 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (_tvMode) return _onTvKey(event);
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
     final shift = HardwareKeyboard.instance.isShiftPressed;
@@ -778,7 +788,8 @@ class _PlayerPageState extends State<PlayerPage> {
                       ),
                     ),
                   ),
-                if (_panelOpen) _buildEpisodePanel(context),
+                if (_panelOpen) _tvMode ? _buildTvEpisodePanel(context) : _buildEpisodePanel(context),
+                if (_tvUi.settingsOpen) _buildTvSettings(context),
                 if (_tracksOpen) PlayerSidePanel(onClose: () => setState(() => _tracksOpen = false), child: TracksPanel(tracks: _tracks)),
                 if (_danmakuOpen)
                   PlayerSidePanel(
@@ -837,7 +848,7 @@ class _PlayerPageState extends State<PlayerPage> {
                   runSpacing: 8,
                   alignment: WrapAlignment.center,
                   children: [
-                    FilledButton.tonal(onPressed: _retry, child: const Text('重试')),
+                    TvAutofocus(child: FilledButton.tonal(onPressed: _retry, child: const Text('重试'))),
                     // The lines stay the user's to choose from when the page has run out of them.
                     if (widget.detail.lines.length > 1) OutlinedButton(onPressed: () => setState(() => _panelOpen = true), child: const Text('换线路')),
                   ],
@@ -939,6 +950,7 @@ class _PlayerPageState extends State<PlayerPage> {
                   builder: (context, snap) => IconButton(
                     tooltip: '播放 / 暂停 (空格)',
                     iconSize: 32,
+                    focusNode: _tvUi.playButton,
                     onPressed: _player.playOrPause,
                     icon: Icon(snap.data == true ? Icons.pause_rounded : Icons.play_arrow_rounded, color: Colors.white),
                   ),
@@ -953,7 +965,15 @@ class _PlayerPageState extends State<PlayerPage> {
                 IgnorePointer(child: _TimeLabel(player: _player)),
                 const Spacer(),
                 if (_desktop) _VolumeControl(player: _player, onToggleMute: _toggleMute),
-                _SpeedButton(player: _player, speeds: _speeds),
+                // The remote has the 设置 panel (menu key) for the speed, which also holds line, subtitles and danmaku.
+                if (!_tvMode) _SpeedButton(player: _player, speeds: _speeds),
+                if (_tvMode)
+                  TextButton.icon(
+                    key: const Key('tv-settings-button'),
+                    onPressed: _tvToggleSettings,
+                    icon: const Icon(Icons.tune_rounded, color: Colors.white),
+                    label: const Text('设置', style: TextStyle(color: Colors.white)),
+                  ),
                 IconButton(
                   key: const Key('danmaku-toggle'),
                   tooltip: _danmakuPrefs.enabled ? '关闭弹幕 (D)' : '打开弹幕 (D)',

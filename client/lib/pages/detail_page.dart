@@ -7,6 +7,7 @@ import '../engine/downloads.dart';
 import '../engine/library_models.dart';
 import '../engine/vod_models.dart';
 import '../ui/common.dart';
+import '../ui/tv/tv_focus.dart';
 import 'browse_page.dart' show errorText;
 import 'download_sheet.dart';
 import 'player_page.dart';
@@ -185,19 +186,28 @@ class _DetailPageState extends State<DetailPage> {
           runSpacing: 12,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
+            // The remote starts on the main action (TvAutofocus does nothing off TV).
             if (resume != null)
-              FilledButton.icon(
-                onPressed: () => _play(d, resume.$1, resume.$2, start: resume.$3),
-                icon: const Icon(Icons.play_arrow_rounded),
-                label: Text('继续播放 ${d.lines[resume.$1].episodes[resume.$2].name}  ${_fmt(resume.$3)}'),
-                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16)),
+              TvAutofocus(
+                key: const ValueKey('resume'),
+                child: FilledButton.icon(
+                  key: const Key('detail-play'),
+                  onPressed: () => _play(d, resume.$1, resume.$2, start: resume.$3),
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: Text('继续播放 ${d.lines[resume.$1].episodes[resume.$2].name}  ${_fmt(resume.$3)}'),
+                  style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16)),
+                ),
               )
             else
-              FilledButton.icon(
-                onPressed: line == null || line.episodes.isEmpty ? null : () => _play(d, _line, 0),
-                icon: const Icon(Icons.play_arrow_rounded),
-                label: Text(line == null ? '暂无播放线路' : '播放'),
-                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16)),
+              TvAutofocus(
+                key: const ValueKey('play'),
+                child: FilledButton.icon(
+                  key: const Key('detail-play'),
+                  onPressed: line == null || line.episodes.isEmpty ? null : () => _play(d, _line, 0),
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: Text(line == null ? '暂无播放线路' : '播放'),
+                  style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16)),
+                ),
               ),
             if (resume != null && line != null && line.episodes.isNotEmpty)
               OutlinedButton(

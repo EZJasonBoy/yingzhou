@@ -9,6 +9,7 @@ import 'network_settings.dart';
 import 'stream_cache_settings.dart';
 import 'python_settings.dart';
 import 'lan_section.dart';
+import 'ui_mode_settings.dart';
 
 /// 源：engine connection, subscription import, repository switch and the site list.
 class SourcesPage extends StatefulWidget {
@@ -56,6 +57,7 @@ class _SourcesPageState extends State<SourcesPage> {
               children: [
                 Text('源', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 16),
+                const UiModeSettings(),
                 _section(
                   context,
                   title: '引擎',

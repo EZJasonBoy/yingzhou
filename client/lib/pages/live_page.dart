@@ -11,8 +11,13 @@ import '../engine/engine_client.dart';
 import '../engine/live_models.dart';
 import '../player_backend.dart';
 import '../settings.dart';
+import '../ui/device_form.dart';
 import '../ui/engine_image.dart';
+import '../ui/tv/tv_focus.dart';
+import '../ui/tv/tv_widgets.dart';
 import 'browse_page.dart' show errorText;
+
+part 'live_tv.dart';
 
 /// Live TV: the config's `lives` as sources, channel groups, a player and the programme guide.
 ///
@@ -42,6 +47,10 @@ class _LivePageState extends State<LivePage> {
   Player? _playerOrNull;
   PlayerBackend? _backend;
   final _focus = FocusNode();
+
+  /// The remote control on a TV (live_tv.dart).
+  final _tvUi = _TvLiveUi();
+  void _tvSet(VoidCallback change) => setState(change);
   final _subs = <StreamSubscription<dynamic>>[];
 
   String _configKey = '';
@@ -181,6 +190,7 @@ class _LivePageState extends State<LivePage> {
     }
     _playerOrNull?.dispose();
     _focus.dispose();
+    _tvUi.dispose();
     super.dispose();
   }
 
@@ -287,6 +297,7 @@ class _LivePageState extends State<LivePage> {
     _window.title = '${ch.name} - 映舟';
     _loadEpg(ch.name);
     if (changed && _immersive) _showOverlay();
+    _tvOnPlay();
     final url = ch.urls[_line];
     _opening = true;
     _watchdog?.cancel();
@@ -481,6 +492,7 @@ class _LivePageState extends State<LivePage> {
   }
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (_tvMode) return _onTvKey(event);
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.arrowUp) {
@@ -532,7 +544,9 @@ class _LivePageState extends State<LivePage> {
     } else if (_sources.isEmpty) {
       body = _message(Icons.live_tv_rounded, '当前订阅没有直播源');
     } else {
-      body = _immersive ? _buildImmersive(context) : _buildLayout(context);
+      body = _tvMode
+          ? (_immersive ? _buildTvImmersive(context) : _buildTvLayout(context))
+          : (_immersive ? _buildImmersive(context) : _buildLayout(context));
     }
     return Focus(
       focusNode: _focus,
@@ -540,7 +554,8 @@ class _LivePageState extends State<LivePage> {
       onKeyEvent: _onKey,
       child: Scaffold(
         backgroundColor: _immersive ? Colors.black : null,
-        body: SafeArea(child: body),
+        // On a TV the full-screen picture goes to the edges; its overlays keep clear of them themselves.
+        body: _immersive && _tvMode ? body : SafeArea(child: body),
       ),
     );
   }
