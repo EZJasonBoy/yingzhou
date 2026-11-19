@@ -22,6 +22,9 @@ class FakePlayer extends PlatformPlayer {
   /// How long each media claims to be.
   Duration length = const Duration(minutes: 40);
 
+  /// How long the player takes to report the position it was sent to (a real one answers a moment later).
+  Duration seekDelay = Duration.zero;
+
   final _timers = <Timer>[];
 
   /// The player for the app, with nothing where the picture would be.
@@ -75,7 +78,17 @@ class FakePlayer extends PlatformPlayer {
   @override
   Future<void> seek(Duration duration) async {
     seeks.add(duration);
-    _position(duration);
+    if (seekDelay == Duration.zero) {
+      _position(duration);
+    } else {
+      _later(seekDelay, () => _position(duration));
+    }
+  }
+
+  /// What the player has read ahead reaches to [end].
+  void bufferTo(Duration end) {
+    state = state.copyWith(buffer: end);
+    bufferController.add(end);
   }
 
   @override

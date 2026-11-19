@@ -69,6 +69,13 @@ data class EngineSettings(
      * Empty (default): the system's DNS. A config can offer servers but never turns one on.
      */
     val doh: String = "",
+    /**
+     * True (default): video-on-demand HLS is fetched by the engine and kept on its disk, so that seeking back and
+     * forth does not go back to the source (see `StreamCache`). False: players fetch segments from the source.
+     */
+    val streamCache: Boolean = true,
+    /** How much disk the stream cache may take, in MB; the files used longest ago go when it is full. */
+    val streamCacheMaxMB: Int = 2048,
 )
 
 @Serializable

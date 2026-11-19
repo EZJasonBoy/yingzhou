@@ -41,6 +41,11 @@ class DemoSite {
     }
     private val posterCache = ConcurrentHashMap<Int, ByteArray>()
 
+    /** The slow source (see [DemoSlowSource]) and its title, listed after the others. */
+    val slow = DemoSlowSource()
+    private val slowItem = Item(SLOW_ITEM, "4", "慢速源演示", 2026, SLOW_EPISODES.size)
+    private val allItems = items + slowItem
+
     /** Urls use the host the request came in on, so an emulator or a phone on the LAN gets reachable links. */
     fun configJson(base: String): String = buildJsonObject {
         put("wallpaper", "")
@@ -132,9 +137,9 @@ class DemoSite {
         val t = params["t"]
         val pg = params["pg"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
         return when {
-            ids != null -> page(ids.split(",").mapNotNull { id -> items.firstOrNull { it.id.toString() == id } }, 1, detail = true, base)
-            wd != null -> page(items.filter { wd in it.name }, pg, detail = false, base)
-            t != null -> page(items.filter { it.classId == t }, pg, detail = false, base)
+            ids != null -> page(ids.split(",").mapNotNull { id -> allItems.firstOrNull { it.id.toString() == id } }, 1, detail = true, base)
+            wd != null -> page(allItems.filter { wd in it.name }, pg, detail = false, base)
+            t != null -> page(allItems.filter { it.classId == t }, pg, detail = false, base)
             else -> buildJsonObject {
                 put("class", buildJsonArray {
                     classes.forEach { (id, name) -> add(buildJsonObject { put("type_id", id); put("type_name", name) }) }
@@ -142,7 +147,7 @@ class DemoSite {
                 put("filters", buildJsonObject {
                     classes.forEach { (id, _) -> put(id, yearFilter()) }
                 })
-                put("list", JsonArray(items.takeLast(18).reversed().map { card(it, detail = false, base) }))
+                put("list", JsonArray((items.takeLast(18).reversed() + slowItem).map { card(it, detail = false, base) }))
             }.toString()
         }
     }
@@ -182,6 +187,16 @@ class DemoSite {
             put("vod_actor", "演员甲,演员乙,演员丙")
             put("vod_director", "导演丁")
             put("vod_content", "这是开发用的演示数据。《${item.name}》讲述了一个关于远方与回声的故事，共 ${item.episodes} 集。")
+            if (item.id == SLOW_ITEM) {
+                // One line; each episode is the same slow stream written as a different kind of playlist.
+                put("vod_content", "开发用：一个又慢又限速的 HLS 源（/demo/slow），用来测拖动进度条和播放缓存。画面上是分片序号和时间。")
+                put("vod_play_from", "慢速线路")
+                // The engine leaves addresses on its own 127.0.0.1 alone; under another name for the same machine
+                // this source is treated like any site's: through the playlist endpoint and the stream cache.
+                val source = base.replace("//127.0.0.1", "//localhost")
+                put("vod_play_url", SLOW_EPISODES.joinToString("#") { (name, path) -> "$name\$$source/demo/slow/$path" })
+                return@buildJsonObject
+            }
             val eps = (1..item.episodes).map { if (item.episodes == 1) "正片" else "第${it}集" }
             // One title has a dead line in front of the two that play, for the player's change of line.
             val dead = item.id == DEAD_LINE_ITEM
@@ -201,7 +216,7 @@ class DemoSite {
     }.toString()
 
     fun poster(id: Int): ByteArray = posterCache.getOrPut(id) {
-        val item = items.firstOrNull { it.id == id }
+        val item = allItems.firstOrNull { it.id == id }
         val w = 300
         val h = 420
         val img = BufferedImage(w, h, BufferedImage.TYPE_INT_RGB)
@@ -248,6 +263,17 @@ class DemoSite {
         /** 《白昼迷踪 第二季》, second on the home page: its first line, 失效线路, points at a port nothing listens on. */
         private const val DEAD_LINE_ITEM = 95
 
+        /** 《慢速源演示》, last on the home page: its episodes are the playlists of the slow source. */
+        private const val SLOW_ITEM = 97
+        private val SLOW_EPISODES = listOf(
+            "普通" to "index.m3u8",
+            "主列表" to "master.m3u8",
+            "加密" to "aes/index.m3u8",
+            "字节范围" to "range/index.m3u8",
+            // Not HLS: the whole film as one file, the way a direct link serves it.
+            "直链" to "film.mpg",
+        )
+
         /** Public HLS test stream (Big Buck Bunny, CC BY 3.0), widely used for player development. */
         const val TEST_STREAM = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
 
@@ -282,6 +308,7 @@ fun Route.demoRoutes(site: DemoSite) {
     fun io.ktor.server.application.ApplicationCall.base(): String =
         "http://" + (request.headers[io.ktor.http.HttpHeaders.Host] ?: "127.0.0.1")
 
+    demoSlowRoutes(site.slow)
     get("/demo/config.json") { call.respondText(site.configJson(call.base()), ContentType.Application.Json) }
     get("/demo/spider.js") { call.respondText(site.spiderJs, ContentType.Text.JavaScript) }
     get("/demo/spider.jar") {

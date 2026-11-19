@@ -23,7 +23,7 @@ export PATH="$JAVA_HOME/bin:$FLUTTER_ROOT/bin:$ANDROID_HOME/platform-tools:$HOME
 
 ```
 engine/          Kotlin/JVM，Gradle 多模块
-  core/          协议逻辑，纯 JVM，Android 上也跑：config / site / search / play / live
+  core/          协议逻辑，纯 JVM，Android 上也跑：config / site / search / play / live / cache（播放缓存）
   api/           HTTP 路由（Ktor），独立进程和 Android 内置引擎共用
   server/        独立进程入口；演示站（--demo）；CDP 嗅探
   runtime-js/    QuickJS 宿主
@@ -69,6 +69,16 @@ cd engine && ./gradlew :server:run --args="--demo --dev-cors --port 19978"
 
 演示 jar 的源码在 `engine/server/demo-jar/`，改了之后跑 `build.sh`（javac + d8）重新生成。
 
+### 慢速片源
+
+首页最后一个《慢速源演示》是一个故意又慢又限速的 HLS 片源（`/demo/slow`，`DemoSlowSource.kt`），用来测拖动进度条和播放缓存。视频是引擎里现算出来的（`DemoVideo.kt`：手写的 H.264 + MPEG-TS，40 分钟、每段 6 秒、约 2 Mbit/s），不需要编码器，仓库里也没有视频文件；画面上是分片序号和时间，截图就能看出跳到了哪。五集是同一段视频的五种写法：普通播放列表、主播放列表、AES-128 加密、字节范围（所有分片在一个文件里）、直链（整个文件，不是 HLS）。
+
+- `GET /demo/slow/set?delayMs=&connectMs=&kBps=&totalKBps=&reset=1`：每个请求先等多久、新连接多等多久、每个连接限速多少 kB/s、所有连接合计限速多少（0 不限）；`reset=1` 清空请求记录。默认 400 / 300 / 300 / 0。
+- 还有两个制造故障的参数：`cutAfter=<字节数>` 让每个分片应答发到这么多就断开连接，`refuse=<状态码>` 让分片和密钥一律返回这个状态码（都是 0 关闭）。用来看片源出问题时引擎和播放器各自怎么收场。
+- `GET /demo/slow/log`：当前参数和收到的每个请求（哪个分片、字节范围、发了多少、是否中途断开、是不是新连接）。
+
+它的地址写成 `localhost` 而不是 `127.0.0.1`：引擎不会把自己地址上的 m3u8 再包一层 `/m3u8`，换个名字它才和普通站点一样经过播放列表接口和播放缓存。
+
 ## 5. 在真实 Windows 应用里跑集成测试
 
 单元测试覆盖不到播放器、窗口和全屏。`client/integration_test/` 里的测试会启动真正的应用，连演示引擎，一步步操作：
@@ -81,6 +91,16 @@ flutter test integration_test/live_test.dart -d windows --dart-define=SHOT_DIR=<
 ```
 
 每一步会打印 `MARK:<步骤>`，给了 `SHOT_DIR` 就在那一步存一张截图（应用内截图，包含视频画面；从外部截测试窗口是黑的）。
+
+`integration_test/seek_test.dart` 量的是拖动进度条的耗时：在《慢速源演示》上播一分钟，然后点进度条——跳到预读的位置、看过的位置、两处没缓存的位置、回到其中一处、回到开头，中间还按住拖两秒。每次跳转打印一行 `SEEK:{…}`：从点击到出第一帧（`firstPictureMs`）、到重新播起来（`playingMs`）各多少毫秒，播放器收到几次跳转，片源收到哪些请求；另外打印应用和引擎的内存（`MEMORY:{…}`）。第二个用例播"直链"那一集，检查播放器自己的缓存文件。缓存命中的跳转要求一秒内恢复、不向片源请求落点所在的分片，拖动只算一次跳转。
+
+```bash
+flutter test integration_test/seek_test.dart -d windows --dart-define=ENGINE_URL=http://127.0.0.1:19978 --dart-define=SHOT_DIR=<目录>
+# 片源多慢可以调：--dart-define=SLOW_KBPS=300 --dart-define=SLOW_DELAY_MS=800 --dart-define=SLOW_TOTAL_KBPS=600
+# 只量不判（比如量一个没有播放缓存的旧版本）：--dart-define=SEEK_STRICT=false
+```
+
+结果也写到 `SHOT_DIR/seek-results.json`。引擎不带 `--data` 时播放缓存在系统临时目录的 `tvbox-next-engine-<端口>/cache/stream`，每次启动清空；测试开始时也会清一次。
 
 ## 6. 打包
 
@@ -145,6 +165,11 @@ PLAY=1 MAX_SITES=20 tools/check-configs.sh          # 加上播放解析；每�
 - media_kit 在 `open()` 之后就把 `playing` 置为 true，不管媒体打不打得开；也没有"加载失败"事件，只有 mpv 的错误日志（`stream.error`），其中不少并不致命。判断线路死活要看播放位置有没有在走，见 `player_page.dart`。
 - 同时带 `onTap` 和 `onDoubleTap` 的 `GestureDetector`，它里面所有按钮的点击都要等双击的时限（300 毫秒）过去才生效。播放页因此只让画面那一层监听单击和双击，控制条、提示、侧栏是它在 `Stack` 里的兄弟层，不是子节点；新加的按钮也别放进画面那一层里。
 - `DecoratedBox`（比如控制条的渐变）和文字会拦下落在自己范围内的点击，叠在下面的东西就收不到。播放页里只用来看的东西（渐变、标题、时间、提示文字）都包了 `IgnorePointer`，这样按钮之间的空白处点下去仍然是点画面。
+- media_kit 给 libmpv 设了 `cache-on-disk=yes`，但没给 `demuxer-cache-dir`，而 libmpv 没有配置目录时找不到默认位置，所以缓存其实一直在内存里（`demuxer-cache-state` 里没有 `file-cache-bytes`）。要落盘必须自己给目录，见 `player_cache.dart`。
+- `demuxer-cache-state` 用 `getProperty` 读出来是 JSON 字符串，`seekable-ranges` 是 libmpv 不读网络就能跳到的范围。跳转开始时 `time-pos` 立刻变成目标位置，`seeking` 从 yes 回到 no 才是真出了画面——量跳转耗时要看后者。
+- ffmpeg 的 HLS 读取器（`http_multiple`）在读当前分片的数据之前，会先把下一个分片的请求发出去并**等它的应答头**。所以引擎对 `/hls/…` 必须立即应答，不能等片源；否则每次跳转白等一次片源的首字节时间。
+- 同一个缘故，直连慢片源时 libmpv 实际用着两条连接；量"改动前"的速度时别按单连接算。
+- Windows 上不能给还开着的文件改名或删除（`java.io` 打开文件不带共享删除，而 `java.nio.file` 在 Android 7 上没有）。流缓存因此让下载完的文件在还有人读的时候继续叫 `.part`，等读者都关了再改名；清理时删不掉的文件先留着。
 - 引擎代码要能在 Android 7 上跑：不用 `java.time`、`java.util.Base64`。
 - 用 shell 一行命令改 Kotlin / Dart 源码时，`\n`、`$` 容易被 shell 吃掉，改用编辑器或脚本文件。
 - `dart format` 的行宽在 `analysis_options.yaml` 里定为 160，别用默认值重排整个目录。

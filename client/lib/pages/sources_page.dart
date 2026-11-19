@@ -4,6 +4,7 @@ import '../app_state.dart';
 import '../engine/models.dart';
 import 'cache_settings.dart';
 import 'network_settings.dart';
+import 'stream_cache_settings.dart';
 
 /// 源：engine connection, subscription import, repository switch and the site list.
 class SourcesPage extends StatefulWidget {
@@ -150,6 +151,7 @@ class _SourcesPageState extends State<SourcesPage> {
                   ),
                 ],
                 const CacheSettings(),
+                const StreamCacheSettings(),
                 if (state.busy) const Padding(padding: EdgeInsets.only(top: 12), child: LinearProgressIndicator()),
                 if (state.error != null)
                   Padding(

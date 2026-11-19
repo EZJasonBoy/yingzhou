@@ -61,7 +61,7 @@ class RepoInfo {
 
 /// Engine-wide settings (`/api/v1/settings`).
 class EngineSettings {
-  const EngineSettings({this.githubProxy = false, this.githubProxyPrefix = '', this.doh = ''});
+  const EngineSettings({this.githubProxy = false, this.githubProxyPrefix = '', this.doh = '', this.streamCache = true, this.streamCacheMaxMB = 2048});
 
   /// Off: files on GitHub come from GitHub, and a proxy a subscription put in front of them is taken off.
   /// On: they are fetched through [githubProxyPrefix].
@@ -70,11 +70,17 @@ class EngineSettings {
 
   /// The url of the DNS-over-HTTPS server names are looked up with; empty (default) for the system's DNS.
   final String doh;
+  /// The engine's stream cache: whether HLS is kept on its disk, and how many MB it may take. Not part of [toJson]:
+  /// they are changed on their own (`EngineClient.patchSettings`), so saving the others never resets them.
+  final bool streamCache;
+  final int streamCacheMaxMB;
 
   factory EngineSettings.fromJson(Map<String, dynamic> json) => EngineSettings(
     githubProxy: json['githubProxy'] as bool? ?? false,
     githubProxyPrefix: json['githubProxyPrefix'] as String? ?? '',
     doh: json['doh'] as String? ?? '',
+    streamCache: json['streamCache'] as bool? ?? true,
+    streamCacheMaxMB: (json['streamCacheMaxMB'] as num?)?.toInt() ?? 2048,
   );
 
   Map<String, dynamic> toJson() => {'githubProxy': githubProxy, 'githubProxyPrefix': githubProxyPrefix, 'doh': doh};
@@ -84,6 +90,8 @@ class EngineSettings {
     githubProxy: githubProxy ?? this.githubProxy,
     githubProxyPrefix: githubProxyPrefix ?? this.githubProxyPrefix,
     doh: doh ?? this.doh,
+    streamCache: streamCache,
+    streamCacheMaxMB: streamCacheMaxMB,
   );
 }
 

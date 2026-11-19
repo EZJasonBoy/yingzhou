@@ -84,6 +84,8 @@ class Engine(
     private val network: tvbox.engine.core.net.ConfigNetwork? = null,
     /** Copies of configs, site answers, `ext` files and live lists (the same instance the [loader] keeps copies in); null: nothing is kept. */
     private val cache: tvbox.engine.core.cache.DataCache? = null,
+    /** Keeps the HLS streams this engine serves on disk (see [tvbox.engine.core.cache.StreamCache]); null: players fetch segments themselves. */
+    val streamCache: tvbox.engine.core.cache.StreamCache? = null,
 ) {
     /** Capabilities are derived from the runtimes actually present. */
     val info: EngineInfo = info.copy(
@@ -133,6 +135,9 @@ class Engine(
     )
     private val searchAggregator = SearchAggregator()
     private val live = LiveService(http, proxyBase, spiderList = ::spiderLive)
+
+    /** What the engine's own playlist addresses begin with (see [PlayResolver]). */
+    private val playlistBase = proxyBase.substringBefore("/proxy") + "/m3u8?"
 
     /** Spiders created for `lives` entries of `type: 3`, by source name; released with the config. */
     private val liveSpiders = java.util.concurrent.ConcurrentHashMap<String, tvbox.engine.core.spider.Spider>()
@@ -214,6 +219,11 @@ class Engine(
         githubProxy?.let {
             it.prefix = prefix
             it.enabled = settings.githubProxy
+        }
+        currentSettings = currentSettings.copy(streamCacheMaxMB = settings.streamCacheMaxMB.coerceIn(STREAM_CACHE_MIN_MB, STREAM_CACHE_MAX_MB))
+        streamCache?.let {
+            it.enabled = settings.streamCache
+            it.store.maxBytes = currentSettings.streamCacheMaxMB * 1024L * 1024L
         }
     }
 
@@ -455,13 +465,16 @@ class Engine(
      * An HLS playlist for the player, cleaned of ads with the active config's rules. Variants of a master playlist
      * point back here through [selfBase] (`http://<engine>/m3u8?`).
      */
-    suspend fun playlist(url: String, headers: Map<String, String>, selfBase: String): String {
+    suspend fun playlist(url: String, headers: Map<String, String>, selfBase: String, key: String? = null, userAgent: String? = null): String {
         val (text, finalUrl) = http.getWithUrl(url, headers)
         if (!text.removePrefix("\uFEFF").trimStart().startsWith("#EXTM3U")) throw EngineException.BadRequest("not an HLS playlist")
-        if (M3u8Cleaner.isMaster(text)) return M3u8Cleaner.rewriteMaster(text, finalUrl) { PlayResolver.playlistUrl(selfBase, it, headers) }
+        // The variants of a master playlist carry the episode's key on, so each finds its own part of the stream cache.
+        if (M3u8Cleaner.isMaster(text)) return M3u8Cleaner.rewriteMaster(text, finalUrl) { PlayResolver.playlistUrl(selfBase, it, headers) + if (key.isNullOrEmpty()) "" else "&k=$key" }
         val rules = active?.config?.let { playResolver.rules(it) } ?: PlayRules.NONE
         val ads = (rules.adsFor(url) + rules.adsFor(finalUrl)).distinct()
-        return M3u8Cleaner.clean(text, finalUrl, ads, heuristic = true).text
+        val cleaned = M3u8Cleaner.clean(text, finalUrl, ads, heuristic = true).text
+        // A film (not a live playlist) is served from the stream cache: its segments, keys and maps then name the engine.
+        return streamCache?.playlist(url, finalUrl, cleaned, headers, key?.ifEmpty { null }, userAgent, selfBase.removeSuffix("m3u8?") + "hls/") ?: cleaned
     }
 
     // ---- live TV ----
@@ -529,13 +542,25 @@ class Engine(
         val a = current()
         val raw = siteCall(request.site) { it.play(request.line, request.episodeId) }
         return try {
-            playerHeaders(playResolver.resolve(raw, a.config))
+            streamCached(playerHeaders(playResolver.resolve(raw, a.config)), request, a.config)
         } catch (e: PlayResolveException) {
             throw EngineException.SiteFailed("PLAY_FAILED", e.message ?: "play failed")
         } catch (e: Exception) {
             val (code, message) = describe(e)
             throw EngineException.SiteFailed(code, message)
         }
+    }
+
+    /**
+     * An HLS address that goes through the engine's playlist endpoint is given a key that names the episode (site,
+     * line, episode), so the stream cache finds what it kept of it on the next visit, whatever host and tokens the
+     * address has by then.
+     */
+    private fun streamCached(info: PlayInfo, request: PlayRequest, config: TvboxConfig): PlayInfo {
+        if (streamCache?.enabled != true || info.kind != "direct" || !info.url.startsWith(playlistBase)) return info
+        val site = config.sites.firstOrNull { it.key == request.site }?.api.orEmpty()
+        val key = tvbox.engine.core.play.HlsRewriter.sha1("$site|${request.site}|${request.line}|${request.episodeId}").take(16)
+        return info.copy(url = info.url + "&k=" + key, cache = key)
     }
 
     /**
@@ -692,6 +717,9 @@ class Engine(
         const val HOME_LIFETIME = 15 * 60_000L
         const val CATEGORY_LIFETIME = 15 * 60_000L
         const val DETAIL_LIFETIME = 60 * 60_000L
+        /** The stream cache's size is kept within these, whatever a client asks for. */
+        const val STREAM_CACHE_MIN_MB = 200
+        const val STREAM_CACHE_MAX_MB = 1024 * 1024
     }
 }
 

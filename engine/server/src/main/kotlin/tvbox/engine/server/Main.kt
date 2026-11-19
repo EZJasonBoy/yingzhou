@@ -111,6 +111,9 @@ fun main(args: Array<String>) {
     )
     // Web page sniffing in a headless Edge/Chrome, when one is installed.
     val sniffer = CdpSniffer.findBrowser()?.let { CdpSniffer(it, File(work, "sniff-profile"), client, network = network) }
+    // The HLS streams players are served, kept on disk; an engine without a data folder (--demo) starts with none.
+    val streamDir = File(work, "cache/stream").also { if (dataDir == null) it.deleteRecursively() }
+    val streamCache = tvbox.engine.core.cache.StreamCache(client, tvbox.engine.core.cache.StreamStore(streamDir), log = { System.err.println(it) })
     val engine = Engine(
         info = EngineInfo(
             name = "tvbox-engine",
@@ -130,6 +133,7 @@ fun main(args: Array<String>) {
         sniffer = sniffer,
         githubProxy = githubProxy,
         network = network,
+        streamCache = streamCache,
     )
     val demo = if ("--demo" in args) DemoSite() else null
 

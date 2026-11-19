@@ -166,7 +166,7 @@ class VodDetail {
 }
 
 class PlayInfo {
-  const PlayInfo({required this.kind, this.url = '', this.headers = const {}, this.sniffPageUrl, this.parsedBy = ''});
+  const PlayInfo({required this.kind, this.url = '', this.headers = const {}, this.sniffPageUrl, this.parsedBy = '', this.cache = ''});
 
   /// `direct` or `sniff`.
   final String kind;
@@ -174,6 +174,9 @@ class PlayInfo {
   final Map<String, String> headers;
   final String? sniffPageUrl;
   final String parsedBy;
+
+  /// Not empty when the engine's stream cache serves [url]; the key to ask the engine which parts it holds.
+  final String cache;
 
   bool get isDirect => kind == 'direct';
 
@@ -183,6 +186,7 @@ class PlayInfo {
         headers: (j['headers'] as Map<String, dynamic>? ?? const {}).map((k, v) => MapEntry(k, v.toString())),
         sniffPageUrl: (j['sniff'] as Map<String, dynamic>?)?['pageUrl'] as String?,
         parsedBy: j['parsedBy'] as String? ?? '',
+        cache: j['cache'] as String? ?? '',
       );
 }
 

@@ -49,8 +49,8 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/settings` | `{githubProxy, githubProxyPrefix, doh}` |
-| PUT | `/settings` | 同样的对象（整体保存，没带的字段回到默认值，所以先 GET 再改）；保存并立即生效，返回规整后的值。当前配置不会自动重新加载，改了 GitHub 代理后客户端随后重新 `activate` |
+| GET | `/settings` | `{githubProxy, githubProxyPrefix, doh, streamCache, streamCacheMaxMB}` |
+| PUT | `/settings` | 同样的对象，**可以只带要改的字段**，没带的保持原值；保存并立即生效，返回规整后的完整对象。改 GitHub 代理后当前配置不会自动重新加载，客户端随后重新 `activate` |
 | GET | `/network` | 当前配置的网络项和 DNS 选择，见下 |
 
 `doh` 是所选 DNS-over-HTTPS 服务器的地址，空串（默认）表示用系统 DNS；不是 http(s) 地址的值会被存成空串。改了之后从下一个请求起生效。
@@ -69,6 +69,8 @@
 ```
 
 `dohOptions` 的 `source`：`builtin` 引擎内置，`config` 当前配置的 `doh` 提供，`saved` 之前选的、现在两边都不再列出。`hosts` / `headerHosts` / `ads` 是当前配置里被采用的条目（写错的条目不在其中），语义见 [compatibility.md](compatibility.md) 第 2 节。
+
+`streamCache`（默认 `true`）和 `streamCacheMaxMB`（默认 2048，引擎会限制在 200 到 1048576 之间）控制播放缓存，见下面"播放缓存"一节；改它们不需要重新加载配置。
 
 `githubProxy` 为 `false`（默认）时，GitHub 上的文件（`raw.githubusercontent.com`、`github.com` 等）直接向 GitHub 取，地址前面被订阅写上的代理（`https://<代理>/https://raw.githubusercontent.com/…`，带不带内层的 `https://` 都认）会被去掉；为 `true` 时改经 `githubProxyPrefix` 取，失败再直连。`/config` 的 `url` 始终是订阅里写的原样，`fetchedUrl` 是实际访问的地址。
 
@@ -116,11 +118,33 @@ event: end       data: {"sites":40,"ms":9120}
   "format": "hls",               // 可选：hls | dash | mp4 | flv | …
   "subtitles": [],
   "danmaku": null,
-  "sniff": null                  // kind=sniff 时：{"pageUrl", "headers", "clickSelector", "timeoutMs"}
+  "sniff": null,                 // kind=sniff 时：{"pageUrl", "headers", "clickSelector", "timeoutMs"}
+  "cache": "84e291843de2b840"    // 非空：url 由引擎的播放缓存提供，值是查询缓存范围用的 key；空：引擎不缓存这个地址
 }
 ```
 
 引擎尽量自己走完解析链（直链 / JSON 解析接口 / `jx` / 网页嗅探）。网页嗅探：桌面与 NAS 引擎用无头 Edge/Chrome（CDP，浏览器装在非标准位置时设 `TVBOX_BROWSER`），Android 内置引擎用 WebView；判定规则同 TVBox（配置 `rules` 的 `host`/`rule`/`filter`，再加内置视频地址正则），返回的 `headers` 带上页面实际使用的 Referer / User-Agent / Cookie。配置的顶层 `headers` 里有播放地址所在域名的条目时，它的请求头也并进 `headers`（同名覆盖）；直播线路的 `headers` 同理。`/info` 的 `capabilities.sniff` 表示引擎能否嗅探；不能时才返回 `kind: "sniff"`，由客户端自行嗅探（或提示换线路）。
+
+## 播放缓存
+
+点播的 HLS（有 `#EXT-X-ENDLIST` 的播放列表）由引擎代为获取并存在引擎的磁盘上：`/play/resolve` 返回的地址仍是 `/m3u8?…`，但播放列表里的分片、密钥、初始化段都指向引擎的 `/hls/…`（见"兼容端点"）。播放过和预读的部分因此不用再向片源要，连接同一个引擎的所有设备共用这份缓存。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/stream-cache` | `{available, enabled, bytes, files, streams, maxBytes, path}`。`available: false` 表示这台引擎没有播放缓存（如安卓 App 内置的引擎）；`streams` 是有缓存的视频数；`path` 是引擎所在机器上的目录 |
+| DELETE | `/stream-cache` | 清空，返回清空后的同一个对象。正在播放、正被读取的文件会留到用完 |
+| GET | `/stream-cache/coverage?key=` | `{durationMs, ranges: [[startMs, endMs], …]}`：`key` 是 `PlayInfo.cache`；`ranges` 是这部片已经在缓存里的时间段，按顺序、不重叠，给进度条画"已缓冲"用。没有这个 key 的播放列表时返回空 |
+
+开关和容量在 `/settings` 里（`streamCache`、`streamCacheMaxMB`）。关掉后 `/play/resolve` 不再带 `cache`，播放列表里是片源自己的地址；已经发出去的播放列表里的 `/hls/…` 地址会 302 到片源。
+
+行为要点：
+
+- 缓存按"哪一集"归档（站点 + 线路 + 剧集，即 `/m3u8` 的 `k` 参数），文件按它在片源上的路径命名，不含域名和查询串，所以下次解析出来的地址换了 CDN 域名或 token，仍然能用上次的缓存。
+- 播放器连续往下请求了两个分片之后，引擎开始提前获取后面的内容：先 30 秒，播放器每再往下走一个分片多 15 秒，最多约 3 分钟；跳转之后重新算。同一个片源最多 4 个连接，连接会复用。只请求了开头就断开的流（多码率主列表里没被选中的那几档）不预读，没取到一半的下载也随即放弃。
+- 播放器跳到没有缓存的分片时，优先取这个分片：片源按连接限速、又支持 `Range` 时把它按字节范围拆成几块并行获取，线路本身是瓶颈时整个取；在它到齐之前（最多 6 秒）这个流的其他下载都暂停。单个连接的速度跟不上视频码率时，播放器接着要的分片也这样一个一个按顺序取。
+- 对播放器的请求立即应答，文件边到边转发；片源说了长度就带 `Content-Length`，否则分块传输。
+- 片源拒绝引擎或一直连不上时：还没开始应答就 302 到片源；已经开始应答就断开连接，播放器重试时再 302。同一个视频刚打开就连续两次被拒，10 分钟内这个视频不再经缓存。
+- 超过容量时删最久没用过的文件（不分是哪一部片）。
 
 ## 直播
 
@@ -154,9 +178,10 @@ event: end       data: {"sites":40,"ms":9120}
 |---|---|
 | `/proxy?…` | 兼容 TVBox 9978：先给 `siteKey` 对应的蜘蛛，再给 jar 的 `Proxy.proxy`；`do=js` 给 JS 蜘蛛；`do=ck` 返回 `ok` |
 | `/file/<路径>` | 仅桌面引擎、仅本机访问：本机文件，供 `clan://localhost/`、`file://` 和本机路径的订阅及其 `./` 引用使用 |
-| `/m3u8?url=&h=` | HLS 去广告：引擎拉取播放列表（`h` 为请求头 JSON 的 URL 安全 base64），把相对地址改成绝对地址，按配置 `rules` 的广告规则和保守的分片路径启发式去掉广告片段；主播放列表的各码率也指回这里。拉取失败时 302 到原地址 |
+| `/m3u8?url=&h=&k=` | HLS 播放列表：引擎拉取播放列表（`h` 为请求头 JSON 的 URL 安全 base64），把相对地址改成绝对地址，按配置 `rules` 的广告规则和保守的分片路径启发式去掉广告片段；主播放列表的各码率也指回这里（带着同一个 `k`）。点播的媒体播放列表在播放缓存开着时再改写一遍：分片、`#EXT-X-KEY`、`#EXT-X-MAP` 的地址换成 `/hls/…`，`#EXT-X-BYTERANGE` 去掉（范围由引擎向片源请求）。`k` 是 `/play/resolve` 给这一集起的缓存名，可以不带（那就按播放列表地址归档）。直播列表（没有 `#EXT-X-ENDLIST`）不改写、不缓存。拉取失败时 302 到原地址 |
+| `/hls/<播放列表>/<编号>.<扩展名>` | `/m3u8` 改写出来的地址：播放缓存里的分片（`.ts` / `.m4s` 等，片源的扩展名不像媒体文件时一律 `.ts`）、密钥（`.key`）、初始化段（`.mp4`）。支持 `Range`。引擎取不到时 302 到片源（按字节范围切的分片无法这样退回，返回 502） |
 
-`/play/resolve` 返回的 HLS 地址默认包成 `/m3u8?…`（`headers` 照样返回，播放器拿去请求分片）。引擎为自己生成的地址（`/m3u8`、蜘蛛 `/proxy`）用 `127.0.0.1`；局域网里的其他设备请求时，按它访问引擎用的地址（请求的 `Host`）改写，所以电视连 NAS 引擎也能直接播。
+`/play/resolve` 返回的 HLS 地址默认包成 `/m3u8?…`（`headers` 照样返回；经播放缓存时播放器用不上它们，引擎会带着去请求片源，没写 User-Agent 时用播放器自己的）。引擎为自己生成的地址（`/m3u8`、`/hls`、蜘蛛 `/proxy`）用 `127.0.0.1`；局域网里的其他设备请求时，按它访问引擎用的地址（请求的 `Host`）改写，所以电视连 NAS 引擎也能直接播。
 
 ## 数据模型
 
