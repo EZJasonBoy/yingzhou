@@ -217,7 +217,7 @@ jobs:
       - name: Virtual screen
         run: |
           mkdir -p "$SHOTS"
-          Xvfb :99 -screen 0 1600x900x24 > "$SHOTS/xvfb.log" 2>&1 &
+          Xvfb :99 -screen 0 1920x1080x24 > "$SHOTS/xvfb.log" 2>&1 &
           sleep 2
           DISPLAY=:99 openbox > "$SHOTS/openbox.log" 2>&1 &
           echo "DISPLAY=:99" >> "$GITHUB_ENV"

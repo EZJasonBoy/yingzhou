@@ -38,7 +38,9 @@ static void my_application_activate(GApplication* application) {
 
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
-  gtk_window_set_default_size(window, 1280, 720);
+  // As on Windows (windows/runner/main.cpp); a size the user left it at
+  // replaces it (lib/desktop/desktop_window.dart).
+  gtk_window_set_default_size(window, 1360, 860);
 
   // If you want to use a header bar, uncomment the following lines.
   // Header bars are commonly used in GNOME based desktop environments and
