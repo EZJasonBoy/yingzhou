@@ -7,6 +7,8 @@ import 'cache_settings.dart';
 import 'saved_subscriptions.dart';
 import 'danmaku_service_settings.dart';
 import 'download_settings.dart';
+import 'github_proxy_settings.dart';
+import '../update/update_settings.dart';
 import 'network_settings.dart';
 import 'stream_cache_settings.dart';
 import 'python_settings.dart';
@@ -24,16 +26,11 @@ class SourcesPage extends StatefulWidget {
 class _SourcesPageState extends State<SourcesPage> {
   late final _engineField = TextEditingController(text: AppScope.read(context).engineUrl);
   final _subscriptionField = TextEditingController();
-  final _proxyField = TextEditingController();
-
-  /// The prefix last seen from the engine, to refill the field when it changes there.
-  String? _shownPrefix;
 
   @override
   void dispose() {
     _engineField.dispose();
     _subscriptionField.dispose();
-    _proxyField.dispose();
     super.dispose();
   }
 
@@ -44,10 +41,6 @@ class _SourcesPageState extends State<SourcesPage> {
     final info = state.info;
     final summary = state.summary;
     final engineSettings = state.engineSettings;
-    if (engineSettings != null && engineSettings.githubProxyPrefix != _shownPrefix) {
-      _shownPrefix = engineSettings.githubProxyPrefix;
-      _proxyField.text = engineSettings.githubProxyPrefix;
-    }
 
     return Scaffold(
       body: SafeArea(
@@ -149,36 +142,7 @@ class _SourcesPageState extends State<SourcesPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SwitchListTile(
-                          key: const Key('github-proxy-switch'),
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('GitHub 加速代理'),
-                          subtitle: Text(
-                            engineSettings.githubProxy
-                                ? 'GitHub 上的文件经下面的代理获取，代理失败时再直连'
-                                : '已关闭：直连 GitHub，订阅里写的代理前缀（gh-proxy 等）会被去掉',
-                          ),
-                          value: engineSettings.githubProxy,
-                          onChanged: state.busy ? null : (on) => state.setGithubProxy(enabled: on, prefix: _proxyField.text),
-                        ),
-                        if (engineSettings.githubProxy)
-                          Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _proxyField,
-                                  enabled: !state.busy,
-                                  decoration: const InputDecoration(labelText: '代理地址', hintText: '如 https://ghfast.top/'),
-                                  onSubmitted: (v) => state.setGithubProxy(enabled: true, prefix: v),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              FilledButton.tonal(
-                                onPressed: state.busy ? null : () => state.setGithubProxy(enabled: true, prefix: _proxyField.text),
-                                child: const Text('应用'),
-                              ),
-                            ],
-                          ),
+                        const GithubProxySettings(),
                         const NetworkSettings(),
                       ],
                     ),
@@ -240,6 +204,7 @@ class _SourcesPageState extends State<SourcesPage> {
                   const SizedBox(height: 12),
                   _SiteList(state: state),
                 ],
+                const UpdateSettings(),
               ],
             ),
           ),
