@@ -5,6 +5,9 @@
 #   back the release; the Windows packages are published without it.
 # - Android: APKs per ABI, signed with the release key from the repository secrets (ANDROID_KEYSTORE_*). A failure
 #   does not hold back the release either.
+# - Linux (x64): tarball and .deb, built on Ubuntu 24.04 (they need its libmpv and glibc or newer). The .deb is
+#   installed and the app started on a virtual screen, then the desktop integration test plays the demo; only when
+#   both pass are the packages uploaded. A failure does not hold back the release either.
 # - A tag v* publishes a GitHub Release with whatever was built. A manual run only uploads the packages as
 #   workflow artifacts.
 name: desktop
@@ -167,9 +170,130 @@ jobs:
           path: dist/yingzhou-android-*.apk
           if-no-files-found: error
 
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    continue-on-error: true
+    env:
+      SHOTS: ${{ github.workspace }}/smoke
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.50.0
+          cache: true
+
+      # Flutter's Linux toolchain, GTK, X11 and Xi (window_manager), libmpv (media_kit) and dpkg-dev for the .deb.
+      # Then what the smoke test needs: a virtual screen with a window manager (fullscreen is the window manager's
+      # job), software OpenGL, Chinese fonts, and tools to look at the screen.
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang cmake ninja-build pkg-config libgtk-3-dev libx11-dev libxi-dev \
+            liblzma-dev libmpv-dev dpkg-dev
+          sudo apt-get install -y --no-install-recommends xvfb openbox libgl1-mesa-dri libglx-mesa0 libegl-mesa0 \
+            fonts-noto-cjk imagemagick xdotool
+
+      - name: Package
+        run: bash tools/package-desktop.sh
+
+      - name: Check both packages exist
+        run: |
+          ls -la dist/yingzhou-linux-x64.tar.gz dist/yingzhou-linux-x64.deb
+          tar -tzf dist/yingzhou-linux-x64.tar.gz | grep -E '^yingzhou/(yingzhou|engine/jre/bin/java|install-desktop-entry.sh|share/applications/.*\.desktop)$'
+          dpkg-deb --contents dist/yingzhou-linux-x64.deb | grep -E ' \./(usr/bin/yingzhou|opt/yingzhou/yingzhou|usr/share/applications/.*\.desktop)'
+
+      # apt resolves the package's dependencies: what a user's `apt install ./yingzhou-linux-x64.deb` does.
+      - name: Install the .deb
+        run: sudo apt-get install -y ./dist/yingzhou-linux-x64.deb
+
+      - name: Virtual screen
+        run: |
+          mkdir -p "$SHOTS"
+          Xvfb :99 -screen 0 1600x900x24 > "$SHOTS/xvfb.log" 2>&1 &
+          sleep 2
+          DISPLAY=:99 openbox > "$SHOTS/openbox.log" 2>&1 &
+          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+
+      # The installed app as a user starts it: a new home folder, its own engine from the bundled runtime on 9978.
+      # Moves and resizes the window, quits, and checks that the next start puts it back; that the settings and the
+      # engine's data are where docs/user-guide.md says; and that the engine ends with the app.
+      - name: Smoke test (installed app)
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/home"
+          mkdir -p "$HOME"
+          start_app() {
+            yingzhou >> "$SHOTS/app.log" 2>&1 &
+            app=$!
+            win=$(timeout 60 xdotool search --sync --onlyvisible --classname io.github.sa1koro.yingzhou | head -n 1)
+            echo "window $win: $(xdotool getwindowname "$win"), $(xdotool getwindowgeometry "$win" | tr '\n' ' ')"
+          }
+          start_app
+          [ "$(xdotool getwindowname "$win")" = "映舟" ] || { echo "::error::window title is not 映舟"; exit 1; }
+          for i in $(seq 90); do curl -sf http://127.0.0.1:9978/api/v1/info > "$SHOTS/engine-info.json" && break; sleep 1; done
+          cat "$SHOTS/engine-info.json"
+          ps -o args= -C java | grep -q '^/opt/yingzhou/engine/jre/bin/java ' || { echo "::error::the engine is not the bundled runtime"; ps -ef | grep java; exit 1; }
+          sleep 8
+          import -window root "$SHOTS/app-first-start.png"
+
+          xdotool windowsize "$win" 1100 700
+          xdotool windowmove "$win" 150 90
+          sleep 3
+          prefs="$HOME/.local/share/io.github.sa1koro.yingzhou/shared_preferences.json"
+          cat "$prefs"; echo
+          grep -q '"flutter.window.bounds"' "$prefs" || { echo "::error::window bounds not saved in $prefs"; exit 1; }
+          kill "$app"; wait "$app" || true
+          for i in $(seq 20); do pgrep -f tvbox.engine.server.MainKt > /dev/null || break; sleep 1; done
+          if pgrep -f tvbox.engine.server.MainKt; then echo "::error::the engine outlived the app"; exit 1; fi
+          ls -la "$HOME/.tvbox-next/engine"
+
+          start_app
+          size=$(xdotool getwindowgeometry "$win" | sed -n 's/.*Geometry: \([0-9]*\)x\([0-9]*\).*/\1 \2/p')
+          read -r w h <<< "$size"
+          sleep 5
+          import -window root "$SHOTS/app-restored.png"
+          kill "$app"; wait "$app" || true
+          [ "$w" -ge 1050 ] && [ "$w" -le 1150 ] && [ "$h" -ge 650 ] && [ "$h" -le 750 ] \
+            || { echo "::error::the window came back at ${w}x${h}, not 1100x700"; exit 1; }
+
+      # The desktop integration test (browse, play, fullscreen, subtitles, danmaku, a dead line) against the demo
+      # engine, which runs on the package's own Java runtime.
+      - name: Smoke test (integration test)
+        run: |
+          set -euo pipefail
+          /opt/yingzhou/engine/jre/bin/java -XX:+UnlockDiagnosticVMOptions -XX:-BytecodeVerificationRemote \
+            -cp "/opt/yingzhou/engine/lib/*" tvbox.engine.server.MainKt --demo --port 19978 > "$SHOTS/demo-engine.log" 2>&1 &
+          for i in $(seq 60); do curl -sf http://127.0.0.1:19978/api/v1/info > /dev/null && break; sleep 1; done
+          cd client
+          flutter test integration_test/desktop_play_test.dart -d linux --dart-define=SHOT_DIR="$SHOTS" 2>&1 | tee "$SHOTS/desktop_play_test.log"
+
+      # Screenshots and logs, for a look at what the runner saw. Not on tags: the release publishes every artifact.
+      - uses: actions/upload-artifact@v4
+        if: always() && !startsWith(github.ref, 'refs/tags/')
+        with:
+          name: linux-smoke
+          path: smoke
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yingzhou-linux-x64
+          path: |
+            dist/yingzhou-linux-x64.tar.gz
+            dist/yingzhou-linux-x64.deb
+          if-no-files-found: error
+
   release:
     if: startsWith(github.ref, 'refs/tags/v') && !cancelled() && needs.windows.result == 'success'
-    needs: [windows, macos, android]
+    needs: [windows, macos, android, linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -193,6 +317,7 @@ jobs:
             echo
             echo "- Windows：\`yingzhou-windows-x64-setup.exe\` 是安装程序，\`yingzhou-windows-x64.zip\` 是绿色包（解压后运行 yingzhou.exe）。都自带引擎和 Java 运行时。安装程序没有数字签名，第一次运行时 SmartScreen 可能拦一下，点「更多信息 → 仍要运行」。"
             echo "- macOS（Apple Silicon）：\`.dmg\`，临时签名，第一次需右键 → 打开。尚未在真机上验证；没有这个文件说明这次 macOS 构建失败了。"
+            echo "- Linux（x64）：\`yingzhou-linux-x64.deb\` 给 Ubuntu 24.04 及以后、Debian 13 等（\`sudo apt install ./yingzhou-linux-x64.deb\`），\`yingzhou-linux-x64.tar.gz\` 解压即用（需要系统里有 libmpv 和 GTK 3）。都自带引擎和 Java 运行时。只在 CI 的虚拟屏幕上验证过；没有这些文件说明这次 Linux 构建失败了。"
             echo "- Android（手机、平板、电视盒子）：\`yingzhou-android-arm64-v8a.apk\` 适合绝大多数手机和较新的盒子，\`armeabi-v7a\` 给 32 位的老电视盒子，\`x86_64\` 给模拟器。没有这些文件说明这次 Android 构建失败了。"
             echo
             echo "本应用不带任何订阅或影视内容。改动见 [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/CHANGELOG.md)，已知问题见 [docs/status.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/status.md)。"

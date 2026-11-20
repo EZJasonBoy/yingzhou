@@ -47,13 +47,14 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class CdpSniffer(
     private val browser: File,
-    private val profileDir: File,
+    profileDir: File,
     private val http: OkHttpClient,
     private val idleMillis: Long = 5 * 60_000,
     private val log: (String) -> Unit = { System.err.println(it) },
     /** The active config's `hosts` (the browser resolves names the same way) and `ads` (those requests are blocked). */
     private val network: tvbox.engine.core.net.ConfigNetwork? = null,
 ) : Sniffer {
+    private val profileDir = profileDirFor(browser, profileDir)
     private val mutex = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val busy = AtomicInteger()
@@ -205,12 +206,44 @@ class CdpSniffer(
                     "/Applications/Chromium.app/Contents/MacOS/Chromium",
                 ).map(::File)
                 else -> {
-                    val names = listOf("chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "microsoft-edge")
-                    val path = System.getenv("PATH").orEmpty().split(File.pathSeparatorChar)
-                    names.flatMap { n -> path.map { File(it, n) } }
+                    // Chrome and Edge from their own packages first: Ubuntu's chromium is a snap (see snapName).
+                    val names = listOf(
+                        "google-chrome", "google-chrome-stable", "microsoft-edge", "microsoft-edge-stable", "chromium", "chromium-browser",
+                    )
+                    val path = System.getenv("PATH").orEmpty().split(File.pathSeparatorChar).filter { it.isNotEmpty() }
+                    names.flatMap { n -> path.map { File(it, n) } } +
+                        // Started from a desktop menu the PATH can be a short one.
+                        listOf("/opt/google/chrome/chrome", "/opt/microsoft/msedge/msedge", "/usr/bin/chromium", "/snap/bin/chromium").map(::File)
                 }
             }
             return candidates.firstOrNull { it.isFile && it.canExecute() }
+        }
+
+        /**
+         * The snap [browser] runs from, or null. Ubuntu's chromium is one: `/snap/bin/chromium` (a link to
+         * `/usr/bin/snap`), or the `/usr/bin/chromium-browser` script that starts it.
+         */
+        internal fun snapName(browser: File): String? {
+            val real = runCatching { browser.canonicalFile }.getOrDefault(browser)
+            val unixPath = browser.path.replace('\\', '/')
+            if (unixPath.startsWith("/snap/bin/") || real.path == "/usr/bin/snap") return browser.name.substringBefore('.')
+            if (real.path.startsWith("/snap/")) return real.path.removePrefix("/snap/").substringBefore('/')
+            if (!real.isFile || real.length() > 16_384) return null
+            val text = runCatching { real.readText() }.getOrNull() ?: return null
+            if (!text.startsWith("#!")) return null
+            return Regex("""/snap/bin/([\w-]+)""").find(text)?.groupValues?.get(1)
+        }
+
+        /**
+         * Where [browser] keeps its profile: [default], except for a snap, which sees neither the system's temp folder
+         * nor hidden folders in the home folder (where the engine's data is). A snap's own `~/snap/<name>/common` it
+         * can write, and the engine can read the `DevToolsActivePort` there; one folder per [default], so two
+         * engines do not take each other's browser for a leftover.
+         */
+        internal fun profileDirFor(browser: File, default: File): File {
+            val snap = snapName(browser) ?: return default
+            val home = System.getProperty("user.home")
+            return File(home, "snap/$snap/common/yingzhou-sniff-" + Integer.toHexString(default.absolutePath.hashCode()))
         }
     }
 }

@@ -11,6 +11,22 @@ struct _MyApplication {
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
+// The icon the bundle carries (share/icons next to the executable, see
+// CMakeLists.txt), so the window has one before the app is in any menu; else
+// the theme's icon of that name. Wayland compositors ignore both and take the
+// icon of the .desktop file named after the application ID.
+static void set_window_icon(GtkWindow* window) {
+  g_autofree gchar* exe = g_file_read_link("/proc/self/exe", nullptr);
+  if (exe != nullptr) {
+    g_autofree gchar* dir = g_path_get_dirname(exe);
+    g_autofree gchar* icon =
+        g_build_filename(dir, "share", "icons", "hicolor", "256x256", "apps",
+                         APPLICATION_ID ".png", nullptr);
+    if (gtk_window_set_icon_from_file(window, icon, nullptr)) return;
+  }
+  gtk_window_set_icon_name(window, APPLICATION_ID);
+}
+
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
@@ -33,7 +49,8 @@ static void my_application_activate(GApplication* application) {
   // gtk_header_bar_set_show_close_button(header_bar, TRUE);
   // gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
 
-  gtk_window_set_title(window, "tvbox_client");
+  gtk_window_set_title(window, "映舟");
+  set_window_icon(window);
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(

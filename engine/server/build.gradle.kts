@@ -12,6 +12,10 @@ dependencies {
     // mDNS announcement while LAN sharing is on (desktop / NAS only; the Android app never shares).
     implementation(libs.jmdns)
     runtimeOnly(libs.logback)
+
+    testImplementation(platform(libs.junit.bom))
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.launcher)
 }
 
 application {

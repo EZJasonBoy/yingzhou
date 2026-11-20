@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=映舟
+Name[en]=Yingzhou
+GenericName=影视播放器
+GenericName[en]=Video player
+Comment=兼容 TVBox 订阅的影视与直播客户端
+Comment[en]=Watch films, series and live TV from TVBox-style subscriptions
+Exec=yingzhou
+Icon=io.github.sa1koro.yingzhou
+Terminal=false
+Categories=AudioVideo;Video;Player;TV;
+Keywords=Yingzhou;TVBox;影视;直播;video;tv;
+StartupWMClass=io.github.sa1koro.yingzhou
+StartupNotify=true
