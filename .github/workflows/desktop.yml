@@ -253,7 +253,8 @@ jobs:
           kill "$app"; wait "$app" || true
           for i in $(seq 20); do pgrep -f tvbox.engine.server.MainKt > /dev/null || break; sleep 1; done
           if pgrep -f tvbox.engine.server.MainKt; then echo "::error::the engine outlived the app"; exit 1; fi
-          ls -la "$HOME/.tvbox-next/engine"
+          # Java takes user.home from the password database, not from $HOME.
+          ls -la "$(getent passwd "$(id -un)" | cut -d: -f6)/.tvbox-next/engine"
 
           start_app
           size=$(xdotool getwindowgeometry "$win" | sed -n 's/.*Geometry: \([0-9]*\)x\([0-9]*\).*/\1 \2/p')
