@@ -2,7 +2,9 @@
 
 版本由 GitHub Actions 打包发布在 [Releases](https://github.com/Sa1koro/yingzhou/releases)（目前都是预发布版）。以下按版本和开发迭代记录，最新的在上面。当前状态和已知缺口见 [docs/status.md](docs/status.md)。
 
-## 未发布
+## v0.3.0（2026-11-19）
+
+第一个带安卓 APK 的版本（手机、平板、电视盒子共用一个安装包）。
 
 ### 2026-11-19（安卓）
 

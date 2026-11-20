@@ -26,7 +26,7 @@
 
 - Windows：`yingzhou-windows-x64-setup.exe`（安装程序）或 `yingzhou-windows-x64.zip`（绿色包）。没有数字签名，第一次运行时 SmartScreen 可能拦一下，点「更多信息 → 仍要运行」。
 - macOS（Apple Silicon）：`yingzhou-macos-arm64.dmg`，临时签名，第一次需右键 → 打开。还没有在真机上运行过。
-- Android（手机、平板、电视盒子，Android 7.0 起）：`yingzhou-android-arm64-v8a.apk` 适合绝大多数手机和较新的盒子，`armeabi-v7a` 给 32 位的老电视盒子。从 v0.2.0 之后的版本开始提供，用正式密钥签名，可以覆盖升级。
+- Android（手机、平板、电视盒子，Android 7.0 起）：`yingzhou-android-arm64-v8a.apk` 适合绝大多数手机和较新的盒子，`armeabi-v7a` 给 32 位的老电视盒子。从 v0.3.0 起提供，用正式密钥签名，可以覆盖升级。
 - 引擎的 Docker 镜像：`ghcr.io/sa1koro/yingzhou-engine`，见 [docs/user-guide.md](docs/user-guide.md)。
 
 打一个 `v*` 标签就会触发 `.github/workflows/desktop.yml` 出包并发布 Release。
