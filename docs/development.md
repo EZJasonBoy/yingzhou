@@ -67,6 +67,19 @@ flutter run -d windows                      # 没有引擎在 9978 上时会自�
 - 手动试：`--demo --port 19984` 启动后 `curl -X PUT -H 'Content-Type: application/json' -d '{"enabled":true}' http://127.0.0.1:19984/api/v1/lan`，返回里有地址和配对码；用局域网地址访问 `/api/v1/sites` 应得 401。试完记得关掉（`{"enabled":false}`）或停掉引擎。
 - Git Bash 传给 Java 的中文参数会乱码（`--name 测试引擎`），测试时用英文名。
 
+### 手机遥控
+
+设计见 [architecture.md](architecture.md) 第 4 节"手机遥控"，协议见 [protocol.md](protocol.md)"遥控"。代码：引擎 `engine/api/.../remote/`（`RemoteHub` 中枢、`RemoteRoutes` 路由和静态文件）与 `access/AccessPlugin.kt` 里那两条 WebSocket 路由的规则；网页遥控器 `engine/api/src/main/resources/remote/`；客户端 `client/lib/remote/`（`remote_agent.dart` 连接、`remote_screen.dart` 状态与命令、`remote_keys.dart` 合成按键、`remote_text.dart` 输入框、`remote_settings.dart` 开关和二维码）、`lib/pages/player_remote.dart`、`live_remote.dart`。
+
+- **引擎测试**：`./gradlew :api:test --tests "tvbox.engine.api.RemoteTest"`。测试宿主的 WebSocket 客户端被拒绝时只知道握手失败，所以拒绝的情形用普通请求读状态码和错误码，再挑几个用 WebSocket 客户端确认真的连不上（测试宿主里每次失败的握手要等 1 秒）。
+- **客户端测试**：`flutter test test/remote_test.dart`。整个应用的测试经 `RemoteScreen.debugConnector` 把到引擎的 WebSocket 换成 `test/fake_remote_hub.dart`，测试自己扮演中枢和手机。
+- **改网页**：引擎从 jar 里读这几个文件并缓存，改一次要重新 `installDist`。开发时给引擎加 `-Dtvbox.remote.dir=<仓库>/engine/api/src/main/resources/remote`，就直接读这个目录、每次请求重读，改完刷新浏览器即可。CSP 不允许内联脚本和 `style=""` 属性（用 JS 设 `el.style` 可以），外部资源一律不许。
+- **没有应用也能看网页**：`node tools/remote/fake-screen.mjs http://127.0.0.1:19990` 向引擎登记一块假屏幕"演示屏幕"，报告一部正在播放的片，打印收到的每条命令，并对暂停、跳转、倍速、音量、换集等作出反应（`--idle` 没在播放，`--live` 直播，`--text` 有输入框）。然后在浏览器里打开 `http://127.0.0.1:19990/remote/`（本机不用配对）。
+- **截图**：引擎和假屏幕开着时，用浏览器的手机尺寸视图打开 `/remote/` 和 `/remote/#tab=play` 截图（还没有脚本）。
+- **在真实应用里**：`flutter test integration_test/remote_test.dart -d windows --dart-define=ENGINE_URL=http://127.0.0.1:19990 --dart-define=SHOT_DIR=<目录>`（演示引擎先在 19990 上开着）。应用以电视模式启动（**测试期间窗口会全屏**），测试经引擎的 `/api/v1/remote/control` 发按键和命令，检查焦点移动、暂停、跳转、换集（用《慢速源演示》，不需要外网）。
+- **手动走一遍配对**：演示引擎 `curl -X PUT -H 'Content-Type: application/json' -d '{"enabled":true}' http://127.0.0.1:19990/api/v1/lan` 打开共享，回答里有局域网地址和配对码；用那个地址在浏览器里打开 `/remote/#code=<配对码>`（同一台机器的局域网地址不算本机，要配对）。试完关掉共享。
+- **没有验证过的**：真手机（iOS Safari、安卓 Chrome、微信内置浏览器）上的触摸、按住连发、震动、添加到主屏幕、锁屏后的重连；跨真实网络的连接（都是同一台机器）；macOS / Linux 上的电视模式全屏；安卓内置引擎里的 WebSocket 路由（代码和桌面共用，但没有在设备或模拟器上跑过）。
+
 ## 4. 演示引擎
 
 `--demo` 会在引擎里起一个假的站点并订阅它，开发和测试都用它，不依赖任何真实订阅：

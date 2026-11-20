@@ -331,6 +331,23 @@ tvbox-next/
 - **启动器**：`AndroidManifest.xml` 已有 `LEANBACK_LAUNCHER` 和"不需要触摸屏"；横幅 `res/drawable-xhdpi/banner.png`（320×180）和 `drawable-xxhdpi`（480×270）由 `tools/brand/render-banner.mjs` 从 `docs/brand/yingzhou-banner.svg` 画出来。`DeviceChannel` 还关掉了安卓给获得焦点的视图画的默认高亮（整个 Flutter 视图外面一圈彩色框）。
 - **测试**：`test/tv_focus_test.dart`（主界面、首页、详情、搜索、输入框、BACK）、`test/tv_player_test.dart`（播放页、直播页），用方向键、OK、BACK、菜单键驱动，检查每一步之后焦点在哪；各有一个桌面用例确认桌面按键没变。在模拟器上的看法见 [development.md](development.md) 第 13 节。
 
+#### 手机遥控（已实现；没有在真手机上试过）
+
+把一台映舟（接在电视上的电脑、电视盒子、没有键盘的旧安卓设备）交给手机来操作。协议见 [protocol.md](protocol.md)"遥控"。
+
+- **引擎是中枢**（`engine/api/.../remote/RemoteHub.kt`、`RemoteRoutes.kt`）。客户端向它正在用的引擎登记为一块*屏幕*并保持一条 WebSocket，手机向某块屏幕开一条控制 WebSocket，引擎在两者之间转发：屏幕的状态给遥控端（先给最近的一份），遥控端的命令给屏幕，结果送回发命令的那个遥控端。这样手机只要够得着引擎就行，屏幕不用另开端口、另做鉴权；连着 NAS 引擎的客户端也能被遥控。引擎不解释状态和命令（原样转发 JSON），所以加字段、加命令只改客户端和网页。`RemoteHub` 自己不碰网络（对端是 `Peer` 接口），所有监听（127.0.0.1 和局域网共享另起的每个地址）共用一个：屏幕通常从 127.0.0.1 进来，手机从局域网地址进来。
+- **不另做鉴权**：还是 `AccessPlugin` 那一个拦截器。只为这两条 WebSocket 路由加了两件事：令牌可以放在 `Sec-WebSocket-Protocol` 里（浏览器给 WebSocket 设不了请求头），以及先检查 `Origin`（WebSocket 没有同源策略，本机浏览器里别的网站的网页连 `ws://127.0.0.1:9978` 会被当成本机）。连接建立后每 3 秒复查一次令牌和共享开关。网页遥控器的静态文件 `/remote/` 是公开的。
+- **网页遥控器**（`engine/api/src/main/resources/remote/`：一页 HTML、一个 CSS、一个 JS，没有依赖和构建步骤）由引擎提供。它自己配对（地址里 `#code=` 带着配对码时直接用），令牌存 localStorage，断线自己重连（WebSocket 失败时读不到状态码，所以先用 `GET /remote/screens` 问清是没配对、共享关了还是屏幕不在线）。播放位置由网页按上一次状态自己往前推，屏幕不用每秒上报。屏幕报来的字符串只经 `textContent` 进页面，并有 CSP。
+- **客户端一侧**在 `client/lib/remote/`：
+  - `RemoteAgent`（`remote_agent.dart`）只管连接：「允许手机遥控」开着并且连着引擎时保持到 `/remote/screen` 的 WebSocket，说 `hello`（固定的屏幕 id 和名字存在客户端设置里），状态变了就发（80 ms 内合并，内容没变不发），执行命令并回结果，断了按 1、2、4…16 秒重试。开关关着时不连接——引擎根本不知道这块屏幕。
+  - `RemoteScreen`（`remote_screen.dart`）是包在导航器外面的组件（放在 `TvAppFrame` 里，所以 `main.dart` 不用改）：拼出状态、分发命令。`key`、`home`、`text`、`submit`、`uiMode` 自己处理，其余交给登记在 `RemoteHost` 里的播放页面。
+  - **按键是真的按键**（`remote_keys.dart`）：把 `up` / `ok` / `back`… 合成为 `ui.KeyData`（`synthesized: true`），调用 `PlatformDispatcher.onKeyData`，也就是平台按键进入框架的同一个入口。`KeyEventManager.handleKeyData` 对合成事件是立即分发的（真实按键要等平台随后发来的那条旧式消息，合成的没有这条消息；读过 Flutter 3.50 的源码确认），于是 `HardwareKeyboard` 的按下状态、焦点树上每一层的处理、`Shortcuts` 都和电视盒子的遥控器走同一条路，`TvKeys`、`player_tv.dart`、`live_tv.dart` 一行不用改。这个入口不告诉调用方事件有没有被处理，所以在最外层放一个只看不拦的 `Focus`（`RemoteKeyProbe`）：合成事件到了它那里就是没人处理。只用来判断 BACK——按下和抬起都没人处理时，像安卓的系统返回那样 `Navigator.maybePop()`（`PopScope` 照常生效，所以电视首页的"退出映舟？"、播放页的逐级返回都对）。按住的键 1.5 秒没有后续就自动松开（手机断线时手指还按着）。
+  - **不依赖焦点的命令**（`remote_host.dart` 的 `RemotePlayerTarget`）：点播播放页（`pages/player_remote.dart`）和直播页（`pages/live_remote.dart`）各登记一个，报告自己的状态，命令直接调页面已有的方法（`_seekTo`、`_pickLine`、`_playEpisode`、`_toggleDanmaku`…），所以手机上点"第 5 集"和在电视上打开选集面板点第 5 集走的是同一段代码。页面的 `setState` 和播放器的几个流（播放 / 暂停、缓冲、倍速、音量、时长、位置的跳变）会通知"状态可能变了"。
+  - **打字**（`remote_text.dart`）：跟着 `FocusManager` 找当前焦点所在的 `EditableText`，状态里报告它的内容和提示；`text` 命令用 `userUpdateTextEditingValue` 写进去（走输入格式化和 `onChanged`），`submit` 调它的 `performAction`。密码框的内容不外发。
+- **电脑上的电视模式**：`DeviceFormController` 以前在桌面平台上永远是 `desktop`，现在桌面也可以选 `tv`（「源 → 界面模式」）。选了之后 `TvAppFrame` 里的 `_DesktopTvWindow` 让 `DesktopWindow` 把窗口"钉"在全屏（`pinFullScreen`）：播放页、直播页关闭时照例会退出全屏，钉住时这些请求被忽略。桌面没有系统返回键，所以 `RemoteKeyProbe` 在这种情况下也把没人处理的 Esc / 返回键变成一次 `maybePop()`。运行中切换界面模式时，焦点高亮策略的改动推迟到这一帧之后（否则在构建过程中触发 `FocusableActionDetector` 的断言）。
+- **「允许手机遥控」**（`remote_settings.dart`，嵌在「局域网」卡片里）：默认关。打开时如果引擎在本机而局域网共享没开，先打开共享并写明；二维码是 `http://<局域网地址>:<端口>/remote/#code=<配对码>`，地址取引擎正在监听的那些，按 `PhoneInputServer.lanAddresses()` 的顺序排（家用网段优先）。关掉局域网共享时遥控一起关。
+- **测试**：引擎 `RemoteTest`（中枢本身；经 HTTP：没有令牌、错的令牌、共享关闭、别的来源的网页、没登记的屏幕、撤销后断开、静态文件）；客户端 `test/remote_test.dart`（连接与重试、电视界面里按键移动焦点、播放页的每个命令、打字、桌面的电视模式、开关与二维码），引擎的中枢用 `test/fake_remote_hub.dart` 代替；`integration_test/remote_test.dart` 在真实的 Windows 应用里（电视模式、全屏）经真实的引擎和 WebSocket 当一回遥控端。网页本身没有自动化测试，是用无头浏览器截图和在浏览器里手点验证的。
+
 ## 5. 安全
 
 > 现状：局域网共享、配对码配对、令牌、签名媒体地址、mDNS 发现已实现（扫码配对还没有，输入 6 位配对码）。细节见 [protocol.md](protocol.md)"鉴权与配对"。

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -109,12 +111,17 @@ class _DesktopTvWindowState extends State<_DesktopTvWindow> {
 
   @override
   void dispose() {
-    if (DesktopWindow.isDesktop) DesktopWindow.instance.pinFullScreen = false;
+    _pin(false);
     super.dispose();
   }
 
-  void _apply() {
-    if (DesktopWindow.isDesktop) DesktopWindow.instance.pinFullScreen = widget.tv;
+  void _apply() => _pin(widget.tv);
+
+  /// After the build: going in or out of full screen changes the window's size at once, and the framework must not
+  /// be told of that while it builds or takes the tree down.
+  static void _pin(bool on) {
+    if (!DesktopWindow.isDesktop) return;
+    scheduleMicrotask(() => DesktopWindow.instance.pinFullScreen = on);
   }
 
   @override
