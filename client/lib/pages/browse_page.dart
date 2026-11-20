@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
@@ -281,38 +283,59 @@ class _CategoryViewState extends State<_CategoryView> with AutomaticKeepAliveCli
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return Column(
-      children: [
-        if (widget.filters.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-            child: Row(
-              children: [
-                TextButton.icon(
-                  onPressed: () => setState(() => _showFilters = !_showFilters),
-                  icon: Icon(_showFilters ? Icons.expand_less : Icons.tune, size: 18),
-                  label: Text(_showFilters ? '收起筛选' : '筛选'),
-                ),
-                if (_selected.values.any((v) => v.isNotEmpty))
-                  Expanded(
-                    child: Text(
-                      _summary(),
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 13),
-                    ),
+    return LayoutBuilder(
+      builder: (context, constraints) => Column(
+        children: [
+          if (widget.filters.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+              child: Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: () => setState(() => _showFilters = !_showFilters),
+                    icon: Icon(_showFilters ? Icons.expand_less : Icons.tune, size: 18),
+                    label: Text(_showFilters ? '收起筛选' : '筛选'),
                   ),
-              ],
+                  if (_selected.values.any((v) => v.isNotEmpty))
+                    Expanded(
+                      child: Text(
+                        _summary(),
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 13),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            alignment: Alignment.topCenter,
+            // Some sites have a dozen rows of filters. They get at most half the height and scroll inside it, so
+            // the posters keep their room and, on a TV, the row with the focus is always on the screen.
+            child: _showFilters
+                ? ConstrainedBox(
+                    constraints: BoxConstraints(maxHeight: constraints.hasBoundedHeight ? math.max(96, constraints.maxHeight * 0.5) : 240),
+                    child: SingleChildScrollView(
+                      key: const Key('category-filters'),
+                      child: _FilterBar(filters: widget.filters, selected: _selected, onSelect: _setFilter),
+                    ),
+                  )
+                : const SizedBox(width: double.infinity),
+          ),
+          Expanded(
+            // On a TV the screen is short: once the focus goes down into the posters the filters fold away (the
+            // line next to 筛选 keeps saying what is chosen), and ↑ comes back to 筛选.
+            child: Focus(
+              canRequestFocus: false,
+              skipTraversal: true,
+              onFocusChange: (inPosters) {
+                if (inPosters && _showFilters && isTv(context)) setState(() => _showFilters = false);
+              },
+              child: _VodGrid(items: _items, loading: _loading, error: _error, hasMore: _hasMore, onLoadMore: _loadMore),
             ),
           ),
-        AnimatedSize(
-          duration: const Duration(milliseconds: 180),
-          alignment: Alignment.topCenter,
-          child: _showFilters ? _FilterBar(filters: widget.filters, selected: _selected, onSelect: _setFilter) : const SizedBox(width: double.infinity),
-        ),
-        Expanded(
-          child: _VodGrid(items: _items, loading: _loading, error: _error, hasMore: _hasMore, onLoadMore: _loadMore),
-        ),
-      ],
+        ],
+      ),
     );
   }
 

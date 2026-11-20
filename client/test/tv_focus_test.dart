@@ -15,12 +15,18 @@ import 'fake_player.dart';
 /// the focus is after each step.
 void main() {
   /// A 1080p TV at xhdpi: 960 x 540 logical pixels.
-  Future<FakePlayer> pumpTv(WidgetTester tester, {bool hasConfig = true, List<Map<String, Object>> history = const []}) async {
+  Future<FakePlayer> pumpTv(
+    WidgetTester tester, {
+    bool hasConfig = true,
+    List<Map<String, Object>> history = const [],
+    int filterRows = 1,
+    List<Map<String, Object>>? lines,
+  }) async {
     tester.view.physicalSize = const Size(1920, 1080);
     tester.view.devicePixelRatio = 2;
     addTearDown(tester.view.reset);
     final player = FakePlayer();
-    final engine = fakeEngine(hasConfig: hasConfig, history: history);
+    final engine = fakeEngine(hasConfig: hasConfig, history: history, filterRows: filterRows, lines: lines);
     await tester.pumpWidget(
       DeviceFormScope.fixed(
         DeviceForm.tv,
@@ -118,6 +124,72 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('片名'), findsNothing);
     expect(focusOnText('分类片'), isTrue);
+  });
+
+  /// The focused item lies inside the 960 x 540 screen.
+  bool focusOnScreen() {
+    final r = focused().rect;
+    return !r.isEmpty && r.top >= 0 && r.bottom <= 540 && r.left >= 0 && r.right <= 960;
+  }
+
+  testWidgets('a category with many filter rows: each row is reached and seen, and ↓ past the last one reaches the posters', (tester) async {
+    await pumpTv(tester, filterRows: 9);
+    await key(tester, LogicalKeyboardKey.arrowRight);
+    await key(tester, LogicalKeyboardKey.arrowUp);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await key(tester, LogicalKeyboardKey.arrowDown);
+    expect(focused().context!.findAncestorWidgetOfExactType<TextButton>(), isNotNull, reason: '筛选');
+    await key(tester, LogicalKeyboardKey.select);
+    expect(find.text('筛选9'), findsOneWidget, reason: 'the filters are open');
+
+    for (var row = 1; row <= 9; row++) {
+      await key(tester, LogicalKeyboardKey.arrowDown);
+      expect(focused().context!.findAncestorWidgetOfExactType<ChoiceChip>(), isNotNull, reason: 'row $row: a filter value has the focus');
+      expect(focusOnScreen(), isTrue, reason: 'row $row is on the screen (${focused().rect})');
+    }
+    // ↓ past the last row reaches the posters, and on a TV the filters fold away to give them the screen.
+    await key(tester, LogicalKeyboardKey.arrowDown);
+    expect(focusOnText('分类片'), isTrue, reason: '↓ past the last row reaches the posters');
+    expect(find.text('筛选9'), findsNothing, reason: 'the filters folded away');
+    expect(focusOnScreen(), isTrue, reason: 'the poster is on the screen (${focused().rect})');
+
+    // ↑ comes back to 筛选, which opens them again.
+    await key(tester, LogicalKeyboardKey.arrowUp);
+    expect(focused().context!.findAncestorWidgetOfExactType<TextButton>(), isNotNull, reason: '↑ from the posters returns to 筛选');
+    await key(tester, LogicalKeyboardKey.select);
+    expect(find.text('筛选9'), findsOneWidget);
+  });
+
+  testWidgets('detail: coming back up to 播放 shows the title above it again', (tester) async {
+    await pumpTv(
+      tester,
+      lines: [
+        {
+          'name': '线路一',
+          'episodes': [
+            for (var i = 1; i <= 90; i++) {'id': 'https://cdn.test/$i.m3u8', 'name': '第$i集'},
+          ],
+        },
+      ],
+    );
+    await key(tester, LogicalKeyboardKey.arrowRight);
+    await key(tester, LogicalKeyboardKey.select);
+    expect(focusIsIn(find.byKey(const Key('detail-play'))), isTrue);
+    final title = find.text('片名').first;
+    expect(tester.getRect(title).top, greaterThanOrEqualTo(0), reason: 'the title shows when the page opens');
+
+    // Down through the lines into the episodes until the page has scrolled the title away.
+    var downs = 0;
+    while (tester.getRect(title).bottom > 0 && downs < 30) {
+      await key(tester, LogicalKeyboardKey.arrowDown);
+      downs++;
+    }
+    expect(tester.getRect(title).bottom, lessThanOrEqualTo(0), reason: 'the episodes scrolled the title off the screen');
+
+    await key(tester, LogicalKeyboardKey.arrowUp, times: downs);
+    expect(focusIsIn(find.byKey(const Key('detail-play'))), isTrue, reason: 'back on 播放');
+    expect(tester.getRect(title).top, greaterThanOrEqualTo(0), reason: 'the title above the buttons is back in view');
   });
 
   testWidgets('BACK on the main screen: page → its entry → 首页 → asks before quitting', (tester) async {

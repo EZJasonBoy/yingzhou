@@ -226,10 +226,47 @@ class _TvFocusRingState extends State<TvFocusRing> with SingleTickerProviderStat
       _node = node;
       _move = _from == null ? 1 : 0;
       _moveStart = _lastTick;
-      if (node != null && node is! FocusScopeNode && node.context != null) _lastLeaf = node;
+      if (node != null && node is! FocusScopeNode && node.context != null) {
+        _lastLeaf = node;
+        // Two frames on: after the traversal's own scrolling and a TvFocusable's centring have been asked for.
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          SchedulerBinding.instance.addPostFrameCallback((_) => _revealEdge(node));
+          SchedulerBinding.instance.scheduleFrame();
+        });
+      }
     }
     if (node is FocusScopeNode && node != FocusManager.instance.rootScope && _healsItself[node] != true) _scheduleRescue();
     _follow0();
+  }
+
+  /// When the item that just took the focus would still be in full view with its list scrolled to the very top (or
+  /// the very end), the list goes there. What lies above the first row that can take the focus (a page's title and
+  /// year over its buttons) is never reached by the focus itself: moving up only brings the row to the edge, so once
+  /// the page had scrolled, that part stayed out of sight for good.
+  void _revealEdge(FocusNode node) {
+    if (!mounted || !widget.enabled || !node.hasPrimaryFocus) return;
+    final context = node.context;
+    if (context == null) return;
+    final scrollable = Scrollable.maybeOf(context, axis: Axis.vertical);
+    final box = scrollable?.context.findRenderObject();
+    if (scrollable == null || scrollable.axisDirection != AxisDirection.down || box is! RenderBox || !box.attached || !box.hasSize) return;
+    final position = scrollable.position;
+    if (!position.hasPixels || !position.hasContentDimensions || position.maxScrollExtent <= position.minScrollExtent) return;
+    final viewport = box.localToGlobal(Offset.zero) & box.size;
+    final item = node.rect;
+    // Where the item is along the list, whatever the list's offset is now.
+    final top = position.pixels + item.top - viewport.top;
+    final bottom = top + item.height;
+    final double target;
+    if (bottom - position.minScrollExtent <= viewport.height) {
+      target = position.minScrollExtent;
+    } else if (top >= position.maxScrollExtent) {
+      target = position.maxScrollExtent;
+    } else {
+      return;
+    }
+    if ((position.pixels - target).abs() < 1) return;
+    position.animateTo(target, duration: const Duration(milliseconds: 180), curve: Curves.easeOut);
   }
 
   /// The focus is on a scope with nothing in it: give it back to an item after this frame (a route that was just
