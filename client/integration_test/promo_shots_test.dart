@@ -25,6 +25,9 @@ import 'package:tvbox_client/ui/device_form.dart';
 const engineUrl = String.fromEnvironment('ENGINE_URL', defaultValue: 'http://127.0.0.1:19979');
 const shotDir = String.fromEnvironment('SHOT_DIR');
 
+/// `--dart-define=THEME=light` (or `dark`): every form in that theme, whatever its default is.
+const theme = String.fromEnvironment('THEME');
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -101,6 +104,7 @@ void main() {
     for (final e in prefs.entries) {
       await settings.setString(e.key, e.value);
     }
+    if (theme.isNotEmpty) await settings.setString('ui.theme', theme);
     final state = AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings);
     final app = TvboxApp(state: state);
     await tester.pumpWidget(form == null ? app : DeviceFormScope.fixed(form, child: app));
@@ -169,6 +173,9 @@ void main() {
 
     await tester.tap(find.text('源').first);
     await shot(tester, 'desktop-sources', settle: const Duration(seconds: 3));
+
+    await tester.tap(find.text('设置').first);
+    await shot(tester, 'desktop-settings', settle: const Duration(seconds: 3));
 
     await tester.tap(find.text('直播').first);
     await until(tester, find.text('江上纪实'));

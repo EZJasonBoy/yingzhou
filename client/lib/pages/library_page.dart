@@ -6,10 +6,12 @@ import '../engine/vod_models.dart';
 import '../ui/common.dart';
 import '../ui/device_form.dart';
 import '../ui/poster.dart';
+import '../ui/shell.dart' show shellUsesBottomBar;
 import '../ui/tv/tv_widgets.dart';
 import 'browse_page.dart' show errorText;
 import 'detail_page.dart';
 import 'downloads_tab.dart';
+import 'settings_page.dart';
 
 /// 我的：watch history (with progress) and favorites, both stored in the engine.
 class LibraryPage extends StatefulWidget {
@@ -89,6 +91,14 @@ class _LibraryPageState extends State<LibraryPage> {
                     Text('我的', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
                     const Spacer(),
                     IconButton(tooltip: '刷新', onPressed: _reload, icon: const Icon(Icons.refresh)),
+                    // A phone held upright has no 设置 tab in its bottom bar: it is here.
+                    if (shellUsesBottomBar(context))
+                      IconButton(
+                        key: const Key('open-settings'),
+                        tooltip: '设置',
+                        onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage(standalone: true))),
+                        icon: const Icon(Icons.settings_outlined),
+                      ),
                   ],
                 ),
               ),

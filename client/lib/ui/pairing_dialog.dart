@@ -83,7 +83,7 @@ class _PairingDialogState extends State<PairingDialog> {
           children: [
             Text(state.engineUrl, style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(height: 8),
-            const Text('在引擎所在的设备上打开「源 → 局域网共享」查看配对码；没有界面的引擎（NAS、Docker）把配对码打印在日志里。'),
+            const Text('在引擎所在的设备上打开「设置 → 局域网共享」查看配对码；没有界面的引擎（NAS、Docker）把配对码打印在日志里。'),
             const SizedBox(height: 16),
             TextField(
               key: const Key('pairing-code'),

@@ -283,7 +283,7 @@ void main() {
         TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url, httpClient: engine), playerBackend: () => FakePlayer().backend(), settings: MemorySettings())),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('源'));
+      await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(find.byType(DanmakuServiceSettings), 300, scrollable: find.byType(Scrollable).first);
       await tester.pumpAndSettle();

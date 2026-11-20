@@ -17,6 +17,8 @@ import '../player_backend.dart';
 import '../player_cache.dart';
 import '../settings.dart';
 import '../ui/device_form.dart';
+import '../ui/theme.dart';
+import '../ui/tv/tv_app.dart' show tvTheme;
 import '../ui/tv/tv_focus.dart';
 import 'browse_page.dart' show errorText;
 import 'danmaku_layer.dart';
@@ -842,7 +844,8 @@ class _PlayerPageState extends State<PlayerPage> {
     final inline = _inline(context);
     // The side panels over the picture; upright on a phone they open under it instead (see _buildPhoneInfo).
     final sidePanels = !inline && !pip;
-    return _touchFrame(context, inline, Scaffold(
+    // Everything drawn over the picture (bars, panels, notices) is dark whatever the app's theme is: it sits on video.
+    return _touchFrame(context, inline, Theme(data: tvTheme(context, buildDarkTheme()), child: Builder(builder: (context) => Scaffold(
       backgroundColor: Colors.black,
       body: Focus(
         focusNode: _focus,
@@ -936,7 +939,7 @@ class _PlayerPageState extends State<PlayerPage> {
           ),
         ),
       ),
-    ));
+    ))));
   }
 
   Widget _buildStatus() {

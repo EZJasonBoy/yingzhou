@@ -293,7 +293,7 @@ void main() {
 
   testWidgets('the 源 page: where downloads go, how many at once, the room left', (tester) async {
     await openApp(tester, _DownloadEngine());
-    await tester.tap(find.text('源'));
+    await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
     expect(find.text('离线下载'), findsOneWidget);
     expect(tester.widget<Text>(find.byKey(const Key('download-settings-usage'))).data, '已下载 1.2 GB · 剩余空间 50.0 GB');
@@ -330,7 +330,7 @@ void main() {
       ],
     };
     await openApp(tester, e);
-    await tester.tap(find.text('源'));
+    await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('download-folder')), findsNothing, reason: 'no path to type in');
     expect(find.text('内部存储（剩余 20.0 GB）'), findsOneWidget);
@@ -357,7 +357,7 @@ void main() {
     await tester.tap(find.widgetWithText(Tab, '下载'));
     await tester.pumpAndSettle();
     expect(find.textContaining('这台引擎不能下载'), findsOneWidget);
-    await tester.tap(find.text('源'));
+    await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
     expect(find.text('离线下载'), findsNothing);
   });

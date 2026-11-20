@@ -1,6 +1,32 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../settings.dart';
+
 const _seed = Color(0xFF4F8CFF);
+
+/// Light or dark, as chosen in 设置 → 外观 and kept in the client's settings under [key]. Until the user chooses,
+/// phones and tablets follow the system, and desktops and TVs are dark.
+class ThemeChoice extends ChangeNotifier {
+  ThemeChoice([this._settings]) : _mode = ThemeMode.values.asNameMap()[_settings?.getString(key) ?? ''];
+
+  static const key = 'ui.theme';
+
+  final SettingsStore? _settings;
+  ThemeMode? _mode;
+
+  /// What the user chose; null while they have not.
+  ThemeMode? get mode => _mode;
+
+  /// The mode to use on a device that is [touch] (a phone or a tablet) or not.
+  ThemeMode resolve({required bool touch}) => _mode ?? (touch ? ThemeMode.system : ThemeMode.dark);
+
+  Future<void> set(ThemeMode mode) async {
+    if (mode == _mode) return;
+    _mode = mode;
+    notifyListeners();
+    await _settings?.setString(key, mode.name);
+  }
+}
 
 ThemeData buildDarkTheme() {
   final scheme = ColorScheme.fromSeed(seedColor: _seed, brightness: Brightness.dark).copyWith(

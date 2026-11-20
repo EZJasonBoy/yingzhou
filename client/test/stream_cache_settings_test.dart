@@ -20,7 +20,7 @@ void main() {
     final engine = fakeEngine(hasConfig: true, streamCache: cache, settingsSent: sent);
     await tester.pumpWidget(TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url, httpClient: engine))));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('源'));
+    await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
   }
 

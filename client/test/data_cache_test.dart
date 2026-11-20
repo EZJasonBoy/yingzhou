@@ -190,7 +190,7 @@ void main() {
     PosterCache.instance = _MemoryPosters()..bytes = 2048;
     final engine = _CachingEngine();
     await pumpApp(tester, engine);
-    await tester.tap(find.text('源'));
+    await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
     expect(find.text('订阅副本和站点数据：3.0 MB（12 项，在引擎里）'), findsOneWidget);
     expect(find.text('海报图片：2 KB（在这台设备上）'), findsOneWidget);

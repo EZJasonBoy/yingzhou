@@ -9,10 +9,26 @@ import '../engine/discovery.dart';
 import '../engine/lan.dart';
 import '../engine/models.dart';
 
-/// 「局域网」 on the Sources page: the LAN sharing switch of the engine on this machine (addresses, pairing code,
-/// paired devices), the engines found on the LAN, and the pairing with the engine in use when it is on another device.
+/// Which half of [LanSection] a page shows.
+enum LanPart {
+  /// Both, in one card.
+  all,
+
+  /// Using an engine on another device (源): the engines found on the LAN, the pairing with the one in use, and where
+  /// players fetch the video from.
+  connect,
+
+  /// Letting other devices use this machine's engine (设置): the sharing switch, addresses, pairing code, devices.
+  share,
+}
+
+/// 「局域网」: the LAN sharing switch of the engine on this machine (addresses, pairing code, paired devices), the
+/// engines found on the LAN, and the pairing with the engine in use when it is on another device. 源 shows the
+/// [LanPart.connect] half and 设置 the [LanPart.share] half.
 class LanSection extends StatefulWidget {
-  const LanSection({super.key, this.discovery});
+  const LanSection({super.key, this.discovery, this.part = LanPart.all});
+
+  final LanPart part;
 
   /// Tests pass their own; by default mDNS through the platform.
   final EngineDiscovery? discovery;
@@ -42,7 +58,8 @@ class _LanSectionState extends State<LanSection> {
       _loadedFor = key;
       _status = null;
       _poll?.cancel();
-      if (key.isNotEmpty) _refresh();
+      // The sharing status is only shown by the half that has the switch.
+      if (key.isNotEmpty && widget.part != LanPart.connect) _refresh();
     }
   }
 
@@ -137,6 +154,14 @@ class _LanSectionState extends State<LanSection> {
     final small = TextStyle(color: scheme.onSurfaceVariant, fontSize: 12);
     final status = _status;
     final remote = !_isLocal(state.engineUrl);
+    final connectHalf = widget.part != LanPart.share;
+    final shareHalf = widget.part != LanPart.connect;
+    final showPairing = connectHalf && remote;
+    final showSharing = shareHalf && !remote && status != null && status.supported;
+    final showDiscovery = connectHalf && _discovery != null;
+    // 设置 on a device that uses another device's engine: there is nothing to share from here.
+    final elsewhere = widget.part == LanPart.share && remote;
+    if (!showPairing && !showSharing && !showDiscovery && !elsewhere && _error == null) return const SizedBox.shrink();
 
     return Card(
       child: Padding(
@@ -144,10 +169,11 @@ class _LanSectionState extends State<LanSection> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('局域网', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+            Text(switch (widget.part) { LanPart.connect => '局域网里的引擎', LanPart.share => '共享这台设备的引擎', LanPart.all => '局域网' }, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
             const SizedBox(height: 10),
+            if (elsewhere) Text('正在使用另一台设备上的引擎。局域网共享在引擎所在的那台设备上设置。', style: small),
             // The engine in use is on another device: pairing.
-            if (remote) ...[
+            if (showPairing) ...[
               Row(
                 children: [
                   Icon(state.engineToken != null && state.connected ? Icons.verified_user_outlined : Icons.lock_outline, size: 18),
@@ -170,10 +196,10 @@ class _LanSectionState extends State<LanSection> {
               const SizedBox(height: 12),
             ],
             // The engine on this machine: the sharing switch.
-            if (!remote && status != null && status.supported) _sharing(context, state, status, small),
+            if (showSharing) _sharing(context, state, status, small),
             if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: TextStyle(color: scheme.error))),
-            if (_discovery != null) ...[
-              const Divider(height: 28),
+            if (showDiscovery) ...[
+              if (showPairing || showSharing) const Divider(height: 28),
               Row(
                 children: [
                   const Expanded(child: Text('发现局域网里的引擎')),

@@ -6,9 +6,19 @@ import '../pages/drives_page.dart';
 import '../pages/library_page.dart';
 import '../pages/live_page.dart';
 import '../pages/search_page.dart';
+import '../pages/settings_page.dart';
 import '../pages/sources_page.dart';
 import 'device_form.dart';
 import 'tv/tv_shell.dart';
+
+/// Whether the main screen has its bottom bar: only on a phone held upright (or a narrow window). Tablets and phones
+/// on their side get the rail, a TV its own navigation. The bottom bar has no 设置 tab; 我的 offers it there.
+bool shellUsesBottomBar(BuildContext context) {
+  final form = DeviceFormScope.of(context);
+  if (form == DeviceForm.tv) return false;
+  final size = MediaQuery.sizeOf(context);
+  return !(size.width >= 760 || form == DeviceForm.tablet || (form == DeviceForm.phone && size.width > size.height));
+}
 
 /// Top-level navigation: a rail on wide screens, a bottom bar on phones.
 class AppShell extends StatefulWidget {
@@ -44,7 +54,11 @@ class _AppShellState extends State<AppShell> {
     (icon: Icons.video_library_outlined, selected: Icons.video_library_rounded, label: '我的'),
     (icon: Icons.dns_outlined, selected: Icons.dns_rounded, label: '源'),
     (icon: Icons.cloud_outlined, selected: Icons.cloud_rounded, label: '网盘'),
+    (icon: Icons.settings_outlined, selected: Icons.settings_rounded, label: '设置'),
   ];
+
+  /// The bottom bar of a phone held upright has room for this many; 设置, the last, is reached from 我的 there.
+  static const _bottomBarCount = 6;
 
   void _go(int i) => setState(() => _index = i);
 
@@ -120,6 +134,7 @@ class _AppShellState extends State<AppShell> {
       LibraryPage(visible: _index == 3),
       const SourcesPage(),
       DrivesPage(visible: _index == 5),
+      const SettingsPage(),
     ];
     // Hidden pages keep their state but stop animating.
     final pages = KeyedSubtree(
@@ -132,41 +147,21 @@ class _AppShellState extends State<AppShell> {
     // A TV: big entries on the left, everything driven by the remote (ui/tv/tv_shell.dart).
     if (isTv(context)) return TvShell(index: _index, destinations: _destinations, onSelect: _go, immersive: _immersive && _index == 1, pages: pages);
     if (_immersive && _index == 1) return Scaffold(backgroundColor: Colors.black, body: pages);
-    final size = MediaQuery.sizeOf(context);
-    final form = DeviceFormScope.of(context);
-    // Bottom bar only on a phone held upright (or a narrow window); tablets and phones on their side get the rail.
-    final wide = size.width >= 760 || form == DeviceForm.tablet || (form == DeviceForm.phone && size.width > size.height);
-    if (wide && (form == DeviceForm.phone || form == DeviceForm.tablet)) {
-      return Scaffold(body: Row(children: [_rail(context, size.height < 560), Expanded(child: pages)]));
-    }
-    if (wide) {
-      return Scaffold(
-        body: Row(
-          children: [
-            NavigationRail(
-              selectedIndex: _index,
-              onDestinationSelected: _go,
-              labelType: NavigationRailLabelType.all,
-              groupAlignment: -0.9,
-              leading: Padding(
-                padding: const EdgeInsets.only(top: 12, bottom: 20),
-                child: Icon(Icons.live_tv_rounded, size: 30, color: Theme.of(context).colorScheme.primary),
-              ),
-              destinations: [
-                for (final d in _destinations) NavigationRailDestination(icon: Icon(d.icon), selectedIcon: Icon(d.selected), label: Text(d.label)),
-              ],
-            ),
-            Expanded(child: pages),
-          ],
-        ),
-      );
+    // The rail for everything but a phone held upright. With seven entries it is taller than the smallest desktop
+    // window (520 high), so desktops get the same rail as tablets: it scrolls, and a short window labels only the
+    // entry that is showing.
+    if (!shellUsesBottomBar(context)) {
+      return Scaffold(body: Row(children: [_rail(context, MediaQuery.sizeOf(context).height < 600), Expanded(child: pages)]));
     }
     return Scaffold(
       body: pages,
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
+        // 设置 was opened while the rail was showing (the phone was on its side): 我的 is where it is reached from here.
+        selectedIndex: _index < _bottomBarCount ? _index : 3,
         onDestinationSelected: _go,
-        destinations: [for (final d in _destinations) NavigationDestination(icon: Icon(d.icon), selectedIcon: Icon(d.selected), label: d.label)],
+        destinations: [
+          for (final d in _destinations.take(_bottomBarCount)) NavigationDestination(icon: Icon(d.icon), selectedIcon: Icon(d.selected), label: d.label),
+        ],
       ),
     );
   }

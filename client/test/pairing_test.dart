@@ -170,7 +170,7 @@ void main() {
     final state = AppState(clientFactory: (url) => EngineClient(url, httpClient: engine));
     await tester.pumpWidget(TvboxApp(state: state));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('源'));
+    await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
     expect(find.text('局域网共享'), findsOneWidget);
     expect(find.text('654321'), findsNothing);

@@ -55,8 +55,17 @@ class _TvboxAppState extends State<TvboxApp> {
   @override
   void initState() {
     super.initState();
+    widget.state.themeChoice.addListener(_themeChanged);
     widget.state.start();
   }
+
+  @override
+  void dispose() {
+    widget.state.themeChoice.removeListener(_themeChanged);
+    super.dispose();
+  }
+
+  void _themeChanged() => setState(() {});
 
   @override
   Widget build(BuildContext context) {
@@ -65,9 +74,9 @@ class _TvboxAppState extends State<TvboxApp> {
       child: MaterialApp(
         title: '映舟',
         debugShowCheckedModeBanner: false,
-        // Phones and tablets follow the system's light / dark setting; desktops and TVs stay dark.
-        themeMode: isTouch(context) ? ThemeMode.system : ThemeMode.dark,
-        theme: buildLightTheme(),
+        // Until the user chooses in 设置 → 外观: phones and tablets follow the system, desktops and TVs are dark.
+        themeMode: widget.state.themeChoice.resolve(touch: isTouch(context)),
+        theme: tvTheme(context, buildLightTheme()),
         darkTheme: tvTheme(context, buildDarkTheme()),
         navigatorKey: _navigator,
         // Desktop habits: the mouse's back button and Alt+Left go back a page.

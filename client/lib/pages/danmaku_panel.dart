@@ -76,7 +76,7 @@ class _DanmakuPanelState extends State<DanmakuPanel> {
             else if (list.items.isNotEmpty)
               Text('共 ${list.items.length} 条 · 来自${list.sourceLabel}', key: const Key('danmaku-count'), style: muted)
             else if (prefs.enabled)
-              Text('这一集没有弹幕。站点没有给弹幕时，可以在「源 → 弹幕」打开订阅的弹幕接口或填写自己的弹幕接口，也可以加载本地弹幕文件。', style: muted),
+              Text('这一集没有弹幕。站点没有给弹幕时，可以在「设置 → 弹幕」打开订阅的弹幕接口或填写自己的弹幕接口，也可以加载本地弹幕文件。', style: muted),
             const SizedBox(height: 8),
             Align(
               alignment: Alignment.centerLeft,

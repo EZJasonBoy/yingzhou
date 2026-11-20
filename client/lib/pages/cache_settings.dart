@@ -71,7 +71,7 @@ class ConfigFreshness extends StatelessWidget {
   }
 }
 
-/// 源 → 缓存: how much the engine keeps (subscription copies, pages of sites) and how much this device keeps
+/// 设置 → 缓存: how much the engine keeps (subscription copies, pages of sites) and how much this device keeps
 /// (posters), with one button to clear both.
 class CacheSettings extends StatefulWidget {
   const CacheSettings({super.key});

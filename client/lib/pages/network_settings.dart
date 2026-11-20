@@ -4,7 +4,7 @@ import '../app_state.dart';
 import '../engine/models.dart';
 import '../engine/network_models.dart';
 
-/// 源 → 网络: which DNS-over-HTTPS server the engine asks (off unless the user picks one), and what the active
+/// 设置 → 网络: which DNS-over-HTTPS server the engine asks (off unless the user picks one), and what the active
 /// subscription brings along: `hosts` redirects, per-host `headers`, `ads` hosts.
 class NetworkSettings extends StatefulWidget {
   const NetworkSettings({super.key});

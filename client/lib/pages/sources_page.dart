@@ -4,16 +4,11 @@ import '../app_state.dart';
 import '../engine/models.dart';
 import '../ui/phone_input.dart';
 import 'cache_settings.dart';
-import 'saved_subscriptions.dart';
-import 'danmaku_service_settings.dart';
-import 'download_settings.dart';
-import 'network_settings.dart';
-import 'stream_cache_settings.dart';
-import 'python_settings.dart';
 import 'lan_section.dart';
-import 'ui_mode_settings.dart';
+import 'saved_subscriptions.dart';
 
-/// 源：engine connection, subscription import, repository switch and the site list.
+/// 源：where the content comes from. The engine's address, importing and switching subscriptions, the repository
+/// switch and the site list. How the client and the engine behave is 设置 (settings_page.dart).
 class SourcesPage extends StatefulWidget {
   const SourcesPage({super.key});
 
@@ -24,16 +19,11 @@ class SourcesPage extends StatefulWidget {
 class _SourcesPageState extends State<SourcesPage> {
   late final _engineField = TextEditingController(text: AppScope.read(context).engineUrl);
   final _subscriptionField = TextEditingController();
-  final _proxyField = TextEditingController();
-
-  /// The prefix last seen from the engine, to refill the field when it changes there.
-  String? _shownPrefix;
 
   @override
   void dispose() {
     _engineField.dispose();
     _subscriptionField.dispose();
-    _proxyField.dispose();
     super.dispose();
   }
 
@@ -43,11 +33,6 @@ class _SourcesPageState extends State<SourcesPage> {
     final scheme = Theme.of(context).colorScheme;
     final info = state.info;
     final summary = state.summary;
-    final engineSettings = state.engineSettings;
-    if (engineSettings != null && engineSettings.githubProxyPrefix != _shownPrefix) {
-      _shownPrefix = engineSettings.githubProxyPrefix;
-      _proxyField.text = engineSettings.githubProxyPrefix;
-    }
 
     return Scaffold(
       body: SafeArea(
@@ -59,7 +44,6 @@ class _SourcesPageState extends State<SourcesPage> {
               children: [
                 Text('源', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 16),
-                const UiModeSettings(),
                 _section(
                   context,
                   title: '引擎',
@@ -88,14 +72,14 @@ class _SourcesPageState extends State<SourcesPage> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '引擎在另一台设备上时：在那台设备打开「局域网共享」，在下面「发现局域网里的引擎」里选它，或在这里填它显示的地址，再输入配对码',
+                        '引擎在另一台设备上时：在那台设备的「设置 → 局域网」打开「局域网共享」，在下面「发现局域网里的引擎」里选它，或在这里填它显示的地址，再输入配对码',
                         style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 12),
-                const LanSection(),
+                const LanSection(part: LanPart.connect),
                 const SizedBox(height: 12),
                 _section(
                   context,
@@ -141,54 +125,6 @@ class _SourcesPageState extends State<SourcesPage> {
                     ],
                   ),
                 ),
-                if (engineSettings != null) ...[
-                  const SizedBox(height: 12),
-                  _section(
-                    context,
-                    title: '网络',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SwitchListTile(
-                          key: const Key('github-proxy-switch'),
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('GitHub 加速代理'),
-                          subtitle: Text(
-                            engineSettings.githubProxy
-                                ? 'GitHub 上的文件经下面的代理获取，代理失败时再直连'
-                                : '已关闭：直连 GitHub，订阅里写的代理前缀（gh-proxy 等）会被去掉',
-                          ),
-                          value: engineSettings.githubProxy,
-                          onChanged: state.busy ? null : (on) => state.setGithubProxy(enabled: on, prefix: _proxyField.text),
-                        ),
-                        if (engineSettings.githubProxy)
-                          Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _proxyField,
-                                  enabled: !state.busy,
-                                  decoration: const InputDecoration(labelText: '代理地址', hintText: '如 https://ghfast.top/'),
-                                  onSubmitted: (v) => state.setGithubProxy(enabled: true, prefix: v),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              FilledButton.tonal(
-                                onPressed: state.busy ? null : () => state.setGithubProxy(enabled: true, prefix: _proxyField.text),
-                                child: const Text('应用'),
-                              ),
-                            ],
-                          ),
-                        const NetworkSettings(),
-                      ],
-                    ),
-                  ),
-                ],
-                const CacheSettings(),
-                const StreamCacheSettings(),
-                const DanmakuServiceSettings(),
-                const DownloadSettings(),
-                const PythonSettings(),
                 if (state.busy) const Padding(padding: EdgeInsets.only(top: 12), child: LinearProgressIndicator()),
                 if (state.error != null)
                   Padding(
@@ -294,7 +230,7 @@ class _SiteList extends StatelessWidget {
               subtitle: Text(
                 state.supports(site.runtime)
                     ? site.key
-                    : '${site.key} · ${site.runtime == SiteRuntime.py ? '需要 Python，见上方「Python 蜘蛛」' : '这台引擎还不支持这类站点'}',
+                    : '${site.key} · ${site.runtime == SiteRuntime.py ? '需要 Python，见「设置」里的「Python 蜘蛛」' : '这台引擎还不支持这类站点'}',
               ),
               leading: Container(
                 width: 44,

@@ -9,6 +9,7 @@ import 'engine/local_engine.dart';
 import 'engine/models.dart';
 import 'player_backend.dart';
 import 'settings.dart';
+import 'ui/theme.dart';
 
 typedef EngineClientFactory = EngineClient Function(Uri baseUrl);
 
@@ -33,6 +34,9 @@ class AppState extends ChangeNotifier {
 
   /// Local preferences of this client (window, player volume...).
   SettingsStore get settings => _settings;
+
+  /// Light or dark, as chosen in 设置 → 外观.
+  late final ThemeChoice themeChoice = ThemeChoice(_settings);
   final LocalEngine? _localEngine;
   final Duration waitStep;
   String engineUrl;
@@ -234,7 +238,7 @@ class AppState extends ChangeNotifier {
     }
     if (e.statusCode == 403 && e.code == 'LAN_SHARING_OFF') {
       info = null;
-      error = '这台引擎没有开启局域网共享：在它所在的设备上打开「源 → 局域网共享」';
+      error = '这台引擎没有开启局域网共享：在它所在的设备上打开「设置 → 局域网共享」';
       return true;
     }
     return false;
@@ -333,7 +337,7 @@ class AppState extends ChangeNotifier {
     engineSettings = await client.patchSettings({'streamCache': ?enabled, 'streamCacheMaxMB': ?maxMB});
   });
 
-  /// Asks the engine what it can run again: Python sites open once a Python is set up (源 → Python 蜘蛛).
+  /// Asks the engine what it can run again: Python sites open once a Python is set up (设置 → Python 蜘蛛).
   Future<void> refreshInfo() async {
     final c = _client;
     if (c == null) return;

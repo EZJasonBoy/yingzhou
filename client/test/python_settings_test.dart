@@ -124,7 +124,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('源'));
+    await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
     return engine;
   }
@@ -143,7 +143,8 @@ void main() {
     expect(find.text('Python 蜘蛛'), findsOneWidget);
     expect(find.byKey(const Key('python-missing')), findsOneWidget);
     expect(find.textContaining('没有找到 Python 3.8 或更新的版本'), findsOneWidget);
-    expect(find.textContaining('pysite · 需要 Python'), findsOneWidget);
+    // The site list is on 源, kept alive behind 设置.
+    expect(find.textContaining('pysite · 需要 Python', skipOffstage: false), findsOneWidget);
     expect(find.textContaining('下载 Python 运行时（12.0 MB）'), findsOneWidget);
 
     // The dialog says what, from where, how big and to where; cancelling sends nothing.
@@ -169,8 +170,8 @@ void main() {
     expect(find.text('Python 3.14.10 · 下载的运行时'), findsOneWidget);
     expect(find.textContaining('Python 已下载'), findsOneWidget);
     // The engine can run Python sites now: the site list follows.
-    expect(find.textContaining('pysite · 需要 Python'), findsNothing);
-    expect(find.text('pysite'), findsOneWidget);
+    expect(find.textContaining('pysite · 需要 Python', skipOffstage: false), findsNothing);
+    expect(find.text('pysite', skipOffstage: false), findsOneWidget);
     expect(find.byKey(const Key('python-remove')), findsOneWidget);
   });
 
