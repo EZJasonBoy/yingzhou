@@ -314,6 +314,17 @@ tvbox-next/
 
 已保存的订阅：引擎一直按地址去重保存所有导入过的订阅（`GET /subscriptions`），2026-11-19 起记下每个订阅最后一次加载的时间 `usedAt`，并能重命名（`PUT /subscriptions/{id}`）。客户端在「源 → 订阅」下面按 `usedAt` 从新到旧列出，点一下就 `activate`。
 
+#### 诊断与反馈（已实现）
+
+出了问题之后有东西可看，但什么都不自动发出去（`client/lib/diagnostics/`）。
+
+- **抓错误**：`main.dart` 经 `Diagnostics.runGuarded` 启动——挂 `FlutterError.onError`（组件构建、布局、绘制里的错）和 `PlatformDispatcher.instance.onError`（zone 外面的），再把整个 `main` 放进 `runZonedGuarded`（没人接的异步错误）；原来的处理器照常运行。海报加载失败（`image resource service`）和 `silent` 的报告不算。同一个错误在一次运行里只记一条、数次数；一次运行最多 20 条新记录。
+- **存**：`DiagnosticsStore`，文件在 `getApplicationSupportDirectory()/diagnostics`：`crash-<时间>-<来源>.txt`，保留 20 条、每条 64 KB，路径解析出来之前（`ensureInitialized` 之前的错）先放在内存里，之后挪到磁盘；记录同步写（应用随后可能就没了）。格式是开头几行 `key: value`（`time`、`version`、`platform`、`form`、`source`、`repeated`）加 `error:`、`stack:` 两段，`crash_record.dart` 和安卓的 `CrashRecorder.kt` 写同一种。版本号来自 `flutter build` 传的 `FLUTTER_BUILD_NAME` / `FLUTTER_BUILD_NUMBER`。
+- **桌面引擎**：`local_engine_io.dart` 把引擎的标准输出和标准错误按 UTF-8 读（给 JVM 加了 `-Dstdout.encoding=UTF-8`，否则中文 Windows 上管道里是 GBK）、每 200 ms 成批写进 `engine.log`，每次启动和超过 512 KB 时轮换，保留 3 个；引擎不是被 `stop()` 停掉而退出时再记一条崩溃记录，带最后 50 行。
+- **安卓**：`TvboxApplication` 第一件事装 `CrashRecorder`（默认未捕获异常处理器，写完再交给原来的那个）；内置引擎启动失败（`EmbeddedEngine` 里接住的）也记一条。`yingzhou/diagnostics` 通道给出系统版本和机型、读本应用的 logcat、用 `ACTION_VIEW` 打开网址（没有浏览器时回答 false）。
+- **遮掉再给人看**（`redact.dart`）：已知的订阅地址（当前配置、子仓、保存的订阅）整段换掉，`;pk;` 密钥、`Bearer`、`"token"`/`password=` 一类的值、引擎令牌、`tvsig` 等签名参数、网址里的账号密码、用户目录都换掉；互联网上的地址只留 scheme 和域名，本机和局域网地址留路径（引擎自己的接口在那里）。写记录时先过一遍不带订阅列表的，显示和复制时再过一遍带订阅列表的；两遍结果一样（幂等）。
+- **反馈**：「复制诊断信息」= 版本、系统、形态、引擎（版本、平台、协议、能力、在哪）、最近 5 条记录（堆栈各 40 行）、日志最后 150 行。「反馈问题」先显示全文，再用系统浏览器打开 `github.com/Sa1koro/yingzhou/issues/new?template=bug_report.yml&version=…&platform=…&engine=…&logs=…`（字段 id 和 `.github/ISSUE_TEMPLATE/bug_report.yml` 对应，整条网址不超过 7000 字符，超了截断并把全文放剪贴板）。桌面用 `rundll32 url.dll,FileProtocolHandler` / `open` / `xdg-open`，不经 shell；电视上同时显示一个只带开头部分的二维码。没有引入 url_launcher。
+
 #### 电视与遥控器（已实现）
 
 电视上只有方向键、OK、返回和菜单键（有时还有数字、频道和媒体键）。组件和桌面、手机共用，电视只在几处换布局、加按键处理。
@@ -343,6 +354,7 @@ tvbox-next/
 - **发现**：引擎用 JmDNS 在每个局域网地址上通告 `_tvbox-engine._tcp`；客户端用 bonsoir（调用系统自带的 mDNS 服务：Windows DNS-SD、macOS Bonjour、安卓 NSD）。
 - 客户端按引擎地址（scheme://host:port）在本地偏好里保存令牌，每个 API 请求带上；图片加载器只对来自该引擎的图片带令牌。收到 401 就回到配对窗口。
 - 网盘 Cookie 等凭据只存在引擎所在设备。网盘（2.10）的账号、密码、令牌、文件夹密码存在引擎的 `drives.json` 里，API 只回答"有没有"；需要账号才能取的文件由引擎带上账号代取，账号不进播放器的地址和请求头，也不写进日志。本机文件夹只能由本机的调用方添加或改路径。
+- 崩溃记录和日志只存在设备上，应用自己不上传（见第 4 节"诊断与反馈"）；显示、复制、填进 GitHub 新问题之前先遮掉订阅地址、令牌、签名参数和用户目录，用户看过全文、自己在浏览器里提交才会离开设备。
 - 已知局限：请求经反向代理且代理把 `Host` 改成 127.0.0.1 时会被当成本机；Docker 桥接网络里所有请求都来自网关地址（不是本机），mDNS 也过不了桥接（用 host 网络或手填地址）；配对锁定可以被同网段的人故意触发（拒绝服务，不会泄露）。
 
 ## 6. 里程碑

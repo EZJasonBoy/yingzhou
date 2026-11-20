@@ -56,6 +56,8 @@ flutter test                                # 单元 / 组件测试（用 test/f
 flutter run -d windows                      # 没有引擎在 9978 上时会自己拉起上面 installDist 的引擎
 ```
 
+`flutter test` 里唯一要真引擎的是 `test/engine_crash_test.dart`：用应用自己的启动代码（`engine/local_engine_io.dart`）在空闲端口上起演示引擎（`--demo`，数据在内存里），从外面结束进程、占住它的端口让它起不来，检查 `engine.log` 和崩溃记录留下了原因。没有 `installDist` 的产物或找不到 Java（`JAVA_HOME`，或 PATH 上的 `java`）时这几个用例跳过。诊断的其他测试：`diagnostics_redact_test.dart`（遮掉什么）、`diagnostics_store_test.dart`（轮换和上限）、`diagnostics_hooks_test.dart`（组件里抛的错、没人接的异步错误都留下记录）、`diagnostics_page_test.dart`（桌面和电视上的卡片与页面）、`diagnostics_feedback_test.dart`（新问题页面的网址与 `.github/ISSUE_TEMPLATE/bug_report.yml` 的字段对得上）。
+
 引擎参数：`--port`、`--lan`（监听 0.0.0.0，局域网共享始终开启，配对码打印在标准输出）、`--name <名字>`（局域网里显示的名字，默认"映舟 · 计算机名"）、`--data <目录>`（默认 `~/.tvbox-next/engine`）、`--subscribe <地址>`、`--drive-folder <目录>`（把这台机器上的文件夹加成网盘，可以写多次，已有的不重复加）、`--demo`、`--dev-cors`、`--exit-with-stdin`。
 
 ### 局域网共享与鉴权
@@ -242,7 +244,8 @@ PLAY=1 MAX_SITES=20 tools/check-configs.sh          # 加上播放解析；每�
 
 ## 8. 排查问题
 
-- **内置引擎没起来**：启动失败时界面上的错误提示带着引擎最后几行输出。也可以手动跑 `engine/jre/bin/java -cp "engine/lib/*" tvbox.engine.server.MainKt` 看报错。
+- **崩溃记录与引擎日志**（`client/lib/diagnostics/`，界面在「源 → 诊断与反馈」）：`main.dart` 经 `Diagnostics.runGuarded` 启动应用，挂上 `FlutterError.onError`、`PlatformDispatcher.instance.onError` 和一个包住整个 `main` 的 guarded zone（`ensureInitialized` 和 `runApp` 在同一个 zone 里），出错写成 `<支持目录>/diagnostics/crash-<时间>-dart.txt`；桌面内置引擎的标准输出和标准错误写进同一目录的 `engine.log`（每次启动轮换，保留 3 个），引擎不是被 `stop()` 停掉而退出时再记一条 `-engine.txt`；安卓上 `CrashRecorder.kt`（`TvboxApplication` 里装上）在进程死之前写 `-android.txt`，格式和 Dart 的一样，下次启动列出来。安卓的系统日志经 `yingzhou/diagnostics` 通道（`DiagnosticsChannel.kt`：`info`、`logcat`、`openUrl`）读。要显示、复制的东西都先过 `diagnostics/redact.dart`。测试里不要碰真实目录：`Diagnostics(store: MemoryDiagnosticsStore())` 或 `DiagnosticsStore.files(() async => <临时目录>)`，打开网址换掉 `Diagnostics.openUrl`（`flutter test` 下桌面的打开命令本身也不会运行）。
+- **内置引擎没起来**：启动失败时界面上的错误提示带着引擎最后几行输出，完整的在 `engine.log`（上一条）。也可以手动跑 `engine/jre/bin/java -cp "engine/lib/*" tvbox.engine.server.MainKt` 看报错。
 - **9978 被占**：已有引擎在跑时客户端直接用它，不会再启动一个。
 - **嗅探不可用**：引擎启动时会打印找到的浏览器；装在非标准位置时设环境变量 `TVBOX_BROWSER`。
 - **jar 蜘蛛报缺类**：转换时会列出 jar 用到但桩类里没有的安卓类，在 `engine/runtime-jar/src/main/java/android/**` 补。

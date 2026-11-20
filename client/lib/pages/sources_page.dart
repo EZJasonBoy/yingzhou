@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
+import '../diagnostics/diagnostics_page.dart';
 import '../engine/models.dart';
 import '../ui/phone_input.dart';
 import 'cache_settings.dart';
@@ -240,6 +241,7 @@ class _SourcesPageState extends State<SourcesPage> {
                   const SizedBox(height: 12),
                   _SiteList(state: state),
                 ],
+                const DiagnosticsSettings(),
               ],
             ),
           ),
