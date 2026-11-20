@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>posters</title>
+<style>
+  body { margin: 0; background: #111318; display: grid; grid-template-columns: repeat(9, 1fr); gap: 12px; padding: 12px; }
+  img { width: 100%; display: block; border-radius: 8px; }
+</style>
+<script type="module">
+  import { CATALOG } from '../catalog.mjs';
+  const loads = CATALOG.map((c) => new Promise((r) => {
+    const i = new Image();
+    i.onload = i.onerror = r;
+    i.src = `/build/posters/${c.id}.jpg?${Date.now()}`;
+    document.body.append(i);
+  }));
+  window.__ready = Promise.all(loads);
+</script>

@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>映舟 · One boat, all streams</title>
+<link rel="stylesheet" href="film.css">
+</head>
+<body>
+<div id="stage">
+  <canvas id="river" width="1920" height="1080"></canvas>
+
+  <!-- 0 · prologue: the first poem -->
+  <section id="s-poem1" class="scene">
+    <div class="poem v" style="right:330px;top:170px">
+      <div class="col" data-split>谁谓源广</div>
+      <div class="col" data-split>一舟映之</div>
+    </div>
+    <div class="seal" style="left:1345px;top:716px">映<br>舟</div>
+    <div class="cite" style="left:120px;bottom:92px"><b>改自《诗经 · 卫风 · 河广》</b>谁谓河广，一苇杭之</div>
+  </section>
+
+  <!-- 1 · title -->
+  <section id="s-title" class="scene">
+    <div class="lockup" style="left:1010px;top:310px">
+      <div class="name" data-split>映舟</div>
+      <div class="latin" data-split>YINGZHOU</div>
+      <div class="rule"></div>
+      <div class="tag" data-split>One boat, all streams.</div>
+    </div>
+  </section>
+
+  <!-- 2a · sources -->
+  <section id="s-sources" class="scene">
+    <div class="cap" style="left:120px;top:96px;width:900px">
+      <div class="k"><i>01</i>源 · SOURCES</div>
+      <div class="h"><span>千源万流，汇于一舟。</span></div>
+      <div class="s">兼容 TVBox 的订阅与蜘蛛协议：换一条订阅，就换一片海。</div>
+    </div>
+    <div id="labels"></div>
+  </section>
+
+  <!-- 2b · the poster wall -->
+  <section id="s-wall" class="scene">
+    <div id="wall"></div>
+    <div class="scrim"></div>
+    <div class="cap" style="left:120px;bottom:118px;width:1100px">
+      <div class="h"><span>你的订阅，就是你的片库。</span></div>
+      <div class="s">映舟不内置任何内容。它只做一件事：把你的源，映成一面海报墙。</div>
+    </div>
+  </section>
+
+  <!-- 2c · the desktop app -->
+  <section id="s-desk" class="scene">
+    <div class="win" id="win" style="left:650px;top:128px;width:1400px">
+      <div class="bar"><img src="/brand/logo.svg" alt=""><span>映舟</span><em></em><b></b><b></b><b></b></div>
+      <div class="view" style="height:787.5px">
+        <img data-shot="desktop-home"><img data-shot="desktop-search"><img data-shot="desktop-detail-series"><img data-shot="desktop-player">
+      </div>
+    </div>
+    <div class="caps" style="left:120px;top:330px;width:520px">
+      <div class="cap sm"><div class="k"><i>桌面</i>WINDOWS · MACOS</div><div class="h"><span>一面海报墙，</span><span>几个站点随手切。</span></div><div class="s">分类、筛选、多仓订阅，都在一屏之内。</div></div>
+      <div class="cap sm"><div class="k"><i>搜索</i>CTRL + F</div><div class="h"><span>所有站点，</span><span>一起搜。</span></div><div class="s">聚合搜索，结果边搜边出。</div></div>
+      <div class="cap sm"><div class="k"><i>线路</i>FAILOVER</div><div class="h"><span>线路失效？</span><span>自动换线。</span></div><div class="s">带着进度，接着播。</div></div>
+      <div class="cap sm"><div class="k"><i>播放</i>LIBMPV</div><div class="h"><span>硬件解码，</span><span>随手拖动。</span></div><div class="s">播放缓存让 m3u8 不再卡在进度条上；弹幕、字幕、音轨一应俱全。</div>
+        <div class="keys"><kbd class="w">Space</kbd><kbd>F</kbd><kbd>←</kbd><kbd>→</kbd><kbd>M</kbd></div></div>
+    </div>
+  </section>
+
+  <!-- 3a · the second poem -->
+  <section id="s-poem2" class="scene">
+    <div class="poem v" style="left:300px;top:150px">
+      <div class="col" data-split>星垂平野阔</div>
+      <div class="col" data-split>舟映大江流</div>
+    </div>
+    <div class="seal" style="left:321px;top:800px">映<br>舟</div>
+    <div class="cite" style="right:120px;bottom:92px"><b>改自杜甫《旅夜书怀》</b>星垂平野阔，月涌大江流</div>
+  </section>
+
+  <!-- 3b · touch -->
+  <section id="s-touch" class="scene">
+    <div class="cap" style="left:120px;top:300px;width:640px">
+      <div class="k"><i>02</i>屏 · 手机与平板</div>
+      <div class="h"><span>指尖，</span><span>就是遥控器。</span></div>
+      <div class="s">上下滑动调亮度与音量，双击快进，长按 2 倍速，上滑变成小窗。</div>
+    </div>
+    <div class="tablet" id="tablet" style="left:900px;top:236px;width:900px"><img data-shot="tablet-home"></div>
+    <div class="phone" id="phone" style="left:800px;top:330px;width:280px"><img data-shot="phone-home" style="opacity:1"></div>
+    <div class="phone land" id="phone2" style="left:1230px;top:700px;width:560px"><img data-shot="phone-player-landscape-b" style="opacity:1"><div class="tap" id="tap"></div><div class="swipe" id="swipe"><i></i></div></div>
+  </section>
+
+  <!-- 3c · the TV -->
+  <section id="s-tv" class="scene">
+    <div class="cap" style="left:120px;top:300px;width:600px">
+      <div class="k"><i>02</i>屏 · 电视与盒子</div>
+      <div class="h"><span>十英尺外，</span><span>一样顺手。</span></div>
+      <div class="s">方向键走焦点，OK 即播；要打字？手机扫码，替遥控器输入。</div>
+    </div>
+    <div class="tv" id="tv" style="left:760px;top:196px;width:960px">
+      <div class="panel"><img data-shot="tv-home-b"><img data-shot="tv-home-c"><img data-shot="tv-detail"><img data-shot="tv-player"></div>
+      <div class="foot"></div>
+    </div>
+    <div class="remote" id="remote" style="left:1740px;top:420px">
+      <div class="pad"><i class="u"></i><i class="r"></i><i class="d"></i><i class="l"></i><b></b></div>
+      <div class="dots"><span></span><span></span><span></span></div>
+    </div>
+  </section>
+
+  <!-- 3d · the fleet -->
+  <section id="s-fleet" class="scene">
+    <div class="cap center" style="left:0;right:0;top:64px">
+      <div class="h"><span>一个客户端，每块屏幕都合身。</span></div>
+      <div class="s">键鼠、触屏、遥控器，各有各的手感。</div>
+    </div>
+    <div class="tv f" id="f-tv" style="left:560px;top:296px;width:800px"><div class="panel"><img data-shot="tv-home-c"></div></div>
+    <div class="win f" id="f-win" style="left:84px;top:540px;width:540px"><div class="bar"><img src="/brand/logo.svg" alt=""><span>映舟</span><em></em><b></b><b></b><b></b></div><div class="view" style="height:303.75px"><img data-shot="desktop-player" style="opacity:1"></div></div>
+    <div class="tablet f" id="f-tab" style="left:1336px;top:548px;width:500px"><img data-shot="tablet-home" style="opacity:1"></div>
+    <div class="phone f" id="f-phone" style="left:1238px;top:612px;width:138px"><img data-shot="phone-home" style="opacity:1"></div>
+    <div class="plats" style="top:984px"><span>Windows</span><span>macOS</span><span>Android 手机 · 平板</span><span>Android TV</span><span class="soon">iOS 即将启航</span></div>
+  </section>
+
+  <!-- 4 · the engine -->
+  <section id="s-engine" class="scene">
+    <div class="cap" style="left:120px;top:84px;width:1400px"><div class="k"><i>03</i>核 · ENGINE</div><div class="h"><span>水面之下，还有半条船。</span></div></div>
+    <div class="pillars">
+      <div class="pillar"><em style="color:var(--rose)">KOTLIN · JVM</em><h3>一个引擎</h3><p>订阅、蜘蛛（jar / JS / Python）、解析、嗅探、去广告、缓存，全在引擎里。</p></div>
+      <div class="pillar"><em style="color:var(--gold)">FLUTTER · LIBMPV</em><h3>一个客户端</h3><p>桌面、手机、平板、电视，同一套代码，四种手感。</p></div>
+      <div class="pillar"><em style="color:var(--mint)">HTTP · mDNS · DOCKER</em><h3>一套协议</h3><p>局域网配对共享；引擎可以住进 NAS，客户端只管播放。</p></div>
+    </div>
+    <div class="chips" id="chips"></div>
+    <div class="nums" id="nums">
+      <div class="num"><b data-to="8">0</b><span>天</span><em>从第一次提交到 v0.3.14</em></div>
+      <div class="num"><b data-to="96">0</b><span>次提交</span><em>2026.11.12 — 11.19</em></div>
+      <div class="num"><b data-to="424">0</b><span>项自动测试</span><em>引擎 269 · 客户端 155</em></div>
+      <div class="num"><b data-to="3">0</b><span>种蜘蛛运行时</span><em>jar · JavaScript · Python</em></div>
+    </div>
+    <div class="next" id="next"><i></i>仍在航行：iOS 客户端，和住进 NAS 的 Docker 引擎，正在路上。</div>
+  </section>
+
+  <!-- 5 · finale -->
+  <section id="s-poem3" class="scene">
+    <div class="poem h" style="left:0;right:0;top:170px"><span class="col" data-split>百川东到海</span><span class="gap"></span><span class="col" data-split>一舟映万流</span></div>
+    <div class="cite center" style="left:0;right:0;top:322px"><b>改自汉乐府《长歌行》</b>百川东到海，何时复西归</div>
+  </section>
+  <section id="s-end" class="scene">
+    <div class="end">
+      <img class="logo" src="/brand/logo.svg" alt="">
+      <div class="name">映舟<small>Yingzhou</small></div>
+      <div class="tag">One boat, all streams.</div>
+      </div>
+    <div class="credits">
+      <div class="plats static"><span>Windows</span><span>macOS</span><span>Android</span><span>Android TV</span><span>Docker</span><span class="soon">iOS 即将启航</span></div>
+      <div class="url">github.com/Sa1koro/yingzhou<i>AGPL-3.0 开源</i></div>
+      <div class="fine">映舟只是一条船：不内置、不提供任何影视内容。</div>
+    </div>
+  </section>
+
+  <div id="flash"></div>
+  <div id="vignette"></div>
+  <canvas id="grain" width="480" height="270"></canvas>
+  <div id="black"></div>
+</div>
+<script type="module" src="film.js"></script>
+</body>
+</html>
