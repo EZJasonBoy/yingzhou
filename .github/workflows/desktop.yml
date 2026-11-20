@@ -199,7 +199,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends clang cmake ninja-build pkg-config libgtk-3-dev libx11-dev libxi-dev \
             liblzma-dev libmpv-dev dpkg-dev
           sudo apt-get install -y --no-install-recommends xvfb openbox libgl1-mesa-dri libglx-mesa0 libegl-mesa0 \
-            fonts-noto-cjk imagemagick xdotool
+            fonts-noto-cjk imagemagick xdotool x11-utils
 
       - name: Package
         run: bash tools/package-desktop.sh
@@ -234,7 +234,12 @@ jobs:
             yingzhou >> "$SHOTS/app.log" 2>&1 &
             app=$!
             win=$(timeout 60 xdotool search --sync --onlyvisible --classname io.github.sa1koro.yingzhou | head -n 1)
-            echo "window $win: $(xdotool getwindowname "$win"), $(xdotool getwindowgeometry "$win" | tr '\n' ' ')"
+            echo "window $win: $(xdotool getwindowname "$win")"
+          }
+          # Where the content is on screen and how big: x y width height.
+          geometry() {
+            xwininfo -id "$win" | awk '/Absolute upper-left X/ {x = $4} /Absolute upper-left Y/ {y = $4}
+              /Width:/ {w = $2} /Height:/ {h = $2} END {print x, y, w, h}'
           }
           start_app
           [ "$(xdotool getwindowname "$win")" = "映舟" ] || { echo "::error::window title is not 映舟"; exit 1; }
@@ -244,9 +249,12 @@ jobs:
           sleep 8
           import -window root "$SHOTS/app-first-start.png"
 
+          echo "first start: $(geometry)"
           xdotool windowsize "$win" 1100 700
           xdotool windowmove "$win" 150 90
           sleep 3
+          before=$(geometry)
+          echo "moved to: $before"
           prefs="$HOME/.local/share/io.github.sa1koro.yingzhou/shared_preferences.json"
           cat "$prefs"; echo
           grep -q '"flutter.window.bounds"' "$prefs" || { echo "::error::window bounds not saved in $prefs"; exit 1; }
@@ -256,14 +264,21 @@ jobs:
           # Java takes user.home from the password database, not from $HOME.
           ls -la "$(getent passwd "$(id -un)" | cut -d: -f6)/.tvbox-next/engine"
 
-          start_app
-          size=$(xdotool getwindowgeometry "$win" | sed -n 's/.*Geometry: \([0-9]*\)x\([0-9]*\).*/\1 \2/p')
-          read -r w h <<< "$size"
-          sleep 5
-          import -window root "$SHOTS/app-restored.png"
-          kill "$app"; wait "$app" || true
-          [ "$w" -ge 1050 ] && [ "$w" -le 1150 ] && [ "$h" -ge 650 ] && [ "$h" -le 750 ] \
-            || { echo "::error::the window came back at ${w}x${h}, not 1100x700"; exit 1; }
+          # Twice: a window that comes back a little bigger each time would show on the second.
+          for run in 2 3; do
+            start_app
+            sleep 5
+            after=$(geometry)
+            echo "start $run: $after"
+            import -window root "$SHOTS/app-restored-$run.png"
+            kill "$app"; wait "$app" || true
+            for i in $(seq 20); do pgrep -f tvbox.engine.server.MainKt > /dev/null || break; sleep 1; done
+            read -r x0 y0 w0 h0 <<< "$before"
+            read -r x1 y1 w1 h1 <<< "$after"
+            for d in $((x1 - x0)) $((y1 - y0)) $((w1 - w0)) $((h1 - h0)); do
+              [ "${d#-}" -le 3 ] || { echo "::error::start $run put the window at $after, not $before"; exit 1; }
+            done
+          done
 
       # The desktop integration test (browse, play, fullscreen, subtitles, danmaku, a dead line) against the demo
       # engine, which runs on the package's own Java runtime.
