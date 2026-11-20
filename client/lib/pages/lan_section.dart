@@ -8,9 +8,12 @@ import '../app_state.dart';
 import '../engine/discovery.dart';
 import '../engine/lan.dart';
 import '../engine/models.dart';
+import '../remote/remote_screen.dart';
+import '../remote/remote_settings.dart';
 
 /// 「局域网」 on the Sources page: the LAN sharing switch of the engine on this machine (addresses, pairing code,
-/// paired devices), the engines found on the LAN, and the pairing with the engine in use when it is on another device.
+/// paired devices), 「允许手机遥控」 ([RemoteControlSettings]), the engines found on the LAN, and the pairing with
+/// the engine in use when it is on another device.
 class LanSection extends StatefulWidget {
   const LanSection({super.key, this.discovery});
 
@@ -168,9 +171,22 @@ class _LanSectionState extends State<LanSection> {
               const SizedBox(height: 16),
               _streamSource(state, small),
               const SizedBox(height: 12),
+              // This app as a screen of that engine's remote control.
+              if (state.connected) RemoteControlSettings(engineUrl: state.engineUrl, busy: state.busy),
             ],
-            // The engine on this machine: the sharing switch.
-            if (!remote && status != null && status.supported) _sharing(context, state, status, small),
+            // The engine on this machine: the sharing switch, and the phone as a remote control (which needs it).
+            if (!remote && status != null && status.supported) ...[
+              _sharing(context, state, status, small),
+              RemoteControlSettings(
+                engineUrl: state.engineUrl,
+                lan: status,
+                busy: _working,
+                onEnableSharing: () async {
+                  await _do(() => state.client.setLanSharing(true));
+                  return _status?.enabled ?? false;
+                },
+              ),
+            ],
             if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: TextStyle(color: scheme.error))),
             if (_discovery != null) ...[
               const Divider(height: 28),
@@ -251,7 +267,16 @@ class _LanSectionState extends State<LanSection> {
                 : '已关闭：只有$_thisDevice能用这个引擎',
           ),
           value: status.enabled,
-          onChanged: _working || status.forced ? null : (on) => _do(() => state.client.setLanSharing(on)),
+          onChanged: _working || status.forced
+              ? null
+              : (on) {
+                  // Without sharing no phone gets in: the remote control goes off with it.
+                  final agent = RemoteScreen.maybeAgentOf(context);
+                  _do(() async {
+                    if (!on) await agent?.setEnabled(false);
+                    return state.client.setLanSharing(on);
+                  });
+                },
         ),
         if (status.enabled) ...[
           if (status.error.isNotEmpty) Text(status.error, style: TextStyle(color: scheme.error, fontSize: 12)),

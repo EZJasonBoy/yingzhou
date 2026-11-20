@@ -319,6 +319,24 @@ class PlayerTracks extends ChangeNotifier {
     if (announce) onNotice?.call(audioLabel(track));
   }
 
+  /// Chooses the subtitle named by an id as [selected] holds them (`off`, `int:…`, `ext:…`, `local:…`): for the
+  /// remote control, which gets the list with these ids. False when there is no such subtitle.
+  Future<bool> selectById(String id) async {
+    if (id == 'off') {
+      await selectOff();
+      return true;
+    }
+    return id.isNotEmpty && await _reselect(id);
+  }
+
+  /// The audio track with this id (a track's own id); false when there is none.
+  Future<bool> selectAudioById(String id) async {
+    final track = audioTracks.where((t) => t.id == id).firstOrNull;
+    if (track == null) return false;
+    await selectAudio(track);
+    return true;
+  }
+
   /// C: subtitles off, or back on with the last one shown (the first there is when none was).
   Future<void> toggle() async {
     if (selected != 'off' && (selected.isNotEmpty || player.state.track.subtitle.id != 'no')) {
