@@ -76,6 +76,11 @@ class _PlayerPageState extends State<PlayerPage> {
   String? _status;
   String? _error;
   String _parsedBy = '';
+
+  /// The answer of the last resolve, and whether the player was moved onto its [PlayInfo.relay] because fetching the
+  /// video from the source did not work (see [AppState.fetchDirect]).
+  PlayInfo? _played;
+  bool _onRelay = false;
   bool _controlsVisible = true;
   bool _panelOpen = false;
   bool _opening = false;
@@ -396,6 +401,11 @@ class _PlayerPageState extends State<PlayerPage> {
   /// Moves on to the next line, unless the user chose this one by hand or every line has had its turn: then the
   /// error is shown and the page is back on the line the round began on, ready to go again.
   void _lineFailed(String why, String reason) {
+    final played = _played;
+    if (played != null && played.relay.isNotEmpty && !_onRelay) {
+      unawaited(_toRelay(played));
+      return;
+    }
     _watchdog?.cancel();
     _watchdog = null;
     _errorCheck?.cancel();
@@ -468,6 +478,8 @@ class _PlayerPageState extends State<PlayerPage> {
     _cacheKey = '';
     _engineRanges = const [];
     _buffered.value = const [];
+    _played = null;
+    _onRelay = false;
     // The danmaku of the episode before go; this one's are asked for once its address is known.
     _danmakuSeq++;
     _danmaku = DanmakuList.empty;
@@ -484,10 +496,12 @@ class _PlayerPageState extends State<PlayerPage> {
     // An episode from its beginning goes into the history at once; a line the page turned to, only when it plays.
     if (resume == null && !automatic) _saveProgress(episodeStart: true);
     _window.title = '${widget.detail.name} · ${_currentEpisode.name} - 映舟';
+    // Read before anything is awaited: the page may be gone by then.
+    final fetchDirect = AppScope.read(context).fetchDirect;
     await _player.stop();
     final PlayInfo info;
     try {
-      info = await client.resolvePlay(widget.detail.site, _currentLine.name, _currentEpisode.id);
+      info = await client.resolvePlay(widget.detail.site, _currentLine.name, _currentEpisode.id, direct: fetchDirect);
     } catch (e) {
       if (mounted && seq == _requestSeq) _lineFailed('解析失败', '解析失败：${errorText(e)}');
       return;
@@ -497,12 +511,15 @@ class _PlayerPageState extends State<PlayerPage> {
       _lineFailed('需要网页嗅探', '这条线路需要网页嗅探，但引擎没有可用的浏览器内核（桌面需安装 Edge 或 Chrome）');
       return;
     }
+    // With a relay, the player fetches the video from the source: the engine's cache is not in play until the relay is.
+    final direct = info.relay.isNotEmpty;
     setState(() {
+      _played = info;
       _status = '正在缓冲…';
       _parsedBy = info.parsedBy;
       if (info.download.isNotEmpty) _parsedBy = 'offline';
     });
-    _cacheKey = info.cache;
+    _cacheKey = direct ? '' : info.cache;
     // The subtitle and audio track of the episode before (or of the last visit) are chosen again in this one.
     final subtitle = _subtitleChoice();
     final audio = _audioChoice();
@@ -510,11 +527,15 @@ class _PlayerPageState extends State<PlayerPage> {
     if (!mounted || seq != _requestSeq) return;
     _tracks.opened(info.subtitles, subtitle: subtitle.isNotEmpty ? subtitle : _savedSubtitle, audio: audio.isNotEmpty ? audio : _savedAudio);
     unawaited(_loadDanmaku());
+    await _startPlayer(seq, info.url, info.headers, engineCached: !direct && (info.cache.isNotEmpty || info.download.isNotEmpty));
+  }
+
+  /// Hands [url] to the player; what the player keeps of the video depends on whether the engine keeps it too.
+  Future<void> _startPlayer(int seq, String url, Map<String, String> headers, {required bool engineCached}) async {
     try {
-      // What the player keeps of the video depends on whether the engine keeps it too.
-      await PlayerCache.prepare(_player, engineCached: info.cache.isNotEmpty || info.download.isNotEmpty);
+      await PlayerCache.prepare(_player, engineCached: engineCached);
       if (!mounted || seq != _requestSeq) return;
-      await _player.open(Media(info.url, httpHeaders: info.headers));
+      await _player.open(Media(url, httpHeaders: headers));
     } catch (e) {
       if (mounted && seq == _requestSeq) _lineFailed('无法播放', '播放出错：$e');
       return;
@@ -523,6 +544,38 @@ class _PlayerPageState extends State<PlayerPage> {
     _opening = false;
     _armWatchdog(seq);
   }
+
+  /// Fetching the video from the source did not work (a source that only accepts the engine's address, `hosts`
+  /// rules only the engine applies…): the same video through the engine, from where it had got to. Once per open.
+  Future<void> _toRelay(PlayInfo info) async {
+    final seq = ++_requestSeq;
+    _watchdog?.cancel();
+    _watchdog = null;
+    _errorCheck?.cancel();
+    _errorCheck = null;
+    final resume = _reached();
+    _onRelay = true;
+    _advances = 0;
+    _lastPosition = Duration.zero;
+    _resumeAt = _pendingSeek = resume;
+    _opening = true;
+    _clearSeekingTo();
+    _cacheKey = info.cache;
+    _engineRanges = const [];
+    _buffered.value = const [];
+    _showOsd('直连片源没能播放，改为经引擎播放', const Duration(seconds: 4));
+    setState(() => _status = '正在缓冲…');
+    await _player.stop();
+    if (!mounted || seq != _requestSeq) return;
+    await _startPlayer(seq, info.relay, info.headers, engineCached: info.cache.isNotEmpty);
+  }
+
+  /// The line, how its address was found, and where the video comes from, for the bars and the info under the picture.
+  String get _lineCaption => [
+    _currentLine.name,
+    if (_parsedBy.isNotEmpty) _parserLabel(_parsedBy),
+    if (_played?.relay.isNotEmpty == true) _onRelay ? '经引擎' : '直连片源',
+  ].join(' · ');
 
   /// Asks the engine for this episode's danmaku (the site's, else the services the user switched on). Nothing is
   /// asked while danmaku are off.
@@ -986,7 +1039,7 @@ class _PlayerPageState extends State<PlayerPage> {
                 ),
                 IgnorePointer(
                   child: Text(
-                    _parsedBy.isEmpty ? _currentLine.name : '${_currentLine.name} · ${_parserLabel(_parsedBy)}',
+                    _lineCaption,
                     style: const TextStyle(color: Colors.white60, fontSize: 13),
                   ),
                 ),
@@ -1246,7 +1299,7 @@ class _PlayerPageState extends State<PlayerPage> {
     );
     return TouchPlayerBars(
       title: compact ? _currentEpisode.name : title,
-      subtitle: _parsedBy.isEmpty ? _currentLine.name : '${_currentLine.name} · ${_parserLabel(_parsedBy)}',
+      subtitle: _lineCaption,
       player: _player,
       seekBar: seekBar,
       compact: compact,
@@ -1291,7 +1344,7 @@ class _PlayerPageState extends State<PlayerPage> {
   /// Upright on a phone: what is playing, the actions, lines and episodes; or the panel that was opened.
   Widget _buildPhoneInfo(BuildContext context) {
     final mobile = _mobile!;
-    final caption = [_currentEpisode.name, _currentLine.name, if (_parsedBy.isNotEmpty) _parserLabel(_parsedBy)].join(' · ');
+    final caption = [_currentEpisode.name, _lineCaption].join(' · ');
     return PlayerPhoneInfo(
       title: widget.detail.name,
       caption: caption,

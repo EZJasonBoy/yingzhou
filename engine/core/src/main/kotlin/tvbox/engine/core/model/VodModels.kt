@@ -83,6 +83,12 @@ data class PlayRequest(
     val site: String,
     val line: String,
     val episodeId: String,
+    /**
+     * The player fetches the video from the source itself (a client far from the engine, e.g. over Tailscale): an
+     * HLS film still goes through the engine's playlist endpoint (ads are cut there), but its segments are not
+     * served from the stream cache. [PlayInfo.relay] is then the address through the cache, to fall back to.
+     */
+    val direct: Boolean = false,
 )
 
 @Serializable
@@ -104,10 +110,17 @@ data class PlayInfo(
     /** Which parser produced the url, for display ("" when none was needed). */
     val parsedBy: String = "",
     /**
-     * Not empty when the engine's stream cache serves [url]: what was played or read ahead stays on the engine's
-     * disk, and `/api/v1/stream-cache/coverage?key=` with this value says which parts are there.
+     * Not empty when the engine's stream cache serves [url] (or [relay], when that is set): what was played or read
+     * ahead stays on the engine's disk, and `/api/v1/stream-cache/coverage?key=` with this value says which parts
+     * are there.
      */
     val cache: String = "",
+    /**
+     * Only for a [PlayRequest.direct] request whose [url] does not go through the stream cache: the same video
+     * through the cache, for a player whose direct fetching failed (a source that only accepts the address that
+     * resolved it, `hosts` rules of the config that only the engine applies). Empty when there is no such address.
+     */
+    val relay: String = "",
     /** External subtitles the site named, each served by the engine as UTF-8 SRT / ASS / WebVTT. */
     val subtitles: List<SubtitleTrack> = emptyList(),
     /**

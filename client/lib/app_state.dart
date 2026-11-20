@@ -84,6 +84,53 @@ class AppState extends ChangeNotifier {
     return host == '127.0.0.1' || host == 'localhost';
   }
 
+  // ---- where players fetch the video (an engine on another device) ----
+
+  static const _streamSourceKey = 'play.source';
+
+  /// The user's choice for engines on other devices; the engine on this device always serves the video itself.
+  StreamSource get streamSource => switch (_settings.getString(_streamSourceKey)) {
+    'engine' => StreamSource.engine,
+    'direct' => StreamSource.direct,
+    _ => StreamSource.auto,
+  };
+
+  Future<void> setStreamSource(StreamSource source) async {
+    await _settings.setString(_streamSourceKey, source.name);
+    notifyListeners();
+  }
+
+  /// The engine in use is on another device in this network (not this device, not reached over the internet or a
+  /// VPN such as Tailscale).
+  bool get engineOnLan => !_isLocal(engineUrl) && isLanHost(Uri.tryParse(engineUrl)?.host ?? '');
+
+  /// Whether players should fetch the video from the source themselves, the engine only finding the address (and
+  /// cutting ads from playlists): for an engine far away, so the video does not travel source → engine → here.
+  bool get fetchDirect {
+    if (_isLocal(engineUrl)) return false;
+    return switch (streamSource) {
+      StreamSource.engine => false,
+      StreamSource.direct => true,
+      StreamSource.auto => !engineOnLan,
+    };
+  }
+
+  /// A host on the local network: a private IPv4 address (10/8, 172.16/12, 192.168/16), an IPv6 link-local or
+  /// unique-local one, or a name without dots / ending in .local, .lan or .home. Tailscale's 100.64/10 and
+  /// `*.ts.net`, public addresses and other names count as far away.
+  static bool isLanHost(String host) {
+    final h = host.toLowerCase().replaceAll('[', '').replaceAll(']', '');
+    if (h.isEmpty) return false;
+    final v4 = RegExp(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$').firstMatch(h);
+    if (v4 != null) {
+      final a = int.parse(v4.group(1)!), b = int.parse(v4.group(2)!);
+      return a == 10 || (a == 172 && b >= 16 && b <= 31) || (a == 192 && b == 168);
+    }
+    if (h.contains(':')) return h.startsWith('fe80:') || h.startsWith('fc') || h.startsWith('fd');
+    if (h.endsWith('.ts.net')) return false;
+    return !h.contains('.') || h.endsWith('.local') || h.endsWith('.lan') || h.endsWith('.home');
+  }
+
   @override
   void dispose() {
     _localEngine?.stop();
@@ -456,4 +503,16 @@ class AppScope extends InheritedNotifier<AppState> {
 
   /// Reads without subscribing to changes (for callbacks).
   static AppState read(BuildContext context) => context.getInheritedWidgetOfExactType<AppScope>()!.notifier!;
+}
+
+/// Where players fetch the video when the engine is on another device.
+enum StreamSource {
+  /// Through the engine when it is on this network, from the source when it is far away.
+  auto,
+
+  /// Always through the engine (its stream cache makes seeking quick; the engine's upload carries the video).
+  engine,
+
+  /// Always from the source (the engine only finds the address; falls back to the engine when that fails).
+  direct,
 }

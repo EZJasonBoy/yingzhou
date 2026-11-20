@@ -42,6 +42,8 @@ MockClient fakeEngine({
   List<Uri>? danmakuAsked,
   String? danmakuConfigApi,
   List<Map<String, Object>>? savedSubscriptions,
+  bool relays = false,
+  List<bool>? directAsked,
 }) {
   var configured = hasConfig;
   // With [savedSubscriptions] the engine keeps a list like the real one: `GET`, rename (`PUT`), `DELETE`, and
@@ -231,10 +233,17 @@ MockClient fakeEngine({
         final body = jsonDecode(request.body) as Map<String, dynamic>;
         final line = body['line'] as String;
         resolved?.add(line);
+        // With [relays], a resolve that asks for `direct` gets the address plus `?d=1`, and as the relay through the
+        // engine the address plus `?relay=1` (cache key k1), like an engine with its stream cache on.
+        final direct = body['direct'] == true;
+        directAsked?.add(direct);
         if (deadLines.contains(line)) {
           return json({
             'error': {'code': 'PLAY_FAILED', 'message': '$line 取不到播放地址'},
           }, 502);
+        }
+        if (relays && direct) {
+          return json({'kind': 'direct', 'url': '${body['episodeId']}?d=1', 'relay': '${body['episodeId']}?relay=1', 'cache': 'k1'});
         }
         return json({
           'kind': 'direct',

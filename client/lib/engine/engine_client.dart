@@ -98,8 +98,10 @@ class EngineClient {
   Future<VodPage> search(String site, String keyword, {int page = 1}) async =>
       VodPage.fromJson(await _send('GET', 'sites/${_seg(site)}/search', query: {'wd': keyword, 'pg': '$page'}));
 
-  Future<PlayInfo> resolvePlay(String site, String line, String episodeId) async =>
-      PlayInfo.fromJson(await _send('POST', 'play/resolve', body: {'site': site, 'line': line, 'episodeId': episodeId}));
+  /// [direct]: the player will fetch the video from the source itself (see [PlayInfo.relay]); older engines ignore it.
+  Future<PlayInfo> resolvePlay(String site, String line, String episodeId, {bool direct = false}) async => PlayInfo.fromJson(
+    await _send('POST', 'play/resolve', body: {'site': site, 'line': line, 'episodeId': episodeId, if (direct) 'direct': true}),
+  );
 
   // ---- library ----
 

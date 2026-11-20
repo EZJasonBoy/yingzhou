@@ -253,6 +253,7 @@ private class UrlSigner(call: ApplicationCall, private val access: AccessControl
 
     fun play(info: PlayInfo): PlayInfo = info.copy(
         url = sign(info.url),
+        relay = sign(info.relay),
         sniff = info.sniff?.let { it.copy(pageUrl = sign(it.pageUrl)) },
         subtitles = info.subtitles.map { it.copy(url = sign(it.url)) },
     )

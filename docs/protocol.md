@@ -158,7 +158,7 @@ event: end       data: {"sites":40,"ms":9120}
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/play/resolve` | `{site, line, episodeId}` → `PlayInfo` |
+| POST | `/play/resolve` | `{site, line, episodeId, direct?}` → `PlayInfo`。`direct: true`：播放器自己从片源取视频（见下面"直连片源"） |
 
 `PlayInfo`：
 
@@ -231,6 +231,8 @@ event: end       data: {"sites":40,"ms":9120}
 | GET | `/stream-cache/coverage?key=` | `{durationMs, ranges: [[startMs, endMs], …]}`：`key` 是 `PlayInfo.cache`；`ranges` 是这部片已经在缓存里的时间段，按顺序、不重叠，给进度条画"已缓冲"用。没有这个 key 的播放列表时返回空 |
 
 开关和容量在 `/settings` 里（`streamCache`、`streamCacheMaxMB`）。关掉后 `/play/resolve` 不再带 `cache`，播放列表里是片源自己的地址；已经发出去的播放列表里的 `/hls/…` 地址会 302 到片源。
+
+**直连片源**（客户端在远处，比如经 Tailscale 连回家）：`/play/resolve` 带 `"direct": true` 时，点播的 HLS 仍经 `/m3u8`（引擎拉取播放列表、去广告），但地址带 `&d=1`、不带 `k`：播放列表里的分片是片源自己的地址，视频不经过引擎、不进播放缓存。这时 `relay` 是同一个视频经播放缓存的地址（`cache` 是它的缓存名），给直连失败时退回用（片源只认解析它的那个 IP、配置的 `hosts` 只在引擎里生效等）；播放缓存关着时 `relay` 为空。直链（mp4 等）、离线副本、`proxy://`、网盘文件不受影响。旧引擎不认识 `direct`，照常回答。
 
 行为要点：
 
@@ -409,7 +411,7 @@ Python 站点调用失败时的错误码：`PY_UNAVAILABLE`（没有可用的 Py
 |---|---|
 | `/proxy?…` | 兼容 TVBox 9978：先给 `siteKey` 对应的蜘蛛，再给 jar 的 `Proxy.proxy`；`do=js` 给 JS 蜘蛛；`do=py` 只给 Python 蜘蛛的 `localProxy`（`siteKey` 指名的，没有就是最近用过的）；`do=ck` 返回 `ok` |
 | `/file/<路径>` | 仅桌面引擎、仅本机访问：本机文件，供 `clan://localhost/`、`file://` 和本机路径的订阅及其 `./` 引用使用 |
-| `/m3u8?url=&h=&k=` | HLS 播放列表：引擎拉取播放列表（`h` 为请求头 JSON 的 URL 安全 base64），把相对地址改成绝对地址，按配置 `rules` 的广告规则和保守的分片路径启发式去掉广告片段；主播放列表的各码率也指回这里（带着同一个 `k`）。点播的媒体播放列表在播放缓存开着时再改写一遍：分片、`#EXT-X-KEY`、`#EXT-X-MAP` 的地址换成 `/hls/…`，`#EXT-X-BYTERANGE` 去掉（范围由引擎向片源请求）。`k` 是 `/play/resolve` 给这一集起的缓存名，可以不带（那就按播放列表地址归档）。直播列表（没有 `#EXT-X-ENDLIST`）不改写、不缓存。拉取失败时 302 到原地址 |
+| `/m3u8?url=&h=&k=&d=` | HLS 播放列表：引擎拉取播放列表（`h` 为请求头 JSON 的 URL 安全 base64），把相对地址改成绝对地址，按配置 `rules` 的广告规则和保守的分片路径启发式去掉广告片段；主播放列表的各码率也指回这里（带着同一个 `k`）。点播的媒体播放列表在播放缓存开着时再改写一遍：分片、`#EXT-X-KEY`、`#EXT-X-MAP` 的地址换成 `/hls/…`，`#EXT-X-BYTERANGE` 去掉（范围由引擎向片源请求）。`k` 是 `/play/resolve` 给这一集起的缓存名，可以不带（那就按播放列表地址归档）。直播列表（没有 `#EXT-X-ENDLIST`）不改写、不缓存。`d=1`：播放器直连片源，媒体播放列表只去广告、不改写成 `/hls/…`，主播放列表的各码率也带上 `d=1`。拉取失败时 302 到原地址 |
 | `/subtitle?url=&h=&f=` | `PlayInfo.subtitles` 指向这里：引擎带着请求头（`h`，同 `/m3u8`）取 `url` 上的字幕，识别编码（BOM、UTF-16、UTF-8，否则在 GB18030 与 Big5 中按常用字多少选，不信服务器声明的）和格式，交出 UTF-8 的 SRT / ASS / WebVTT（TTML、LRC、B 站 JSON 字幕转成 SRT）。`f` 是站点声明的格式，内容看不出时才用。取不到时 502 |
 | `/drive/<网盘 id>/<路径>` | 网盘里的一个文件，由引擎取来给播放器（见"网盘"）：本机文件夹直接读文件，WebDAV / AList 由引擎带上账号向网盘要。支持 `GET` / `HEAD` 和单段 `Range`（`bytes=a-b`、`a-`、`-n`；范围不对时 416）；网盘的回答按原样转发状态码和 `Content-Range`，`Content-Type` 是 `application/octet-stream` 时按扩展名改成视频类型。本机文件夹之外的路径 403，`..` 400 |
 | `/hls/<播放列表>/<编号>.<扩展名>` | `/m3u8` 改写出来的地址：播放缓存里的分片（`.ts` / `.m4s` 等，片源的扩展名不像媒体文件时一律 `.ts`）、密钥（`.key`）、初始化段（`.mp4`）。支持 `Range`。引擎取不到时 302 到片源（按字节范围切的分片无法这样退回，返回 502） |

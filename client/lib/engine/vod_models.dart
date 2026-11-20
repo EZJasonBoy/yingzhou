@@ -176,6 +176,7 @@ class PlayInfo {
     this.subtitles = const [],
     this.danmaku = '',
     this.download = '',
+    this.relay = '',
   });
 
   /// `direct` or `sniff`.
@@ -185,8 +186,13 @@ class PlayInfo {
   final String? sniffPageUrl;
   final String parsedBy;
 
-  /// Not empty when the engine's stream cache serves [url]; the key to ask the engine which parts it holds.
+  /// Not empty when the engine's stream cache serves [url] (or [relay] when that is set); the key to ask the engine
+  /// which parts it holds.
   final String cache;
+
+  /// Asked for with `direct`: [url] lets the player fetch the video from the source, and this is the same video
+  /// through the engine (and its stream cache), for when that fails. Empty when there is no such address.
+  final String relay;
 
   /// Subtitles the site named, each an engine address the player can open (UTF-8 SRT / ASS / WebVTT).
   final List<ExternalSubtitle> subtitles;
@@ -208,6 +214,7 @@ class PlayInfo {
         subtitles: [for (final s in j['subtitles'] as List<dynamic>? ?? const []) ExternalSubtitle.fromJson(s as Map<String, dynamic>)],
         danmaku: j['danmaku'] as String? ?? '',
         download: j['download'] as String? ?? '',
+        relay: j['relay'] as String? ?? '',
       );
 }
 

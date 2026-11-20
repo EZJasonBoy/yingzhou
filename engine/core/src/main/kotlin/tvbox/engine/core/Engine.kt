@@ -480,16 +480,22 @@ class Engine(
 
     /**
      * An HLS playlist for the player, cleaned of ads with the active config's rules. Variants of a master playlist
-     * point back here through [selfBase] (`http://<engine>/m3u8?`).
+     * point back here through [selfBase] (`http://<engine>/m3u8?`). [direct]: the player fetches the segments from
+     * the source itself, so they keep the source's addresses instead of the stream cache's.
      */
-    suspend fun playlist(url: String, headers: Map<String, String>, selfBase: String, key: String? = null, userAgent: String? = null): String {
+    suspend fun playlist(url: String, headers: Map<String, String>, selfBase: String, key: String? = null, userAgent: String? = null, direct: Boolean = false): String {
         val (text, finalUrl) = http.getWithUrl(url, headers)
         if (!text.removePrefix("\uFEFF").trimStart().startsWith("#EXTM3U")) throw EngineException.BadRequest("not an HLS playlist")
-        // The variants of a master playlist carry the episode's key on, so each finds its own part of the stream cache.
-        if (M3u8Cleaner.isMaster(text)) return M3u8Cleaner.rewriteMaster(text, finalUrl) { PlayResolver.playlistUrl(selfBase, it, headers) + if (key.isNullOrEmpty()) "" else "&k=$key" }
+        // The variants of a master playlist carry the episode's key (or the direct mark) on, so each finds its own
+        // part of the stream cache (or stays out of it).
+        if (M3u8Cleaner.isMaster(text)) {
+            val suffix = if (direct) "&d=1" else if (key.isNullOrEmpty()) "" else "&k=$key"
+            return M3u8Cleaner.rewriteMaster(text, finalUrl) { PlayResolver.playlistUrl(selfBase, it, headers) + suffix }
+        }
         val rules = active?.config?.let { playResolver.rules(it) } ?: PlayRules.NONE
         val ads = (rules.adsFor(url) + rules.adsFor(finalUrl)).distinct()
         val cleaned = M3u8Cleaner.clean(text, finalUrl, ads, heuristic = true).text
+        if (direct) return cleaned
         // A film (not a live playlist) is served from the stream cache: its segments, keys and maps then name the engine.
         return streamCache?.playlist(url, finalUrl, cleaned, headers, key?.ifEmpty { null }, userAgent, selfBase.removeSuffix("m3u8?") + "hls/") ?: cleaned
     }
@@ -585,10 +591,16 @@ class Engine(
      * address has by then.
      */
     private fun streamCached(info: PlayInfo, request: PlayRequest, config: TvboxConfig): PlayInfo {
-        if (streamCache?.enabled != true || info.kind != "direct" || !info.url.startsWith(playlistBase)) return info
-        val site = config.sites.firstOrNull { it.key == request.site }?.api.orEmpty()
-        val key = tvbox.engine.core.play.HlsRewriter.sha1("$site|${request.site}|${request.line}|${request.episodeId}").take(16)
-        return info.copy(url = info.url + "&k=" + key, cache = key)
+        if (info.kind != "direct" || !info.url.startsWith(playlistBase)) return info
+        val cached = streamCache?.enabled == true
+        val key = if (!cached) "" else {
+            val site = config.sites.firstOrNull { it.key == request.site }?.api.orEmpty()
+            tvbox.engine.core.play.HlsRewriter.sha1("$site|${request.site}|${request.line}|${request.episodeId}").take(16)
+        }
+        val throughCache = if (cached) info.url + "&k=" + key else info.url
+        // Direct: the playlist still comes from here (ads cut), its segments from the source (`d=1`, see [playlist]).
+        if (request.direct) return info.copy(url = info.url + "&d=1", relay = if (cached) throughCache else "", cache = key)
+        return info.copy(url = throughCache, cache = key)
     }
 
     /** What the engine's subtitle addresses begin with (`/subtitle?`, see [subtitle]). */

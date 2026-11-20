@@ -133,14 +133,14 @@ class StreamCacheRoutesTest {
 
     private suspend fun ApplicationTestBuilder.json(path: String): JsonObject = EngineJson.parseToJsonElement(client.get(path).bodyAsText()).jsonObject
 
-    private suspend fun ApplicationTestBuilder.resolve(host: String? = null): JsonObject = EngineJson.parseToJsonElement(
+    private suspend fun ApplicationTestBuilder.resolve(host: String? = null, direct: Boolean = false): JsonObject = EngineJson.parseToJsonElement(
         client.post("/api/v1/play/resolve") {
             contentType(ContentType.Application.Json)
             if (host != null) {
                 header(HttpHeaders.Host, host)
                 header(HttpHeaders.Authorization, "Bearer $token")
             }
-            setBody("""{"site":"cms","line":"线路","episodeId":"${site.url("/ads/index.m3u8")}"}""")
+            setBody("""{"site":"cms","line":"线路","episodeId":"${site.url("/ads/index.m3u8")}","direct":$direct}""")
         }.bodyAsText(),
     ).jsonObject
 
@@ -299,5 +299,42 @@ class StreamCacheRoutesTest {
         assertTrue(segments(playlist).all { it.startsWith(site.url("/ads/").toString()) }, playlist)
         assertEquals(HttpStatusCode.NotFound, client.get("/hls/x-y/0.ts").status)
         assertEquals(0, EngineJson.parseToJsonElement(client.get("/api/v1/stream-cache/coverage?key=k").bodyAsText()).jsonObject["ranges"]!!.jsonArray.size)
+    }
+
+    @Test
+    fun `a direct request leaves the segments at the source, with the cached address to fall back to`() = withEngine {
+        val info = resolve(host = "192.168.1.5:9978", direct = true)
+        val url = info["url"]!!.jsonPrimitive.content
+        val relay = info["relay"]!!.jsonPrimitive.content
+        val key = info["cache"]!!.jsonPrimitive.content
+        assertTrue(unsigned(url).endsWith("&d=1") && !url.contains("&k="), url)
+        assertTrue(url.contains("tvsig=") && relay.contains("tvsig="), "both are signed for the LAN player: $url / $relay")
+        assertTrue(relay.startsWith("http://192.168.1.5:9978/m3u8?url=") && unsigned(relay).endsWith("&k=$key"), relay)
+
+        // The playlist is still cleaned here; its segments are the source's own.
+        val playlist = client.get(local(url)) { header(HttpHeaders.Host, "192.168.1.5:9978") }.bodyAsText()
+        assertEquals(20, segments(playlist).size, "the ad is gone: $playlist")
+        assertTrue(segments(playlist).all { it.startsWith(site.url("/ads/seg").toString()) && it.contains("token=abc") }, playlist)
+        assertEquals(0, cache.store.stats().streams, "nothing went into the stream cache")
+
+        // A master playlist passes the mark on to its variants.
+        val master = client.get("/m3u8?url=" + URLEncoder.encode(site.url("/ads/master.m3u8").toString(), "UTF-8") + "&d=1").bodyAsText()
+        val variant = master.lines().single { it.startsWith("http") }
+        assertTrue(unsigned(variant).endsWith("&d=1"), master)
+        assertTrue(segments(client.get(local(variant)).bodyAsText()).all { it.startsWith(site.url("/ads/").toString()) })
+
+        // The fallback plays from the cache as before.
+        val relayed = client.get(local(relay)) { header(HttpHeaders.Host, "192.168.1.5:9978") }.bodyAsText()
+        assertTrue(segments(relayed).all { it.startsWith("http://192.168.1.5:9978/hls/") }, relayed)
+
+        // With the cache off there is nothing to fall back to: the direct address is all there is.
+        client.put("/api/v1/settings") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"streamCache":false}""")
+        }
+        val off = resolve(direct = true)
+        assertEquals("", off["relay"]!!.jsonPrimitive.content)
+        assertEquals("", off["cache"]!!.jsonPrimitive.content)
+        assertTrue(unsigned(off["url"]!!.jsonPrimitive.content).endsWith("&d=1"))
     }
 }

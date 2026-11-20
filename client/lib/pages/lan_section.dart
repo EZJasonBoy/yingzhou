@@ -165,6 +165,8 @@ class _LanSectionState extends State<LanSection> {
                     TextButton(onPressed: state.busy ? null : state.forgetPairing, child: const Text('取消配对')),
                 ],
               ),
+              const SizedBox(height: 16),
+              _streamSource(state, small),
               const SizedBox(height: 12),
             ],
             // The engine on this machine: the sharing switch.
@@ -197,6 +199,37 @@ class _LanSectionState extends State<LanSection> {
           ],
         ),
       ),
+    );
+  }
+
+  /// Where players get the video while the engine is on another device ([AppState.fetchDirect]).
+  Widget _streamSource(AppState state, TextStyle small) {
+    final explain = switch (state.streamSource) {
+      StreamSource.auto when state.engineOnLan => '自动：这台引擎在同一个局域网里，视频经引擎取（有引擎的播放缓存，拖动进度条快）。',
+      StreamSource.auto => '自动：这台引擎不在这个局域网里（比如经 Tailscale 连回家），视频由这台设备直接从片源取，不占引擎那边的上传带宽；'
+          '引擎只负责解析地址和去广告。直连播不了时自动改经引擎。',
+      StreamSource.engine => '经引擎：视频由引擎取来再转给这台设备，有引擎的播放缓存，但要占引擎那边的上传带宽。',
+      StreamSource.direct => '直连片源：引擎只负责解析地址和去广告，视频由这台设备直接从片源取；直连播不了时自动改经引擎。拖动进度条时用不上引擎的缓存。',
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('播放时视频从哪里取'),
+        const SizedBox(height: 8),
+        SegmentedButton<StreamSource>(
+          key: const Key('stream-source'),
+          showSelectedIcon: false,
+          segments: const [
+            ButtonSegment(value: StreamSource.auto, label: Text('自动')),
+            ButtonSegment(value: StreamSource.engine, label: Text('经引擎')),
+            ButtonSegment(value: StreamSource.direct, label: Text('直连片源')),
+          ],
+          selected: {state.streamSource},
+          onSelectionChanged: (s) => state.setStreamSource(s.first),
+        ),
+        const SizedBox(height: 6),
+        Text(explain, key: const Key('stream-source-explain'), style: small),
+      ],
     );
   }
 

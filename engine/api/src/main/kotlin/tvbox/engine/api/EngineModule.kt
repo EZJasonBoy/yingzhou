@@ -146,7 +146,7 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
                 }.getOrNull()
             } ?: emptyMap()
             val text = runCatching {
-                engine.playlist(url, headers, call.selfBase() + "/m3u8?", key = call.parameters["k"], userAgent = call.request.headers[HttpHeaders.UserAgent])
+                engine.playlist(url, headers, call.selfBase() + "/m3u8?", key = call.parameters["k"], userAgent = call.request.headers[HttpHeaders.UserAgent], direct = call.parameters["d"] == "1")
             }.getOrNull()
             if (text == null) {
                 call.respondRedirect(url, permanent = false)
@@ -341,5 +341,10 @@ private fun forClient(info: PlayInfo, call: RoutingCall): PlayInfo {
     val self = call.selfBase() + "/"
     if (self == loopback) return info
     fun fix(url: String) = if (url.startsWith(loopback)) self + url.removePrefix(loopback) else url
-    return info.copy(url = fix(info.url), sniff = info.sniff?.let { it.copy(pageUrl = fix(it.pageUrl)) }, subtitles = info.subtitles.map { it.copy(url = fix(it.url)) })
+    return info.copy(
+        url = fix(info.url),
+        relay = fix(info.relay),
+        sniff = info.sniff?.let { it.copy(pageUrl = fix(it.pageUrl)) },
+        subtitles = info.subtitles.map { it.copy(url = fix(it.url)) },
+    )
 }
