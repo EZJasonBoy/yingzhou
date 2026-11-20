@@ -44,6 +44,7 @@ MockClient fakeEngine({
   List<Map<String, Object>>? savedSubscriptions,
   bool relays = false,
   List<bool>? directAsked,
+  int filterRows = 1,
 }) {
   var configured = hasConfig;
   // With [savedSubscriptions] the engine keeps a list like the real one: `GET`, rename (`PUT`), `DELETE`, and
@@ -202,6 +203,16 @@ MockClient fakeEngine({
                   {'name': '2024', 'value': '2024'},
                 ],
               },
+              // More rows, as sites with many filters have (area, language, sort …).
+              for (var i = 2; i <= filterRows; i++)
+                {
+                  'key': 'f$i',
+                  'name': '筛选$i',
+                  'values': [
+                    {'name': '全部', 'value': ''},
+                    for (var v = 1; v <= 5; v++) {'name': '选项$i-$v', 'value': '$v'},
+                  ],
+                },
             ],
           },
           'list': [card('7', '推荐片')],
@@ -301,8 +312,10 @@ MockClient fakeEngine({
         return json({
           'channel': request.url.queryParameters['channel'],
           'date': date,
+          // From two hours before midnight (节目 0), as guides that list the programme running into the day do: so
+          // at any time of day, the first two hours included, a programme that has ended sits above the one on air.
           'programs': [
-            for (var i = 0; i < 12; i++)
+            for (var i = -1; i < 12; i++)
               {
                 'start': midnight.add(Duration(hours: 2 * i)).millisecondsSinceEpoch,
                 'end': midnight.add(Duration(hours: 2 * i + 2)).millisecondsSinceEpoch,
