@@ -88,14 +88,7 @@ TVBox 的订阅生态很大，能好好用它的地方却几乎只有安卓。�
 
 ## 架构
 
-```mermaid
-flowchart LR
-  S["你的订阅<br/>采集站 · 蜘蛛 · 直播 · 解析 · 网盘"] --> E
-  E["引擎 · Kotlin / JVM<br/>订阅与蜘蛛运行时 · 解析 · 嗅探 · 去广告<br/>播放缓存 · 搜索 · 直播 · 弹幕 · 下载"]
-  E -- "HTTP · mDNS" --> D["桌面<br/>键鼠"]
-  E -- "HTTP · mDNS" --> P["手机 · 平板<br/>触屏"]
-  E -- "HTTP · mDNS" --> T["电视<br/>遥控器"]
-```
+![架构：你的订阅 → 引擎（Kotlin / JVM）→ HTTP · mDNS → 客户端（桌面、手机、平板、电视）](docs/screenshots/architecture.jpg)
 
 引擎和客户端之间只有 HTTP，所以引擎可以装在不同的地方：桌面安装包里带着它，客户端启动时把它拉起来；安卓 App 把它编进应用，ART 直接加载蜘蛛；也可以用 Docker 放进 NAS，让局域网里的设备配对后共用。客户端是一套 Flutter 代码，按设备形态换布局和操作方式。详见 [架构文档](docs/architecture.md)。
 

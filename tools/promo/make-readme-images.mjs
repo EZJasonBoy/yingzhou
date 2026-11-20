@@ -1,7 +1,8 @@
 // The images the README shows: framed screenshots (readme/boards.html), a banner and a social preview cut from the
 // film's title, and the brand board (page 3 of the portfolio). Needs the promo source running, dist/promo/build/img
 // (make-assets.mjs) and dist/promo/build/portfolio-pages (make-portfolio.mjs).
-//   -> docs/screenshots/{desktop,mobile,tv,live}.jpg, docs/brand/{yingzhou-hero,brand-board}.jpg, docs/brand/social-preview.png
+//   -> docs/screenshots/{desktop,mobile,tv,live,architecture}.jpg, docs/brand/{yingzhou-hero,brand-board}.jpg,
+//      docs/brand/social-preview.png
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -35,6 +36,7 @@ try {
   ff(['-i', frame, '-vf', 'crop=1920:720:0:150,scale=1600:600:flags=lanczos', '-q:v', '3', join(brand, 'yingzhou-hero.jpg')]);
   ff(['-i', frame, '-vf', 'crop=1920:960:0:60,scale=1280:640:flags=lanczos', join(brand, 'social-preview.png')]);
   copyFileSync(join(build, 'portfolio-pages/p-03.jpg'), join(brand, 'brand-board.jpg'));
+  copyFileSync(join(build, 'portfolio-pages/p-04.jpg'), join(shots, 'architecture.jpg'));
 } finally {
   await browser.close();
 }
