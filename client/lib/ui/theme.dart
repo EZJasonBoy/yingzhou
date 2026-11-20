@@ -16,8 +16,13 @@ ThemeData buildDarkTheme() {
 
 ThemeData buildLightTheme() => _build(ColorScheme.fromSeed(seedColor: _seed));
 
+/// Chinese text: without these, Windows picks a font per run of text, and a title with a character that only the
+/// simplified fonts have (纸, 页, 盘 …) comes out in another, lighter typeface than the title next to it.
+const _cjkFallback = ['Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', 'Noto Sans SC'];
+
 ThemeData _build(ColorScheme scheme) => ThemeData(
       colorScheme: scheme,
+      fontFamilyFallback: _cjkFallback,
       scaffoldBackgroundColor: scheme.surface,
       visualDensity: VisualDensity.standard,
       appBarTheme: AppBarTheme(
