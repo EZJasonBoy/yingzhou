@@ -2,7 +2,9 @@
 
 版本由 GitHub Actions 打包发布在 [Releases](https://github.com/Sa1koro/yingzhou/releases)（目前都是预发布版）。以下按版本和开发迭代记录，最新的在上面。当前状态和已知缺口见 [docs/status.md](docs/status.md)。
 
-## 未发布
+## v0.3.14（2026-11-19）
+
+电视上扫码用手机输入，订阅列表可以直接切换。
 
 ### 2026-11-19（手机输入、已保存的订阅）
 
