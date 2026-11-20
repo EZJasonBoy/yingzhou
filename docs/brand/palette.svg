@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="150" viewBox="0 0 880 150">
+  <title>映舟 · 暮光色板</title>
+  <!-- The "dusk" palette of docs/brand/README.md: indigo night, coral, and the wave's three colours. -->
+  <g font-family="'Cascadia Code', Consolas, Menlo, monospace" font-size="15">
+    <rect x="0" y="0" width="240" height="150" rx="18" fill="#2F2C55"/>
+    <text x="20" y="128" fill="#F4EFE6">#2F2C55</text>
+    <rect x="256" y="0" width="144" height="150" rx="18" fill="#F4A08A"/>
+    <text x="274" y="128" fill="#3A1E1A">#F4A08A</text>
+    <rect x="416" y="0" width="144" height="150" rx="18" fill="#EE8C86"/>
+    <text x="434" y="128" fill="#3A1E1A">#EE8C86</text>
+    <rect x="576" y="0" width="144" height="150" rx="18" fill="#F0C670"/>
+    <text x="594" y="128" fill="#3A2C0E">#F0C670</text>
+    <rect x="736" y="0" width="144" height="150" rx="18" fill="#84CFAE"/>
+    <text x="754" y="128" fill="#12301F">#84CFAE</text>
+  </g>
+</svg>

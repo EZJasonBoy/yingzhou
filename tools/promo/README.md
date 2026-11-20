@@ -29,6 +29,9 @@ ffmpeg -i dist/promo/build/master.mp4 -i dist/promo/build/audio.wav -map 0:v -ma
 
 # 4. 作品集
 node tools/promo/make-portfolio.mjs         # -> dist/promo/yingzhou-portfolio.pdf，单页图片在 build/portfolio-pages
+
+# 5. README 的截图、横幅和品牌页（进仓库）
+node tools/promo/make-readme-images.mjs     # -> docs/screenshots/*.jpg、docs/brand/{yingzhou-hero,brand-board}.jpg、social-preview.png
 ```
 
 换了片源里的视频后要给引擎换一个空的 `--data` 目录，否则播放缓存里还是旧的分片。

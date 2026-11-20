@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>README boards</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #0D0C1E; }
+  .board { position: relative; overflow: hidden; display: none; background: radial-gradient(ellipse 80% 90% at 50% 18%, #2E2A5A 0%, #1A1838 48%, #0D0C1E 100%); }
+  .board::after { content: ''; position: absolute; inset: 0; background-image: radial-gradient(1px 1px at 12% 18%, rgba(255,255,255,.5), transparent), radial-gradient(1px 1px at 78% 9%, rgba(255,255,255,.4), transparent), radial-gradient(1.5px 1.5px at 91% 31%, rgba(255,255,255,.5), transparent), radial-gradient(1px 1px at 33% 6%, rgba(255,255,255,.35), transparent), radial-gradient(1px 1px at 56% 14%, rgba(255,255,255,.3), transparent), radial-gradient(1px 1px at 4% 72%, rgba(255,255,255,.3), transparent); pointer-events: none; }
+  .board.show { display: block; }
+  .win { position: absolute; border-radius: 12px; overflow: hidden; background: #111318; border: 1px solid rgba(255,255,255,.14); box-shadow: 0 40px 90px rgba(0,0,0,.6), 0 0 120px rgba(110,100,210,.14); }
+  .win .bar { height: 32px; display: flex; align-items: center; gap: 9px; padding-left: 13px; background: #0B0D11; color: #C9CCD6; font: 12.5px 'Microsoft YaHei', sans-serif; letter-spacing: .08em; }
+  .win .bar img { width: 15px; height: 15px; border-radius: 3px; }
+  .win .bar em { flex: 1; }
+  .win .bar b { width: 38px; height: 32px; position: relative; }
+  .win .bar b::after { content: ''; position: absolute; left: 14px; top: 11px; width: 9px; height: 9px; border: 1px solid #8D92A3; }
+  .win .bar b:nth-of-type(1)::after { height: 0; top: 16px; border-width: 1px 0 0; }
+  .win .bar b:nth-of-type(3)::after { border: 0; width: 11px; height: 11px; left: 13px; top: 10px; background: linear-gradient(45deg, transparent 45%, #8D92A3 45% 55%, transparent 55%), linear-gradient(-45deg, transparent 45%, #8D92A3 45% 55%, transparent 55%); }
+  .win > img { display: block; width: 100%; }
+  .dev { position: absolute; overflow: hidden; background: #0A0A12; box-shadow: 0 36px 80px rgba(0,0,0,.6); }
+  .dev img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .phone { aspect-ratio: 393 / 852; border-radius: 30px; border: 7px solid #1B1A33; outline: 1px solid rgba(255,255,255,.18); }
+  .tablet { aspect-ratio: 1180 / 820; border-radius: 24px; border: 11px solid #1B1A33; outline: 1px solid rgba(255,255,255,.16); }
+  .tv { aspect-ratio: 16 / 9; border-radius: 8px; border: 9px solid #101020; outline: 1px solid rgba(255,255,255,.14); }
+  .stand { position: absolute; height: 12px; border-radius: 4px; background: linear-gradient(180deg, #23223F, #101020); }
+  .stand::before { content: ''; position: absolute; left: 50%; top: -22px; width: 30px; height: 22px; margin-left: -15px; background: #17172C; }
+</style>
+</head>
+<body>
+
+<div class="board" id="desktop" style="width:1600px;height:1000px">
+  <div class="win" style="left:60px;top:56px;width:1180px"><div class="bar"><img src="/brand/logo.svg" alt=""><span>映舟</span><em></em><b></b><b></b><b></b></div><img src="/build/img/desktop-home.jpg" alt=""></div>
+  <div class="win" style="left:560px;top:372px;width:980px"><div class="bar"><img src="/brand/logo.svg" alt=""><span>映舟</span><em></em><b></b><b></b><b></b></div><img src="/build/img/desktop-player.jpg" alt=""></div>
+</div>
+
+<div class="board" id="mobile" style="width:1600px;height:780px">
+  <div class="dev tablet" style="left:60px;top:116px;width:760px"><img src="/build/img/tablet-home.jpg" alt=""></div>
+  <div class="dev phone" style="left:872px;top:150px;width:210px"><img src="/build/img/phone-home.jpg" alt=""></div>
+  <div class="dev phone" style="left:1104px;top:150px;width:210px"><img src="/build/img/phone-player.jpg" alt=""></div>
+  <div class="dev phone" style="left:1336px;top:150px;width:210px"><img src="/build/img/phone-dark-home.jpg" alt=""></div>
+</div>
+
+<div class="board" id="tv" style="width:1600px;height:860px">
+  <div class="dev tv" style="left:64px;top:84px;width:1040px"><img src="/build/img/tv-home-c.jpg" alt=""></div>
+  <div class="stand" style="left:464px;top:720px;width:240px"></div>
+  <div class="dev tv" style="left:1150px;top:124px;width:390px"><img src="/build/img/tv-detail.jpg" alt=""></div>
+  <div class="dev tv" style="left:1150px;top:376px;width:390px"><img src="/build/img/tv-player.jpg" alt=""></div>
+</div>
+
+<div class="board" id="live" style="width:1600px;height:960px">
+  <div class="win" style="left:60px;top:56px;width:1060px"><div class="bar"><img src="/brand/logo.svg" alt=""><span>映舟</span><em></em><b></b><b></b><b></b></div><img src="/build/img/desktop-live.jpg" alt=""></div>
+  <div class="win" style="left:860px;top:420px;width:680px"><div class="bar"><img src="/brand/logo.svg" alt=""><span>映舟</span><em></em><b></b><b></b><b></b></div><img src="/build/img/desktop-search.jpg" alt=""></div>
+</div>
+
+<script>
+  const id = new URLSearchParams(location.search).get('b') || 'desktop';
+  document.getElementById(id).classList.add('show');
+  window.__ready = Promise.all([...document.querySelectorAll(`#${id} img`)].map((img) => (img.complete ? Promise.resolve() : new Promise((r) => (img.onload = img.onerror = r)))));
+</script>
+</body>
+</html>

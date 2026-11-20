@@ -1,58 +1,128 @@
-<p align="center"><img src="docs/brand/yingzhou-logo-512.png" width="128" alt=""></p>
+<p align="center"><img src="docs/brand/yingzhou-hero.jpg" alt="映舟 Yingzhou · One boat, all streams."></p>
 
-# 映舟 Yingzhou
+<p align="center">
+  <b>兼容 TVBox 订阅与蜘蛛协议的全平台影视客户端</b><br>
+  一个引擎 · 一个客户端 · 一套协议
+</p>
 
-> 一个兼容 TVBox 配置与蜘蛛协议的全平台影视客户端：一个 Kotlin 引擎 + 一个 Flutter 客户端 + 一套 HTTP 协议。名字取"一条船把影像载到每块屏幕上"，对应一个引擎服务多台设备；logo 的帆就是播放键（见 [docs/brand](docs/brand)）。仓库目录仍叫 `tvbox-next`。
+<p align="center">
+  <a href="https://github.com/Sa1koro/yingzhou/releases"><img src="https://img.shields.io/github/v/release/Sa1koro/yingzhou?include_prereleases&label=release&color=F4A08A" alt="release"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Android%20%7C%20Android%20TV-84CFAE" alt="platforms">
+  <a href="https://github.com/Sa1koro/yingzhou/pkgs/container/yingzhou-engine"><img src="https://img.shields.io/badge/engine-Docker-F0C670" alt="Docker"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-2F2C55" alt="AGPL-3.0"></a>
+</p>
 
-**现状**：Windows 桌面版可用（点播、搜索、jar / js 蜘蛛、解析、嗅探、去广告、直播 + 节目单），macOS（Apple Silicon）和安卓电视盒子已在真机上试过。Android 手机、平板的触屏界面以及内置引擎的缓存、下载、局域网共享已经做了，手机和平板只在模拟器上验证过；Docker 引擎镜像还没在 NAS 上跑过。详见 [docs/status.md](docs/status.md)。
+<p align="center">
+  <a href="#下载">下载</a> · <a href="#界面">界面</a> · <a href="#特性">特性</a> · <a href="docs/user-guide.md">使用说明</a> · <a href="#品牌">品牌</a> · <a href="CHANGELOG.md">更新记录</a>
+</p>
+
+> 谁谓源广？一舟映之。
+
+TVBox 的订阅生态很大，能好好用它的地方却几乎只有安卓。映舟把它带到 Windows、macOS、手机、平板和电视上，而且在每一种设备上都按那种设备的习惯来操作：桌面用键鼠，手机用手势，电视用遥控器。
+
+映舟只是一条船：**不内置、不提供任何影视内容或订阅源**，看什么由你的订阅决定。
+
+## 界面
+
+![桌面：海报墙与播放器](docs/screenshots/desktop.jpg)
+
+**桌面**（Windows · macOS）：海报墙随窗口宽度排列，站点下拉即切；播放器是 libmpv，弹幕、字幕、音轨、倍速都在底栏。空格、F、方向键、鼠标侧键，桌面上该有的都有。
+
+![手机与平板](docs/screenshots/mobile.jpg)
+
+**手机与平板**：双击快进，上下滑调亮度和音量，长按两倍速，上滑回桌面变小窗；深浅色跟随系统。
+
+![电视](docs/screenshots/tv.jpg)
+
+**电视与盒子**：方向键走焦点，OK 即播，菜单键调出倍速、线路、字幕和选集；要打字时，用手机扫电视上的二维码。
+
+![直播与搜索](docs/screenshots/live.jpg)
+
+**直播与搜索**：分组、节目单、回看，线路打不开自动换下一条；所有站点同时搜，结果边搜边出。
+
+<sub>截图来自真实应用。片名、海报和弹幕是为演示制作的虚构内容（见 <a href="tools/promo">tools/promo</a>）。</sub>
+
+## 特性
+
+**源**
+- 兼容 TVBox 配置：采集站（type 0 / 1）、jar / JS / Python 蜘蛛、解析与网页嗅探、去广告规则，以及配置里的 `hosts` / `headers` / `doh`
+- 多仓订阅，仓里再套仓；保存多条订阅，一键切换
+- 直播：TXT / M3U / JSON 列表、节目单（DIYP / XMLTV）、回看、蜘蛛提供的直播
+- 网盘：AList、WebDAV、本机文件夹
+
+**播放**
+- libmpv 内核，硬件解码；播放缓存让 m3u8 拖动进度条不再卡半天
+- 线路失效自动换线，带着进度接着播；手动选的线路不会被换走
+- 弹幕、外挂字幕与音轨（ASS 由 libass 渲染）
+- 离线下载、历史、收藏、续播
+
+**引擎**
+- 一个引擎服务全家的屏幕：局域网配对（配对码 + 令牌，mDNS 发现），也可以住进 NAS（Docker）
+- 连着远处的引擎时，引擎只负责解析和去广告，播放器直连片源
+- 会把数据交给第三方的功能（GitHub 加速、DoH、订阅自带的弹幕接口）都是开关，默认关闭
+
+## 下载
+
+在 [Releases](https://github.com/Sa1koro/yingzhou/releases) 下载，由 GitHub Actions 自动构建（目前都是预发布版）。
+
+| 平台 | 安装包 | 状态 |
+|---|---|---|
+| Windows 10 / 11 | `yingzhou-windows-x64-setup.exe`（安装程序）或 `yingzhou-windows-x64.zip`（绿色包） | ✅ 可用 |
+| macOS（Apple Silicon） | `yingzhou-macos-arm64.dmg` | ✅ 真机验证 |
+| Android TV · 电视盒子 | `yingzhou-android-arm64-v8a.apk`；32 位的老盒子用 `armeabi-v7a` | ✅ 真机验证 |
+| Android 手机 · 平板（7.0 起） | 同上，一个安装包 | 🧪 只在模拟器上验证过 |
+| 引擎（NAS 等） | Docker 镜像 `ghcr.io/sa1koro/yingzhou-engine` | 🧪 CI 自检通过，未在 NAS 上验证 |
+| iOS | — | 计划中：纯客户端，连局域网或 NAS 上的引擎 |
+
+- Windows 和 macOS 的包里带着引擎和精简过的 Java 运行时，不用另装 Java。
+- Windows 版没有数字签名，第一次运行时 SmartScreen 可能拦一下，点「更多信息 → 仍要运行」。macOS 版是临时签名，第一次需右键 → 打开。
+- 安卓 APK 用正式密钥签名，可以覆盖升级。
+
+## 快速开始
+
+1. 安装并打开映舟。
+2. 在「源」页填入订阅地址并导入。电视上可以点「手机输入」，用手机扫码把地址发过去。
+3. 在首页浏览，或者用「搜索」（桌面上按 Ctrl+F）。
+
+快捷键、手势、遥控器操作和常见问题见 [使用说明](docs/user-guide.md)；在 NAS 上跑引擎见使用说明第 8 节。
+
+## 架构
+
+```mermaid
+flowchart LR
+  S["你的订阅<br/>采集站 · 蜘蛛 · 直播 · 解析 · 网盘"] --> E
+  E["引擎 · Kotlin / JVM<br/>订阅与蜘蛛运行时 · 解析 · 嗅探 · 去广告<br/>播放缓存 · 搜索 · 直播 · 弹幕 · 下载"]
+  E -- "HTTP · mDNS" --> D["桌面<br/>键鼠"]
+  E -- "HTTP · mDNS" --> P["手机 · 平板<br/>触屏"]
+  E -- "HTTP · mDNS" --> T["电视<br/>遥控器"]
+```
+
+引擎和客户端之间只有 HTTP，所以引擎可以装在不同的地方：桌面安装包里带着它，客户端启动时把它拉起来；安卓 App 把它编进应用，ART 直接加载蜘蛛；也可以用 Docker 放进 NAS，让局域网里的设备配对后共用。客户端是一套 Flutter 代码，按设备形态换布局和操作方式。详见 [架构文档](docs/architecture.md)。
+
+## 品牌
+
+![品牌](docs/brand/brand-board.jpg)
+
+名字取「一条船把影像载到每块屏幕上」；logo 的帆就是播放键，船身是珊瑚色，船下一道水纹分成三色：一条船，映出许多条流。配色叫「暮光」，夜色做底。标志、色板、字体和口号见 [docs/brand](docs/brand/README.md)。
 
 ## 文档
 
 | 文档 | 内容 |
 |---|---|
-| [docs/requirements.md](docs/requirements.md) | 需求：目标、平台优先级、功能清单与状态 |
-| [docs/status.md](docs/status.md) | 进度：里程碑、已验证 / 未验证、已知缺口、下一步 |
-| [docs/user-guide.md](docs/user-guide.md) | 使用说明：各页面怎么用、快捷键、常见问题 |
-| [docs/compatibility.md](docs/compatibility.md) | 兼容性：TVBox 配置逐字段的支持情况 |
-| [docs/architecture.md](docs/architecture.md) | 架构：引擎 / 客户端 / 协议的分工，各子系统的实现 |
-| [docs/tech-choices.md](docs/tech-choices.md) | 技术选型对比：MisaTV 的实际实现、Compose 等方案、内存实测 |
-| [docs/protocol.md](docs/protocol.md) | 引擎协议：客户端与引擎之间的 HTTP 接口 |
-| [docs/development.md](docs/development.md) | 开发指南：环境、命令、演示引擎、集成测试、打包、排错 |
-| [CHANGELOG.md](CHANGELOG.md) | 更新记录 |
-
-## 下载
-
-在 [Releases](https://github.com/Sa1koro/yingzhou/releases) 下载，由 GitHub Actions 自动构建（目前都是预发布版）：
-
-- Windows：`yingzhou-windows-x64-setup.exe`（安装程序）或 `yingzhou-windows-x64.zip`（绿色包）。没有数字签名，第一次运行时 SmartScreen 可能拦一下，点「更多信息 → 仍要运行」。
-- macOS（Apple Silicon）：`yingzhou-macos-arm64.dmg`，临时签名，第一次需右键 → 打开。
-- Android（手机、平板、电视盒子，Android 7.0 起）：`yingzhou-android-arm64-v8a.apk` 适合绝大多数手机和较新的盒子，`armeabi-v7a` 给 32 位的老电视盒子。从 v0.3.0 起提供，用正式密钥签名，可以覆盖升级。
-- 引擎的 Docker 镜像：`ghcr.io/sa1koro/yingzhou-engine`，见 [docs/user-guide.md](docs/user-guide.md)。
-
-打一个 `v*` 标签就会触发 `.github/workflows/desktop.yml` 出包并发布 Release。
-
-## 使用（Windows）
-
-1. 从 Releases 下载，或运行 `tools/package-desktop.sh` 得到安装程序 `dist/yingzhou-windows-x64-setup.exe`（需要 Inno Setup）和绿色包 `dist/yingzhou-windows-x64.zip`。
-2. 运行安装程序，或解压绿色包后运行 `yingzhou.exe`。不需要安装 Java，引擎和运行时都在包里。
-3. 在左侧「源」页填入订阅地址。订阅、历史、收藏保存在 `~/.tvbox-next/engine`。
-
-网页嗅探用系统里的 Edge 或 Chrome（Windows 10/11 自带 Edge）。各页面的用法和常见问题见 [docs/user-guide.md](docs/user-guide.md)。
-
-## 目录
-
-| 目录 | 内容 |
-|---|---|
-| `engine/` | Kotlin/JVM 引擎（Gradle）：`core` 协议逻辑、`api` HTTP 路由、`server` 独立进程入口、`runtime-js` / `runtime-jar` 蜘蛛运行时 |
-| `client/` | Flutter 客户端（Windows / macOS / Linux / Android / iOS） |
-| `tools/` | 打包脚本 |
-| `docs/` | 文档 |
+| [使用说明](docs/user-guide.md) | 各页面怎么用、快捷键、手势、遥控器、常见问题 |
+| [兼容性](docs/compatibility.md) | TVBox 配置逐字段的支持情况 |
+| [进度](docs/status.md) | 里程碑、已验证 / 未验证、已知缺口、下一步 |
+| [需求](docs/requirements.md) | 目标、平台优先级、功能清单 |
+| [架构](docs/architecture.md) | 引擎 / 客户端 / 协议的分工，各子系统的实现 |
+| [引擎协议](docs/protocol.md) | 客户端与引擎之间的 HTTP 接口 |
+| [技术选型](docs/tech-choices.md) | 与 MisaTV 等方案的对比、内存实测 |
+| [开发指南](docs/development.md) | 环境、命令、演示引擎、集成测试、打包、排错 |
+| [品牌](docs/brand/README.md) | 标志、色板、字体、口号 |
+| [更新记录](CHANGELOG.md) | 每个版本和每次迭代改了什么 |
 
 ## 开发
 
-完整说明见 [docs/development.md](docs/development.md)。
-
-需要 JDK 21、Flutter 3.50+；Android 需要 Android SDK；Windows 桌面需要 Visual Studio 的"使用 C++ 的桌面开发"工作负载。
+需要 JDK 21、Flutter 3.50+；安卓需要 Android SDK；Windows 桌面需要 Visual Studio 的"使用 C++ 的桌面开发"工作负载。仓库目录里的工程仍叫 `tvbox-next`。
 
 ```bash
 # 引擎：测试、运行（默认只监听 127.0.0.1:9978）
@@ -60,38 +130,23 @@ cd engine
 ./gradlew test
 ./gradlew :server:run --args="--port 9978 --subscribe <订阅地址>"
 
-# 客户端
+# 客户端：桌面版启动时若 9978 上没有引擎，会自己在后台拉起内置引擎
 cd client
 flutter test
 flutter run -d windows
-```
 
-桌面客户端启动时，如果 127.0.0.1:9978 上没有引擎，会自动在后台启动内置引擎（开发时用 `engine/server/build/install/tvbox-engine`，打包后用 `engine/` 目录和自带的精简 JRE），客户端退出时引擎随之退出。
-
-打包桌面版（客户端 + 引擎 + jlink 精简 JRE）：Windows 上输出 `dist/yingzhou-windows-x64.zip` 和安装程序 `dist/yingzhou-windows-x64-setup.exe`（装了 Inno Setup 时），Mac 上输出 `dist/yingzhou-macos-<arm64|x86_64>.dmg`（JRE 跟构建机的 CPU 走；默认临时签名，设 `SIGN_IDENTITY` 用开发者证书签名）。没有 Mac 时，把仓库推到 GitHub 后用 `.github/workflows/desktop.yml` 一次出三个包。
-
-```bash
+# 打包：Windows 出安装程序和绿色包，Mac 上出 DMG
 tools/package-desktop.sh
 ```
 
-桌面端操作：
+打一个 `v*` 标签就会触发 `.github/workflows/desktop.yml`，出 Windows、macOS、安卓的包并发布 Release；推送到 main 会构建引擎的 Docker 镜像。演示引擎、集成测试和排错见 [开发指南](docs/development.md)；宣传片和作品集的源文件在 [tools/promo](tools/promo/README.md)。
 
-| 按键 / 鼠标 | 作用 |
+| 目录 | 内容 |
 |---|---|
-| 单击画面 / 空格 | 播放、暂停 |
-| 双击画面 / F | 全屏，Esc 退出全屏 |
-| ← / →（按住 Shift） | 后退 / 快进 10 秒（60 秒） |
-| ↑ / ↓、滚轮 | 音量，M 静音（音量会记住） |
-| [ / ] | 减速 / 加速 |
-| N / P（PageDown / PageUp） | 下一集 / 上一集 |
-| 鼠标侧键后退、Alt+←（播放页里也可按 Esc） | 返回上一页 |
-| Ctrl+F（Mac 上 ⌘F） | 搜索 |
-
-点播的线路放不了时会自动换到下一条，从原来的进度接着播；手动选的线路不会被换走（[使用说明](docs/user-guide.md)第 4 节）。
-
-直播页：↑ / ↓ 换台，← / → 换线路，PageUp / PageDown 换分组，F 或双击全屏（Esc 退出），M 静音，滚轮调音量。线路打不开会自动换下一条。
-
-窗口大小、位置和是否最大化会在下次启动时恢复。
+| `engine/` | Kotlin/JVM 引擎（Gradle）：`core` 协议逻辑、`api` HTTP 路由、`server` 独立进程入口、`runtime-js` / `runtime-jar` / `runtime-py` 蜘蛛运行时 |
+| `client/` | Flutter 客户端（Windows / macOS / Linux / Android / iOS） |
+| `tools/` | 打包、安装程序、订阅体检、品牌图标、宣传物料 |
+| `docs/` | 文档、品牌、截图 |
 
 ## 许可
 
