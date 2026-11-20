@@ -149,7 +149,9 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          flutter build apk --release --split-per-abi
+          # One retry: Gradle fetches from the plugin portal and Maven Central, which fail now and then
+          # (v0.3.0's first build lost its APKs to a portal outage).
+          flutter build apk --release --split-per-abi || { echo "Build failed; retrying once in 60 s"; sleep 60; flutter build apk --release --split-per-abi; }
           mkdir -p ../dist
           cd build/app/outputs/flutter-apk
           for abi in arm64-v8a armeabi-v7a x86_64; do cp "app-$abi-release.apk" "../../../../../dist/yingzhou-android-$abi.apk"; done
@@ -195,4 +197,9 @@ jobs:
             echo
             echo "本应用不带任何订阅或影视内容。改动见 [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/CHANGELOG.md)，已知问题见 [docs/status.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/status.md)。"
           } > "$notes"
-          gh release create "$TAG" packages/* --title "映舟 ${TAG}" --notes-file "$notes" --prerelease --verify-tag
+          # A rerun of a failed job (say Android) reruns this job too: add the files to the release it already made.
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" packages/* --clobber
+          else
+            gh release create "$TAG" packages/* --title "映舟 ${TAG}" --notes-file "$notes" --prerelease --verify-tag
+          fi
