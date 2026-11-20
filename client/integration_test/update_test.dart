@@ -102,9 +102,15 @@ void main() {
     // 网络: on, then measured.
     final toggle = find.byKey(const Key('github-proxy-switch'));
     await tester.ensureVisible(toggle);
-    await tester.tap(toggle);
-    await until(tester, find.byKey(const Key('github-proxy-probe')));
-    await tester.tap(find.byKey(const Key('github-proxy-probe')));
+    // The engine may still have it on from an earlier run.
+    if (!tester.widget<SwitchListTile>(toggle).value) await tester.tap(toggle);
+    final probe = find.byKey(const Key('github-proxy-probe'));
+    final ready = DateTime.now().add(const Duration(seconds: 30));
+    while (probe.evaluate().isEmpty || tester.widget<FilledButton>(probe).onPressed == null) {
+      if (DateTime.now().isAfter(ready)) fail('测速 did not become available');
+      await wait(tester, const Duration(milliseconds: 200));
+    }
+    await tester.tap(probe);
     await until(tester, find.textContaining('直连 GitHub：'), timeout: const Duration(seconds: 20));
     print('PROBE:${text(const Key('github-proxy-probe-status'))}');
     for (final e in find.byWidgetPredicate((w) => w is ListTile && (w.key as ValueKey?)?.value.toString().startsWith('github-proxy-preset-') == true).evaluate()) {
