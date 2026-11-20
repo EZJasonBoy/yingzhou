@@ -147,6 +147,7 @@ class AppState extends ChangeNotifier {
     info = null;
     summary = null;
     sites = const [];
+    subscriptions = const [];
     configError = null;
     info = await client.info();
     error = null;
@@ -158,6 +159,7 @@ class AppState extends ChangeNotifier {
       engineSettings = null;
     }
     needsPairing = false;
+    await _loadSubscriptions();
     await _loadConfig();
   }
 
@@ -353,9 +355,56 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> importSubscription(String url) => _run(() async {
-    final sub = await client.addSubscription(url.trim());
-    summary = await client.activate(sub.id);
-    await _loadSites();
+    try {
+      final sub = await client.addSubscription(url.trim());
+      summary = await client.activate(sub.id);
+      await _loadSites();
+    } finally {
+      // Saved even when it did not load, so it can be tried again from the list.
+      await _loadSubscriptions();
+    }
+  });
+
+  // ---- saved subscriptions (源 → 订阅) ----
+
+  /// Every subscription the engine has saved, the one used most recently first; empty until it answers.
+  List<Subscription> subscriptions = const [];
+
+  Future<void> _loadSubscriptions() async {
+    try {
+      final all = await client.subscriptions();
+      // Never loaded (0) go after the rest, in the order they were added.
+      final order = {for (var i = 0; i < all.length; i++) all[i].id: i};
+      subscriptions = [...all]..sort((a, b) => b.usedAt != a.usedAt ? b.usedAt.compareTo(a.usedAt) : order[a.id]!.compareTo(order[b.id]!));
+    } on EngineException {
+      subscriptions = const [];
+    }
+  }
+
+  /// Switches to a saved subscription.
+  Future<void> useSubscription(String id) => _run(() async {
+    try {
+      summary = await client.activate(id);
+      await _loadSites();
+    } finally {
+      await _loadSubscriptions();
+    }
+  });
+
+  Future<void> renameSubscription(String id, String name) => _run(() async {
+    await client.renameSubscription(id, name.trim());
+    await _loadSubscriptions();
+  });
+
+  /// Forgets a saved subscription. Removing the one in use leaves the engine without a config.
+  Future<void> removeSubscription(String id) => _run(() async {
+    await client.removeSubscription(id);
+    if (summary?.subscriptionId == id) {
+      summary = null;
+      sites = const [];
+      currentSiteKey = null;
+    }
+    await _loadSubscriptions();
   });
 
   Future<void> switchRepo(String repoUrl) => _run(() async {

@@ -249,6 +249,15 @@ class Engine(
         }
     }
 
+    /** Gives the subscription a display name; a blank one goes back to its url. */
+    suspend fun renameSubscription(id: String, name: String): Subscription = lock.withLock {
+        val sub = subscriptions[id] ?: throw EngineException.NotFound("subscription $id")
+        val renamed = sub.copy(name = name.trim().ifEmpty { sub.url })
+        subscriptions[id] = renamed
+        persistSubscriptions()
+        renamed
+    }
+
     suspend fun removeSubscription(id: String) {
         lock.withLock {
             subscriptions.remove(id) ?: throw EngineException.NotFound("subscription $id")
@@ -415,6 +424,8 @@ class Engine(
             network?.onConfig(config)
             live.onConfig(config.livesJson)
             active = loaded
+            // For the client's list of saved subscriptions, latest first.
+            subscriptions[id]?.let { subscriptions[id] = it.copy(usedAt = System.currentTimeMillis()) }
             savedActiveId = id
             savedActiveRepo = if (repos.isEmpty()) null else url
             savedActiveRepoPath = repoInfos(loaded).let { all ->

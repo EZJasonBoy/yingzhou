@@ -28,16 +28,34 @@ class EngineInfo {
 }
 
 class Subscription {
-  const Subscription({required this.id, required this.name, required this.url});
+  const Subscription({required this.id, required this.name, required this.url, this.usedAt = 0});
 
   final String id;
+
+  /// The name it was given; the engine uses the address itself until it is renamed.
   final String name;
   final String url;
+
+  /// When it last loaded as the active subscription (epoch ms); 0 when it never has, or the engine is older.
+  final int usedAt;
+
+  /// True when the user gave it a name of its own.
+  bool get named => name.isNotEmpty && name != url;
+
+  /// What a list shows: its name, or a short form of the address (host and file) when it has none.
+  String get label {
+    if (named) return name;
+    final u = Uri.tryParse(url);
+    if (u == null || u.host.isEmpty) return url;
+    final file = u.pathSegments.where((s) => s.isNotEmpty).lastOrNull;
+    return file == null ? u.host : '${u.host} · $file';
+  }
 
   factory Subscription.fromJson(Map<String, dynamic> json) => Subscription(
         id: json['id'] as String,
         name: json['name'] as String,
         url: json['url'] as String,
+        usedAt: (json['usedAt'] as num?)?.toInt() ?? 0,
       );
 }
 

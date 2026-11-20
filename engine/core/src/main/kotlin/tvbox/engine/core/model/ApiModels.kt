@@ -28,6 +28,14 @@ data class Subscription(
     val id: String,
     val name: String,
     val url: String,
+    /** When it last loaded as the active subscription (epoch ms); 0 when it never has (or before engines kept it). */
+    val usedAt: Long = 0,
+)
+
+/** `PUT /subscriptions/{id}`: a new display name; empty goes back to the url. */
+@Serializable
+data class RenameSubscriptionRequest(
+    val name: String = "",
 )
 
 @Serializable

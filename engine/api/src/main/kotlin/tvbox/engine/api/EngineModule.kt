@@ -34,6 +34,7 @@ import tvbox.engine.core.Engine
 import tvbox.engine.core.EngineException
 import tvbox.engine.core.model.ActivateRequest
 import tvbox.engine.core.model.AddSubscriptionRequest
+import tvbox.engine.core.model.RenameSubscriptionRequest
 import tvbox.engine.core.model.ApiError
 import tvbox.engine.core.model.ErrorBody
 import tvbox.engine.core.model.FavoriteEntry
@@ -161,6 +162,10 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
             post("/subscriptions") {
                 val req = call.receive<AddSubscriptionRequest>()
                 call.respond(HttpStatusCode.Created, engine.addSubscription(req.url, req.name))
+            }
+            put("/subscriptions/{id}") {
+                val req = call.receive<RenameSubscriptionRequest>()
+                call.respond(engine.renameSubscription(call.parameters["id"]!!, req.name))
             }
             delete("/subscriptions/{id}") {
                 engine.removeSubscription(call.parameters["id"]!!)

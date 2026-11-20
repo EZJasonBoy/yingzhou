@@ -324,4 +324,59 @@ class EngineModuleTest {
             upstream.shutdown()
         }
     }
+
+    @Test
+    fun `saved subscriptions keep when they were last used and can be renamed`() {
+        val upstream = MockWebServer().apply { start() }
+        try {
+            upstream.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = MockResponse().setBody("""{"sites":[]}""")
+            }
+            testApplication {
+                application { engineModule(engine()) }
+                suspend fun add(path: String): String {
+                    val created = client.post("/api/v1/subscriptions") {
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"url":"${upstream.url(path)}"}""")
+                    }
+                    return EngineJson.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+                }
+                suspend fun list() = EngineJson.parseToJsonElement(client.get("/api/v1/subscriptions").bodyAsText()).jsonArray.map { it.jsonObject }
+                fun usedAt(o: kotlinx.serialization.json.JsonObject) = o["usedAt"]?.jsonPrimitive?.content?.toLong() ?: 0L
+                val a = add("/a.json")
+                val b = add("/b.json")
+                assertEquals(a, add("/a.json"), "the same address is not saved twice")
+                assertTrue(list().all { usedAt(it) == 0L }, "nothing loaded yet")
+
+                val before = System.currentTimeMillis()
+                client.post("/api/v1/subscriptions/$b/activate")
+                val used = list().associate { it["id"]!!.jsonPrimitive.content to usedAt(it) }
+                assertTrue(used[b]!! >= before, "b loaded: $used")
+                assertEquals(0L, used[a])
+
+                val renamed = client.put("/api/v1/subscriptions/$a") {
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"name":"  家里的  "}""")
+                }
+                assertEquals("家里的", EngineJson.parseToJsonElement(renamed.bodyAsText()).jsonObject["name"]!!.jsonPrimitive.content)
+                assertEquals("家里的", list().first { it["id"]!!.jsonPrimitive.content == a }["name"]!!.jsonPrimitive.content)
+                val reset = client.put("/api/v1/subscriptions/$a") {
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"name":""}""")
+                }
+                assertEquals(
+                    upstream.url("/a.json").toString(),
+                    EngineJson.parseToJsonElement(reset.bodyAsText()).jsonObject["name"]!!.jsonPrimitive.content,
+                    "a blank name goes back to the address",
+                )
+                val missing = client.put("/api/v1/subscriptions/nope") {
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"name":"x"}""")
+                }
+                assertEquals(HttpStatusCode.NotFound, missing.status)
+            }
+        } finally {
+            upstream.shutdown()
+        }
+    }
 }

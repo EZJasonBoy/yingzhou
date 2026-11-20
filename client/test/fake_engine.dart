@@ -41,8 +41,13 @@ MockClient fakeEngine({
   Map<String, List<Map<String, Object>>> danmaku = const {},
   List<Uri>? danmakuAsked,
   String? danmakuConfigApi,
+  List<Map<String, Object>>? savedSubscriptions,
 }) {
   var configured = hasConfig;
+  // With [savedSubscriptions] the engine keeps a list like the real one: `GET`, rename (`PUT`), `DELETE`, and
+  // `activate` of any of them (which stamps `usedAt` and makes it the summary's subscription).
+  final subs = savedSubscriptions;
+  var clock = 1000;
   final historyById = <String, Map<String, dynamic>>{for (final h in history) h['vodId'] as String: h};
   final favoritesById = <String, Map<String, dynamic>>{};
 
@@ -81,6 +86,42 @@ MockClient fakeEngine({
   return MockClient((request) async {
     final path = request.url.path;
     if (!configured && path.startsWith('/api/v1/sites')) return json(noConfig, 409);
+
+    final subPath = RegExp(r'^/api/v1/subscriptions(?:/([^/]+)(/activate)?)?$').firstMatch(path);
+    if (subs != null && subPath != null) {
+      final id = subPath.group(1);
+      Map<String, Object>? find() => subs.where((s) => s['id'] == id).firstOrNull;
+      final missing = json({'error': {'code': 'NOT_FOUND', 'message': 'subscription $id'}}, 404);
+      switch ((request.method, id, subPath.group(2))) {
+        case ('GET', null, null):
+          return json(subs);
+        case ('POST', null, null):
+          final url = (jsonDecode(request.body) as Map<String, dynamic>)['url'] as String;
+          final existing = subs.where((s) => s['url'] == url).firstOrNull;
+          final sub = existing ?? {'id': 'n${subs.length + 1}', 'name': url, 'url': url, 'usedAt': 0};
+          if (existing == null) subs.add(sub);
+          return json(sub, 201);
+        case ('POST', _, '/activate'):
+          final sub = find();
+          if (sub == null) return missing;
+          sub['usedAt'] = clock++;
+          summary['subscriptionId'] = sub['id']!;
+          summary['url'] = sub['url']!;
+          configured = true;
+          return json(summarised());
+        case ('PUT', _, null):
+          final sub = find();
+          if (sub == null) return missing;
+          final name = ((jsonDecode(request.body) as Map<String, dynamic>)['name'] as String).trim();
+          sub['name'] = name.isEmpty ? sub['url']! : name;
+          return json(sub);
+        case ('DELETE', _, null):
+          if (find() == null) return missing;
+          subs.removeWhere((s) => s['id'] == id);
+          if (summary['subscriptionId'] == id) configured = false;
+          return http.Response('', 204);
+      }
+    }
 
     // Library: /history[/cms/<id>] and /favorites[/cms/<id>]
     final lib = RegExp(r'^/api/v1/(history|favorites)(?:/cms/(.+))?$').firstMatch(path);

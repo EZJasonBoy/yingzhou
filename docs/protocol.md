@@ -75,8 +75,9 @@ tvsig=<过期时间，秒，36 进制>.<设备 id 或 local>.<HMAC-SHA256 前 16
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/subscriptions` | 订阅列表 |
+| GET | `/subscriptions` | 订阅列表：`[{id, name, url, usedAt}]`。`name` 没改过时就是地址；`usedAt` 是最后一次作为当前订阅加载的时间（毫秒，0 表示还没用过，老引擎没有这个字段） |
 | POST | `/subscriptions` | `{name?, url}`，`url` 支持 http(s)、`clan://`、`file://`、引擎所在机器上的路径、`;pk;` 密钥后缀 |
+| PUT | `/subscriptions/{id}` | `{name}` 重命名，空字符串恢复成地址；返回改后的订阅 |
 | DELETE | `/subscriptions/{id}` | 删除 |
 | POST | `/subscriptions/{id}/activate` | 切换当前订阅；多仓订阅可带 `{repo}` 选择子仓（见下） |
 | POST | `/config/reload` | 重新下载当前配置，返回新的摘要。下载失败时报错（`CONFIG_LOAD_FAILED`），正在用的配置保持不变，原因记在摘要的 `refreshError` 里 |

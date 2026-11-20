@@ -6,6 +6,7 @@ import '../app_state.dart';
 import '../engine/vod_models.dart';
 import '../ui/common.dart';
 import '../ui/device_form.dart';
+import '../ui/phone_input.dart';
 import '../ui/poster.dart';
 import '../ui/tv/tv_focus.dart';
 import '../ui/tv/tv_keyboard.dart';
@@ -238,6 +239,15 @@ class _SearchPageState extends State<SearchPage> {
                         controller: _field,
                         onSearch: _search,
                         onSystemInput: widget.focusNode == null ? null : () => TvTextInputGate.openKeyboard(widget.focusNode!),
+                        onPhoneInput: () async {
+                          final text = await showPhoneInput(
+                            context,
+                            const PhoneInputRequest(title: '搜索词', hint: '片名', keyboard: PhoneKeyboard.search),
+                          );
+                          if (text == null || text.isEmpty || !mounted) return;
+                          _field.text = text;
+                          _search();
+                        },
                       ),
                     ),
                   ],
@@ -284,7 +294,7 @@ class _SearchPageState extends State<SearchPage> {
                     child: recent.isNotEmpty
                         ? _recentOnTv(recent)
                         : _query == null && _error == null
-                        ? const StatusView(icon: Icons.travel_explore, message: '用左边的键盘输入片名、拼音或首字母，再按「搜索」\n中文和语音请用「输入法」')
+                        ? const StatusView(icon: Icons.travel_explore, message: '用左边的键盘输入片名、拼音或首字母，再按「搜索」\n中文和语音用「中文 / 语音」，也可以用「手机输入」在手机上打字')
                         : _body(visible, state),
                   ),
                 ],

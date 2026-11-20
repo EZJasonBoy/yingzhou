@@ -38,6 +38,10 @@ class EngineClient {
 
   Future<void> removeSubscription(String id) => _send('DELETE', 'subscriptions/$id');
 
+  /// Names a saved subscription; an empty [name] goes back to its address.
+  Future<Subscription> renameSubscription(String id, String name) async =>
+      Subscription.fromJson(await _send('PUT', 'subscriptions/$id', body: {'name': name}));
+
   /// Loads a subscription. For a multi-repository subscription, [repo] picks the entry (default: first).
   Future<ConfigSummary> activate(String id, {String? repo}) async =>
       ConfigSummary.fromJson(await _send('POST', 'subscriptions/$id/activate', body: {'repo': ?repo}));

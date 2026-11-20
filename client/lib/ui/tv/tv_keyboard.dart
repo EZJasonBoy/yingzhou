@@ -6,13 +6,16 @@ import 'tv_focus.dart';
 /// clear and search under it. Letters are for titles written in Latin letters, pinyin or pinyin initials that sites
 /// understand; Chinese goes through the system keyboard ([onSystemInput]).
 class TvSearchKeyboard extends StatelessWidget {
-  const TvSearchKeyboard({super.key, required this.controller, required this.onSearch, this.onSystemInput, this.firstKeyFocus});
+  const TvSearchKeyboard({super.key, required this.controller, required this.onSearch, this.onSystemInput, this.onPhoneInput, this.firstKeyFocus});
 
   final TextEditingController controller;
   final VoidCallback onSearch;
 
   /// Opens the system keyboard (Chinese, voice) on the search field.
   final VoidCallback? onSystemInput;
+
+  /// Types the search on a phone (a QR code; see `ui/phone_input.dart`).
+  final VoidCallback? onPhoneInput;
 
   /// The focus of the first key ("A"), so the page can put the focus there.
   final FocusNode? firstKeyFocus;
@@ -58,7 +61,14 @@ class TvSearchKeyboard extends StatelessWidget {
                 children: [
                   Icon(icon, size: 20, color: primary ? scheme.onPrimary : scheme.onSurface),
                   const SizedBox(width: 4),
-                  Text(label, style: TextStyle(fontSize: 15, color: primary ? scheme.onPrimary : scheme.onSurface)),
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 15, color: primary ? scheme.onPrimary : scheme.onSurface),
+                    ),
+                  ),
                 ],
               )
             : Text(
@@ -119,12 +129,33 @@ class TvSearchKeyboard extends StatelessWidget {
         ),
       ),
     );
-    if (onSystemInput != null) {
+    if (onSystemInput != null || onPhoneInput != null) {
       rows.add(
         Expanded(
-          child: Padding(
-            padding: const EdgeInsets.all(3),
-            child: key('输入法（中文、语音）', onSystemInput!, k: const Key('tv-key-ime'), icon: Icons.keyboard_alt_outlined),
+          child: Row(
+            children: [
+              if (onSystemInput != null)
+                Expanded(
+                  flex: 3,
+                  child: Padding(
+                    padding: const EdgeInsets.all(3),
+                    child: key(
+                      onPhoneInput == null ? '输入法（中文、语音）' : '中文 / 语音',
+                      onSystemInput!,
+                      k: const Key('tv-key-ime'),
+                      icon: Icons.keyboard_alt_outlined,
+                    ),
+                  ),
+                ),
+              if (onPhoneInput != null)
+                Expanded(
+                  flex: 2,
+                  child: Padding(
+                    padding: const EdgeInsets.all(3),
+                    child: key('手机输入', onPhoneInput!, k: const Key('tv-key-phone'), icon: Icons.qr_code_2_rounded),
+                  ),
+                ),
+            ],
           ),
         ),
       );

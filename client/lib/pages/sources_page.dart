@@ -2,7 +2,9 @@ import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
 import '../engine/models.dart';
+import '../ui/phone_input.dart';
 import 'cache_settings.dart';
+import 'saved_subscriptions.dart';
 import 'danmaku_service_settings.dart';
 import 'download_settings.dart';
 import 'network_settings.dart';
@@ -98,22 +100,44 @@ class _SourcesPageState extends State<SourcesPage> {
                 _section(
                   context,
                   title: '订阅',
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _subscriptionField,
-                          keyboardType: TextInputType.url,
-                          enabled: state.connected && !state.busy,
-                          decoration: const InputDecoration(labelText: '订阅地址', hintText: '支持 http(s)、clan://、;pk; 密钥后缀'),
-                          onSubmitted: (v) => state.importSubscription(v),
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _subscriptionField,
+                              keyboardType: TextInputType.url,
+                              enabled: state.connected && !state.busy,
+                              decoration: const InputDecoration(labelText: '订阅地址', hintText: '支持 http(s)、clan://、;pk; 密钥后缀'),
+                              onSubmitted: (v) => state.importSubscription(v),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          FilledButton(
+                            onPressed: state.connected && !state.busy ? () => state.importSubscription(_subscriptionField.text) : null,
+                            child: const Text('导入'),
+                          ),
+                          if (phoneInputAvailable(context)) ...[
+                            const SizedBox(width: 8),
+                            PhoneInputButton(
+                              key: const Key('subscription-phone-input'),
+                              enabled: state.connected && !state.busy,
+                              request: const PhoneInputRequest(
+                                title: '订阅地址',
+                                hint: 'http(s)://…、clan://…，可带 ;pk; 密钥',
+                                keyboard: PhoneKeyboard.url,
+                              ),
+                              onReceived: (url) {
+                                _subscriptionField.text = url;
+                                state.importSubscription(url);
+                              },
+                            ),
+                          ],
+                        ],
                       ),
-                      const SizedBox(width: 12),
-                      FilledButton(
-                        onPressed: state.connected && !state.busy ? () => state.importSubscription(_subscriptionField.text) : null,
-                        child: const Text('导入'),
-                      ),
+                      SavedSubscriptions(state: state),
                     ],
                   ),
                 ),
