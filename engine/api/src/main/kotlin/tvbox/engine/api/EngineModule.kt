@@ -189,6 +189,12 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
             get("/network") { call.respond(engine.network()) }
             // A client may send only the settings it knows; the others stay as they are.
             put("/settings") { call.respond(engine.updateSettings(mergedSettings(engine.settings(), call.receive<JsonObject>()))) }
+            // The GitHub proxies offered, and measuring them: one small GitHub file through each, past the setting.
+            get("/github-proxy") { call.respond(engine.githubProxies()) }
+            post("/github-proxy/probe") {
+                val req = runCatching { call.receive<tvbox.engine.core.model.GithubProxyProbeRequest>() }.getOrNull()
+                call.respond(engine.probeGithubProxies(req?.prefixes.orEmpty()))
+            }
             get("/sites") { call.respond(engine.sites()) }
 
             route("/sites/{site}") {

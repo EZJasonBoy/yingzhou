@@ -200,6 +200,19 @@ class Engine(
     /** What the active config's `hosts` / `headers` / `doh` / `ads` and the DNS setting do to requests. */
     fun network(): tvbox.engine.core.model.NetworkInfo = network?.info() ?: tvbox.engine.core.model.NetworkInfo()
 
+    /** The GitHub proxies offered to pick from, and the file [probeGithubProxies] fetches through them. */
+    fun githubProxies(): tvbox.engine.core.model.GithubProxyInfo =
+        tvbox.engine.core.model.GithubProxyInfo(tvbox.engine.core.net.GithubProxy.PRESETS, tvbox.engine.core.net.GithubProxy.PROBE_URL)
+
+    /** Which of [prefixes] (the presets when empty) answer with a small GitHub file, and how fast; GitHub itself first. */
+    suspend fun probeGithubProxies(prefixes: List<String>): tvbox.engine.core.model.GithubProxyProbe {
+        val asked = prefixes.ifEmpty { tvbox.engine.core.net.GithubProxy.PRESETS.map { it.prefix } }
+        return tvbox.engine.core.model.GithubProxyProbe(
+            url = tvbox.engine.core.net.GithubProxy.PROBE_URL,
+            results = tvbox.engine.core.net.GithubProxy.probe(http, asked),
+        )
+    }
+
     private val playlistPrefix = proxyBase.substringBefore("/proxy") + "/m3u8?"
 
     /** The config's `headers` for the media host, added to what the player is told to send. */

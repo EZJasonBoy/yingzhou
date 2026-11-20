@@ -13,6 +13,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import tvbox.engine.core.Engine
@@ -104,6 +105,47 @@ class GithubProxyTest {
         val other = Net { 200 }
         get(GithubProxy(enabled = true), other, "https://example.com/a.json")
         assertEquals(listOf("https://example.com/a.json"), other.asked)
+    }
+
+    @Test
+    fun `a probe fetches the file from github and through each proxy as written, whatever the setting`() = runBlocking {
+        val file = "https://raw.githubusercontent.com/me/tv/abc123/.gitattributes"
+        val asked = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val net = Interceptor { chain ->
+            val url = chain.request().url.toString()
+            asked += url
+            fun answer(code: Int, body: String) = Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(code)
+                .message("x").body(body.toResponseBody()).build()
+            when {
+                url == file || url.startsWith("https://good.test/") -> answer(200, "* text=auto\n*.jar binary\n")
+                // A proxy that answers every address with its own page.
+                url.startsWith("https://page.test/") -> answer(200, "<html>this proxy is closed</html>")
+                url.startsWith("https://busy.test/") -> answer(503, "busy")
+                else -> throw IOException("unreachable")
+            }
+        }
+        // The setting points at good.test: a probe of the others must not end up there.
+        val client = OkHttpClient.Builder().addInterceptor(GithubProxy(enabled = true, prefix = "https://good.test/")).addInterceptor(net).build()
+
+        val results = GithubProxy.probe(SiteHttp(client), listOf("busy.test", "https://page.test", "https://dead.test/", "https://good.test/", "https://good.test", " "), file = file)
+
+        assertEquals(listOf("", "https://busy.test/", "https://page.test/", "https://dead.test/", "https://good.test/"), results.map { it.prefix }, "github first, then each once")
+        assertEquals(listOf(true, false, false, false, true), results.map { it.ok })
+        assertTrue("503" in results[1].error, results[1].error)
+        assertTrue("not with the file" in results[2].error, results[2].error)
+        assertTrue("dead.test" in results[3].error, results[3].error)
+        assertTrue(results.all { it.ms >= 0 })
+        assertEquals(results.map { it.prefix + file }.toSet(), asked.toSet(), "each address asked as written, nothing rerouted")
+    }
+
+    @Test
+    fun `the presets are proxies of the usual shape, the default among them`() {
+        assertTrue(GithubProxy.PRESETS.any { it.prefix == GithubProxy.DEFAULT_PREFIX })
+        for (p in GithubProxy.PRESETS) {
+            assertEquals(GithubProxy.normalize(p.prefix), p.prefix)
+            assertEquals(raw, GithubProxy.direct(p.prefix + raw), "the engine recognises ${p.name} in a subscription's addresses")
+        }
+        assertEquals(GithubProxy.PRESETS.size, GithubProxy.PRESETS.map { it.prefix }.toSet().size)
     }
 
     @Test

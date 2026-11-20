@@ -103,6 +103,8 @@ tvsig=<过期时间，秒，36 进制>.<设备 id 或 local>.<HMAC-SHA256 前 16
 | GET | `/settings` | `{githubProxy, githubProxyPrefix, doh, streamCache, streamCacheMaxMB, danmakuConfigApi, danmakuApi}` |
 | PUT | `/settings` | 同样的对象，**可以只带要改的字段**，没带的保持原值；保存并立即生效，返回规整后的完整对象。改 GitHub 代理后当前配置不会自动重新加载，客户端随后重新 `activate` |
 | GET | `/network` | 当前配置的网络项和 DNS 选择，见下 |
+| GET | `/github-proxy` | 可选的 GitHub 加速代理：`{presets: [{name, prefix}], probeUrl}` |
+| POST | `/github-proxy/probe` | 测速：body `{prefixes: [...]}`（可省略或为空，表示全部 `presets`），返回 `{url, results: [{prefix, ok, ms, error}]}` |
 
 `doh` 是所选 DNS-over-HTTPS 服务器的地址，空串（默认）表示用系统 DNS；不是 http(s) 地址的值会被存成空串。改了之后从下一个请求起生效。
 
@@ -126,6 +128,8 @@ tvsig=<过期时间，秒，36 进制>.<设备 id 或 local>.<HMAC-SHA256 前 16
 `streamCache`（默认 `true`）和 `streamCacheMaxMB`（默认 2048，引擎会限制在 200 到 1048576 之间）控制播放缓存，见下面"播放缓存"一节；改它们不需要重新加载配置。
 
 `githubProxy` 为 `false`（默认）时，GitHub 上的文件（`raw.githubusercontent.com`、`github.com` 等）直接向 GitHub 取，地址前面被订阅写上的代理（`https://<代理>/https://raw.githubusercontent.com/…`，带不带内层的 `https://` 都认）会被去掉；为 `true` 时改经 `githubProxyPrefix` 取，失败再直连。`/config` 的 `url` 始终是订阅里写的原样，`fetchedUrl` 是实际访问的地址。
+
+`/github-proxy` 的 `presets` 是引擎内置的公共加速代理（`prefix` 以 `/` 结尾，GitHub 地址直接接在后面），`githubProxyPrefix` 可以是其中之一，也可以是别的。`/github-proxy/probe` 同时取 `probeUrl`（本项目公开仓库里固定提交下的一个约 100 字节的文件）：先直连 GitHub（结果里 `prefix` 为空串、排第一），再经每个前缀各一次，不受 `githubProxy` 设置影响、不会改道，除这一个 GET 外不发送任何东西。前缀会被规整（补 `https://` 和结尾的 `/`）、去重，最多 20 个；每个最多等 8 秒，所以整个请求最长约 8 秒。`ok` 表示取回的内容确实是那个文件（有的代理对任何地址都回答 200 和一个自己的页面，算作失败）；`ms` 是从发出到读完（或失败）的毫秒数；`error` 是失败原因，如 `HTTP 503 from <host>`、`timeout talking to <host>`、`answered, but not with the file`。旧引擎没有这两个接口（404），客户端这时只显示开关和地址输入框。
 
 多仓：`/config` 与 `activate` 返回的 `repos` 是 `[{name, url, parent, group, depth}]`。条目本身是多仓时，`activate` 它会把它展开：它变成 `group: true`，它的条目紧跟其后（`parent` 是它的 `url`，`depth` 加一），并加载其中第一个能用的，返回的 `url` 是实际加载的那个。不带 `repo`（或选的是一个多仓）时，失效的条目会被跳过；带 `repo` 指定的具体条目失效则报错，当前配置保持不变。
 

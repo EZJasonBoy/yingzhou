@@ -29,3 +29,36 @@ data class NetworkInfo(
     /** The active config's `ads`: hosts blocked while sniffing. */
     val ads: List<String> = emptyList(),
 )
+
+/** A GitHub proxy ("gh-proxy") offered to pick from: [prefix] goes in front of the GitHub address. */
+@Serializable
+data class GithubProxyPreset(val name: String, val prefix: String)
+
+/** `GET /api/v1/github-proxy`: the proxies offered, and the file a probe fetches through them. */
+@Serializable
+data class GithubProxyInfo(
+    val presets: List<GithubProxyPreset> = emptyList(),
+    val probeUrl: String = "",
+)
+
+/** `POST /api/v1/github-proxy/probe`: the prefixes to measure; empty: the presets. */
+@Serializable
+data class GithubProxyProbeRequest(val prefixes: List<String> = emptyList())
+
+/** How one prefix answered a probe; the empty prefix is GitHub itself. */
+@Serializable
+data class GithubProxyProbeResult(
+    val prefix: String,
+    /** It answered with the file. */
+    val ok: Boolean,
+    /** How long the answer (or the failure) took. */
+    val ms: Long,
+    /** Why not, when not [ok]: `HTTP 503 from <host>`, `timeout talking to <host>`, ... */
+    val error: String = "",
+)
+
+@Serializable
+data class GithubProxyProbe(
+    val url: String,
+    val results: List<GithubProxyProbeResult>,
+)
