@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#1c1a36">
+<meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="映舟遥控">
+<meta name="format-detection" content="telephone=no">
+<title>映舟遥控</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="remote.css">
+</head>
+<body>
+
+<!-- Shown until the script has decided what to show; also what a browser without script sees. -->
+<main id="view-boot" class="center">
+  <img class="logo" src="icon.svg" alt="" width="72" height="72">
+  <h1>映舟遥控</h1>
+  <p id="boot-text" class="muted">正在连接…</p>
+  <button id="boot-retry" class="primary" type="button" hidden>再试一次</button>
+  <noscript><p class="muted">这个网页需要开启 JavaScript。</p></noscript>
+</main>
+
+<!-- Pairing: the code the screen shows, once per phone. -->
+<main id="view-pair" class="center" hidden>
+  <img class="logo" src="icon.svg" alt="" width="72" height="72">
+  <h1>和映舟配对</h1>
+  <p class="muted">在电视或电脑上的映舟里打开「源 → 局域网」，输入那里显示的 6 位配对码。只需要配对一次。</p>
+  <form id="pair-form" autocomplete="off">
+    <input id="pair-code" class="code" name="code" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" placeholder="000000"
+           autocomplete="one-time-code" enterkeyhint="go" aria-label="配对码" required>
+    <button id="pair-go" class="primary" type="submit">配对</button>
+  </form>
+  <p id="pair-error" class="error" role="alert"></p>
+</main>
+
+<!-- Which screen to drive, when there is more than one or none. -->
+<main id="view-screens" class="center" hidden>
+  <img class="logo" src="icon.svg" alt="" width="72" height="72">
+  <h1 id="screens-title">选一块屏幕</h1>
+  <p id="screens-hint" class="muted"></p>
+  <div id="screens-list" class="screens"></div>
+  <button id="screens-forget" class="link" type="button">取消这台手机的配对</button>
+</main>
+
+<div id="view-remote" hidden>
+  <header class="top">
+    <button id="screen-button" class="screen-button" type="button" aria-label="换一块屏幕">
+      <img src="icon.svg" alt="" width="28" height="28">
+      <span class="screen-names"><b id="screen-name">映舟</b><small id="screen-status">正在连接…</small></span>
+    </button>
+    <button id="mode-button" class="chip" type="button" hidden>电视模式</button>
+  </header>
+
+  <!-- A text field has the focus on the screen: what is typed here goes into it. -->
+  <form id="text-bar" class="text-bar" hidden autocomplete="off">
+    <input id="text-input" type="text" enterkeyhint="done" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="屏幕上的输入框">
+    <button id="text-done" class="primary small" type="submit">完成</button>
+  </form>
+
+  <section id="tab-remote" class="tab">
+    <div id="now" class="now" hidden>
+      <div class="now-text">
+        <b id="now-title"></b>
+        <small id="now-sub"></small>
+      </div>
+      <div class="seek">
+        <span id="now-pos" class="time">00:00</span>
+        <input id="now-seek" class="range" type="range" min="0" max="1" step="1" value="0" aria-label="进度">
+        <span id="now-dur" class="time">00:00</span>
+      </div>
+    </div>
+
+    <div class="pad" id="pad">
+      <div class="pad-ring">
+        <button type="button" class="pad-dir pad-up" data-key="up" aria-label="上"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 15l7-7 7 7"/></svg></button>
+        <button type="button" class="pad-dir pad-right" data-key="right" aria-label="右"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+        <button type="button" class="pad-dir pad-left" data-key="left" aria-label="左"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+        <button type="button" class="pad-dir pad-down" data-key="down" aria-label="下"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9l7 7 7-7"/></svg></button>
+      </div>
+      <button type="button" class="pad-ok" data-key="ok" aria-label="确定">OK</button>
+    </div>
+
+    <div class="row three">
+      <button type="button" class="key" data-press="back" aria-label="返回"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6l-6 6 6 6M4 12h10a6 6 0 010 12"/></svg><span>返回</span></button>
+      <button type="button" class="key" data-command="home" aria-label="主页"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/></svg><span>主页</span></button>
+      <button type="button" class="key" data-press="menu" aria-label="菜单"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>菜单</span></button>
+    </div>
+
+    <div class="row five">
+      <button type="button" class="key round" data-command="previous" aria-label="上一集"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5v14M19 5l-9 7 9 7z"/></svg></button>
+      <button type="button" class="key round" data-seek="-10000" aria-label="后退 10 秒"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5l-8 7 8 7zM21 5l-8 7 8 7z"/></svg></button>
+      <button type="button" class="key round play" data-command="toggle" aria-label="播放或暂停">
+        <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg>
+        <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16M17 4v16"/></svg>
+      </button>
+      <button type="button" class="key round" data-seek="10000" aria-label="前进 10 秒"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5l8 7-8 7zM12 5l8 7-8 7z"/></svg></button>
+      <button type="button" class="key round" data-command="next" aria-label="下一集"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5v14M5 5l9 7-9 7z"/></svg></button>
+    </div>
+
+    <div class="row volume">
+      <button type="button" class="key round" id="mute" data-command="mute" aria-label="静音">
+        <svg class="icon-sound" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9zM17 9a4 4 0 010 6"/></svg>
+        <svg class="icon-muted" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9zM17 9l5 6M22 9l-5 6"/></svg>
+      </button>
+      <button type="button" class="key round" data-repeat-command="volumeBy" data-delta="-5" aria-label="音量减">−</button>
+      <input id="volume" class="range" type="range" min="0" max="100" step="1" value="100" aria-label="音量">
+      <button type="button" class="key round" data-repeat-command="volumeBy" data-delta="5" aria-label="音量加">+</button>
+    </div>
+  </section>
+
+  <section id="tab-play" class="tab" hidden>
+    <div id="play-empty" class="empty">
+      <p>屏幕上现在没有在播放。</p>
+      <p class="muted">用「遥控」页的方向键选一部片，开始播放后这里可以拖进度、换线路、选集、调字幕和弹幕。</p>
+    </div>
+    <div id="play-body" hidden>
+      <div class="card">
+        <b id="play-title" class="play-title"></b>
+        <small id="play-sub" class="muted"></small>
+        <p id="play-error" class="error" hidden></p>
+        <div class="seek" id="play-seek-row">
+          <span id="play-pos" class="time">00:00</span>
+          <input id="play-seek" class="range" type="range" min="0" max="1" step="1" value="0" aria-label="进度">
+          <span id="play-dur" class="time">00:00</span>
+        </div>
+        <div class="row five tight">
+          <button type="button" class="key round" data-seek="-30000" aria-label="后退 30 秒">−30</button>
+          <button type="button" class="key round" data-seek="-10000" aria-label="后退 10 秒">−10</button>
+          <button type="button" class="key round play" data-command="toggle" aria-label="播放或暂停">
+            <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg>
+            <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16M17 4v16"/></svg>
+          </button>
+          <button type="button" class="key round" data-seek="10000" aria-label="前进 10 秒">+10</button>
+          <button type="button" class="key round" data-seek="30000" aria-label="前进 30 秒">+30</button>
+        </div>
+        <button id="play-retry" class="primary" type="button" data-command="retry" hidden>重试</button>
+      </div>
+
+      <div class="card" id="speed-card"><h2>倍速</h2><div id="speeds" class="chips"></div></div>
+      <div class="card" id="groups-card" hidden><h2>分组</h2><div id="groups" class="chips"></div></div>
+      <div class="card" id="lines-card" hidden><h2>线路</h2><div id="lines" class="chips"></div></div>
+      <div class="card" id="episodes-card" hidden><h2 id="episodes-title">选集</h2><div id="episodes" class="grid"></div></div>
+      <div class="card" id="subtitles-card" hidden><h2>字幕</h2><div id="subtitles" class="chips"></div></div>
+      <div class="card" id="audios-card" hidden><h2>音轨</h2><div id="audios" class="chips"></div></div>
+      <div class="card" id="more-card">
+        <h2>其他</h2>
+        <div class="chips">
+          <button type="button" class="chip" id="danmaku" data-command="danmaku" hidden>弹幕</button>
+          <button type="button" class="chip" id="fullscreen" data-command="fullscreen" hidden>全屏</button>
+          <button type="button" class="chip" data-command="stop">退出播放</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <nav class="tabs" aria-label="页面">
+    <button type="button" class="tab-button on" data-tab="remote" aria-label="遥控"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="3"/><circle cx="12" cy="8" r="2.2"/><path d="M10 14h4M10 17h4"/></svg><span>遥控</span></button>
+    <button type="button" class="tab-button" data-tab="play" aria-label="播放"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 9l5 3-5 3z"/></svg><span>播放</span></button>
+  </nav>
+</div>
+
+<div id="toast" class="toast" role="status" hidden></div>
+<script src="remote.js"></script>
+</body>
+</html>

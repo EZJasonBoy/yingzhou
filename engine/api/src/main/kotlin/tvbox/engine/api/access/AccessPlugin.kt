@@ -24,6 +24,7 @@ import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.ktor.util.AttributeKey
 import kotlinx.serialization.Serializable
+import tvbox.engine.api.remote.RemoteHub
 import tvbox.engine.core.model.ApiError
 import tvbox.engine.core.model.ErrorBody
 import tvbox.engine.core.model.LiveList
@@ -90,9 +91,11 @@ fun ApplicationCall.isLocal(): Boolean {
 /**
  * Puts [access] in front of every route of the application, and adds `/api/v1/pair` and `/api/v1/lan`.
  *
- * In order: public routes (`GET /api/v1/info`, `POST /api/v1/pair`, [AccessControl.publicPrefixes]) → callers on
- * this machine → a valid `tvsig` on a GET outside `/api/` → (sharing off: 403) → a paired device's bearer token →
- * 401. Anything not let in is refused; routes added later are covered without doing anything.
+ * In order: public routes (`GET /api/v1/info`, `POST /api/v1/pair`, the web remote's page under `/remote/`,
+ * [AccessControl.publicPrefixes]) → callers on this machine → a valid `tvsig` on a GET outside `/api/` → (sharing
+ * off: 403) → a paired device's bearer token → 401. Anything not let in is refused; routes added later are covered
+ * without doing anything. The remote control's WebSockets also take the token as a subprotocol, and refuse pages of
+ * other origins before anything else.
  *
  * Engine addresses in what the engine sends back (play answers, live lists, HLS playlists) are signed for the caller,
  * so players reach them without our header.
@@ -103,6 +106,15 @@ fun Application.installAccess(access: AccessControl) {
         val path = call.request.path()
         val method = call.request.httpMethod
         val local = call.isLocal()
+        // The remote control's WebSockets: a page of another site in a browser on this machine could open them like
+        // any address (WebSockets know no same-origin rule) and would count as local, so pages are only let in from
+        // the engine's own address (the web remote). Programs send no Origin.
+        val socket = method == HttpMethod.Get && isRemoteSocket(path)
+        if (socket && !call.sameOrigin()) {
+            call.respond(HttpStatusCode.Forbidden, ErrorBody(ApiError("BAD_ORIGIN", "只接受映舟自己的遥控网页")))
+            finish()
+            return@intercept
+        }
         if (isPublic(path, method, access)) {
             if (local) call.attributes.put(GrantKey, AccessControl.Grant(AccessControl.LOCAL))
             return@intercept
@@ -124,6 +136,7 @@ fun Application.installAccess(access: AccessControl) {
             return@intercept
         }
         val bearer = call.request.headers[HttpHeaders.Authorization]?.takeIf { it.startsWith("Bearer ", ignoreCase = true) }?.substring(7)?.trim()
+            ?: if (socket) call.protocolToken() else null
         val device = bearer?.let { access.deviceForToken(it) }
         if (device == null) {
             call.response.headers.append(HttpHeaders.WWWAuthenticate, "Bearer")
@@ -197,6 +210,25 @@ fun Application.installAccess(access: AccessControl) {
     }
 }
 
+/** The two WebSocket routes of the remote control (remote/RemoteRoutes.kt). */
+private fun isRemoteSocket(path: String) = path == "/api/v1/remote/screen" || path == "/api/v1/remote/control"
+
+/** No Origin (not a browser), or the address the engine was reached at. */
+private fun ApplicationCall.sameOrigin(): Boolean {
+    val origin = request.headers[HttpHeaders.Origin] ?: return true
+    val host = request.headers[HttpHeaders.Host] ?: return false
+    return origin.equals("http://$host", ignoreCase = true) || origin.equals("https://$host", ignoreCase = true)
+}
+
+/**
+ * Browsers cannot set headers on a WebSocket, only name subprotocols: on the remote control's routes the token may
+ * come as one, `yingzhou.token.<token>`, next to the protocol's own name.
+ */
+private fun ApplicationCall.protocolToken(): String? =
+    request.headers.getAll(HttpHeaders.SecWebSocketProtocol).orEmpty()
+        .flatMap { it.split(",") }.map { it.trim() }
+        .firstOrNull { it.startsWith(RemoteHub.TOKEN_PROTOCOL) }?.removePrefix(RemoteHub.TOKEN_PROTOCOL)?.takeIf { it.isNotEmpty() }
+
 private suspend fun ApplicationCall.requireLocal(): Boolean {
     if (isLocal()) return true
     respond(HttpStatusCode.Forbidden, ErrorBody(ApiError("LOCAL_ONLY", "只能在引擎所在的设备上操作")))
@@ -227,6 +259,8 @@ fun AccessControl.lanStatus(): LanStatus {
 private fun isPublic(path: String, method: HttpMethod, access: AccessControl): Boolean {
     if (path == "/api/v1/info" && (method == HttpMethod.Get || method == HttpMethod.Head)) return true
     if (path == "/api/v1/pair" && method == HttpMethod.Post) return true
+    // The web remote: a static page, which pairs itself and then carries its token like any device.
+    if ((path == "/remote" || path.startsWith("/remote/")) && (method == HttpMethod.Get || method == HttpMethod.Head)) return true
     val prefixes = access.publicPrefixes
     return prefixes.isNotEmpty() && prefixes.any { path.startsWith(it) } && Canonical.mediaPath(path)
 }

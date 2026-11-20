@@ -107,8 +107,10 @@ object EmbeddedEngine {
         val drives = tvbox.engine.core.drive.DriveService(JsonFileStore(data), client, local, localFolders = false, log = { Log.w(TAG, it) })
         // Pairing, tokens and signed addresses, as on desktop: other devices get in only while LAN sharing is on.
         val access = tvbox.engine.api.access.AccessControl(JsonFileStore(data), supported = true)
+        // The LAN remote control: this app as a screen, a phone as its remote (one hub for every listener).
+        val remote = tvbox.engine.api.remote.RemoteHub()
         val module: io.ktor.server.application.Application.() -> Unit = {
-            engineModule(engine, tvbox.engine.api.EngineModuleOptions(access = access, drives = drives))
+            engineModule(engine, tvbox.engine.api.EngineModuleOptions(access = access, drives = drives, remote = remote))
         }
         server = embeddedServer(CIO, port = PORT, host = "127.0.0.1", module = module).start(wait = false)
         Log.i(TAG, "listening on $local")
