@@ -86,7 +86,7 @@ object EmbeddedEngine {
         val engine = Engine(
             info = EngineInfo(
                 name = "tvbox-engine",
-                version = "0.4.0",
+                version = "0.4.14",
                 platform = "android-${android.os.Build.VERSION.SDK_INT}",
                 capabilities = Capabilities(jar = false, js = false, py = false, sniff = false),
             ),
