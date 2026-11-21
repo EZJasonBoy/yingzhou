@@ -193,7 +193,7 @@ void main() {
     expect(find.text('网盘'), findsWidgets, reason: 'the card names where it is from');
     await tester.tap(find.text('剧集'));
     await tester.pumpAndSettle();
-    expect(find.text('来源：网盘'), findsOneWidget);
+    expect(find.text('来自 网盘'), findsOneWidget);
     await tester.tap(find.textContaining('继续播放').first);
     await pass(tester, const Duration(seconds: 1));
     expect(engine.resolved, ['/剧集/第2集.mp4']);

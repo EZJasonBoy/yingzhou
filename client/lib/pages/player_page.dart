@@ -12,6 +12,7 @@ import '../engine/engine_client.dart';
 import '../engine/library_models.dart';
 import '../engine/media_extras_api.dart';
 import '../engine/models.dart' show EngineException;
+import '../engine/source_finder.dart';
 import '../engine/vod_models.dart';
 import '../player_backend.dart';
 import '../player_cache.dart';
@@ -47,7 +48,7 @@ part 'player_tv.dart';
 /// and, for streams the engine caches, what the engine has on disk. The player's own cache is set up for where the
 /// video comes from ([PlayerCache]).
 class PlayerPage extends StatefulWidget {
-  const PlayerPage({super.key, required this.detail, required this.line, required this.episode, this.startPosition});
+  const PlayerPage({super.key, required this.detail, required this.line, required this.episode, this.startPosition, this.sources});
 
   final VodDetail detail;
   final int line;
@@ -56,11 +57,35 @@ class PlayerPage extends StatefulWidget {
   /// Resume point for the first episode played (from history).
   final Duration? startPosition;
 
+  /// What may be done when no line of the title plays: move on to another site's copy (the detail page's search).
+  /// Null for offline and drive playback.
+  final PlayerSources? sources;
+
   @override
   State<PlayerPage> createState() => _PlayerPageState();
 }
 
+/// The way out when every line of a title fails: the copies of the same title on other sites, found by the detail
+/// page's [SourceFinder] (TVBox / FongMi switch site the same way).
+class PlayerSources {
+  const PlayerSources({required this.finder, required this.auto, required this.onSwitched});
+
+  final SourceFinder finder;
+
+  /// Whether the player may move to another site by itself: not when the user chose this source, nor when its site
+  /// is not `changeable`.
+  final bool auto;
+
+  /// The player moved on to [card]'s [detail]; the detail page follows.
+  final void Function(VodCard card, VodDetail detail) onSwitched;
+}
+
 class _PlayerPageState extends State<PlayerPage> {
+  /// The title being played: [PlayerPage.detail], or another site's copy once every line of that one failed.
+  late VodDetail _detail = widget.detail;
+
+  /// The sources tried for the episode under way (keys from [sourceKey]); emptied when another episode is chosen.
+  final _triedSources = <String>{};
   late final PlayerBackend _backend = AppScope.read(context).playerBackend();
   late final EngineClient _client;
   final _focus = FocusNode();
@@ -178,7 +203,7 @@ class _PlayerPageState extends State<PlayerPage> {
   static const _earlyEnd = Duration(seconds: 30);
 
   Player get _player => _backend.player;
-  PlayLine get _currentLine => widget.detail.lines[_line];
+  PlayLine get _currentLine => _detail.lines[_line];
   Episode get _currentEpisode => _currentLine.episodes[_episode];
   bool get _hasNext => _episode + 1 < _currentLine.episodes.length;
   bool get _hasPrevious => _episode > 0;
@@ -262,7 +287,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _bufferWatch = Timer.periodic(const Duration(seconds: 1), (_) => _readBuffered());
     _tracks = PlayerTracks(player: _player, client: _client, settings: _settings, onNotice: (text) => _showOsd(text, const Duration(seconds: 2)));
     _danmakuPrefs = DanmakuPrefs(_settings)..addListener(_danmakuPrefsChanged);
-    _historyRead = _client.historyFor(widget.detail.site, widget.detail.id).then((h) {
+    _historyRead = _client.historyFor(_detail.site, _detail.id).then((h) {
       _savedSubtitle = h?.subtitle ?? '';
       _savedAudio = h?.audio ?? '';
     }).catchError((Object _) {});
@@ -331,7 +356,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
   /// Records where we are, so any client of this engine can resume. Failures are ignored (best effort).
   void _saveProgress({bool episodeStart = false}) {
-    final d = widget.detail;
+    final d = _detail;
     final position = episodeStart ? Duration.zero : _player.state.position;
     final duration = episodeStart ? Duration.zero : _player.state.duration;
     if (!episodeStart && duration <= Duration.zero) return;
@@ -365,6 +390,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _originLine = _line;
     _originEpisode = episode;
     _failedLines.clear();
+    _triedSources.clear();
     _autoLine = true;
     _open(_line, episode);
   }
@@ -372,7 +398,7 @@ class _PlayerPageState extends State<PlayerPage> {
   /// The user chose a line: the same episode there, carrying on from where it was. The choice is theirs: if this
   /// line fails, the page says so and stays on it.
   void _pickLine(int line) {
-    final lines = widget.detail.lines;
+    final lines = _detail.lines;
     if (lines[line].episodes.isEmpty) return;
     final same = lines[line].findEpisode(index: _originEpisode, name: lines[_originLine].episodes[_originEpisode].name);
     final resume = same == null ? null : _reached();
@@ -396,13 +422,15 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   String _lineLabel(int line) {
-    final name = widget.detail.lines[line].name;
-    return name.isEmpty ? '线路 ${line + 1}' : '「$name」';
+    final name = _detail.lines[line].name;
+    final label = name.isEmpty ? '线路 ${line + 1}' : name;
+    if (_detail.site != widget.detail.site) return '「${AppScope.read(context).siteName(_detail.site)} · $label」';
+    return name.isEmpty ? label : '「$name」';
   }
 
   /// The next line, going round from the current one, that has the episode and has not failed in this round.
   (int, int)? _nextLine() {
-    final lines = widget.detail.lines;
+    final lines = _detail.lines;
     final wanted = lines[_originLine].episodes[_originEpisode].name;
     for (var step = 1; step < lines.length; step++) {
       final line = (_line + step) % lines.length;
@@ -426,7 +454,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _watchdog = null;
     _errorCheck?.cancel();
     _errorCheck = null;
-    final lines = widget.detail.lines;
+    final lines = _detail.lines;
     final resume = _reached();
     final failed = _lineLabel(_line);
     _failedLines.add(_line);
@@ -447,6 +475,16 @@ class _PlayerPageState extends State<PlayerPage> {
     } else {
       text = '${tried == lines.length ? '所有 $tried 条线路都试过了' : '有这一集的 $tried 条线路都试过了'}，都没能播放\n最后一条$failed：$reason';
     }
+    // Every line had its turn: another site may have the title (only when the lines were changed automatically).
+    if (_autoLine && widget.sources?.auto == true && widget.sources!.finder.siteCount > 0 && _detail.name.trim().isNotEmpty) {
+      unawaited(_switchSource(text, resume));
+      return;
+    }
+    _giveUp(text, resume);
+  }
+
+  /// Nothing more to try: [text] is shown, and the page is back on the line the round began on, ready to go again.
+  void _giveUp(String text, Duration? resume) {
     _saveProgress();
     // Nothing that was under way counts any more, and nothing keeps loading behind the error.
     ++_requestSeq;
@@ -459,6 +497,64 @@ class _PlayerPageState extends State<PlayerPage> {
       _parsedBy = '';
       _error = text;
     });
+  }
+
+  /// No line of [_detail] plays the episode: the next copy of the same title on another site that has it takes over,
+  /// from the position reached. Any choice the user makes meanwhile (episode, line, retry, the remote) starts a new
+  /// request and ends this one. With none left, [text] is shown as before, and that no other site helped.
+  Future<void> _switchSource(String text, Duration? resume) async {
+    final sources = widget.sources!;
+    final finder = sources.finder;
+    _saveProgress();
+    final seq = ++_requestSeq;
+    _player.stop().catchError((Object _) {});
+    final wanted = _detail.lines[_originLine].episodes[_originEpisode].name;
+    final wantedIndex = _originEpisode;
+    final name = _detail.name;
+    _triedSources.add(sourceKey(_detail.site, _detail.id));
+    finder.markBroken(_detail.site, _detail.id);
+    setState(() {
+      _error = null;
+      _parsedBy = '';
+      _status = '${_detail.lines.length > 1 ? '所有线路' : '这条线路'}都没能播放，正在别的站点找《$name》…';
+    });
+    for (var i = 0; i < 8; i++) {
+      final card = await finder.nextExact(skip: _triedSources);
+      if (!mounted || seq != _requestSeq) return;
+      if (card == null) break;
+      _triedSources.add(sourceKey(card.site, card.id));
+      final VodDetail d;
+      try {
+        d = (await _client.detail(card.site, card.id)).withId(card.id);
+      } catch (_) {
+        finder.markBroken(card.site, card.id);
+        continue;
+      }
+      if (!mounted || seq != _requestSeq) return;
+      if (yearsConflict(_detail.year, d.year)) {
+        finder.markBroken(card.site, card.id);
+        continue;
+      }
+      // A site without this episode may still have others: skipped for now, not marked.
+      final at = matchEpisode(d, name: wanted, index: wantedIndex);
+      if (at == null) continue;
+      final site = AppScope.read(context).siteName(card.site);
+      setState(() {
+        _detail = d;
+        _line = at.$1;
+        _episode = at.$2;
+        _originLine = at.$1;
+        _originEpisode = at.$2;
+        _failedLines.clear();
+      });
+      final from = resume != null && resume > Duration.zero ? '，从 ${_TimeLabel.format(resume)} 接着播' : '';
+      _showOsd('已换到「$site」$from', const Duration(seconds: 5));
+      sources.onSwitched(card, d);
+      unawaited(_open(at.$1, at.$2, resume: resume, automatic: true));
+      return;
+    }
+    if (!mounted || seq != _requestSeq) return;
+    _giveUp('$text\n别的站点也没有找到能播放的《$name》', resume);
   }
 
   /// No picture a while after the player got the address: the line is dead.
@@ -511,13 +607,13 @@ class _PlayerPageState extends State<PlayerPage> {
     });
     // An episode from its beginning goes into the history at once; a line the page turned to, only when it plays.
     if (resume == null && !automatic) _saveProgress(episodeStart: true);
-    _window.title = '${widget.detail.name} · ${_currentEpisode.name} - 映舟';
+    _window.title = '${_detail.name} · ${_currentEpisode.name} - 映舟';
     // Read before anything is awaited: the page may be gone by then.
     final fetchDirect = AppScope.read(context).fetchDirect;
     await _player.stop();
     final PlayInfo info;
     try {
-      info = await client.resolvePlay(widget.detail.site, _currentLine.name, _currentEpisode.id, direct: fetchDirect);
+      info = await client.resolvePlay(_detail.site, _currentLine.name, _currentEpisode.id, direct: fetchDirect);
     } catch (e) {
       if (mounted && seq == _requestSeq) _lineFailed('解析失败', '解析失败：${errorText(e)}');
       return;
@@ -607,10 +703,10 @@ class _PlayerPageState extends State<PlayerPage> {
     });
     try {
       final list = await _client.danmaku(
-        site: widget.detail.site,
+        site: _detail.site,
         line: line.name,
         episodeId: episode.id,
-        title: widget.detail.name,
+        title: _detail.name,
         episode: episode.name,
         refresh: refresh,
       );
@@ -995,7 +1091,7 @@ class _PlayerPageState extends State<PlayerPage> {
                   children: [
                     TvAutofocus(child: FilledButton.tonal(onPressed: _retry, child: const Text('重试'))),
                     // The lines stay the user's to choose from when the page has run out of them.
-                    if (widget.detail.lines.length > 1) OutlinedButton(onPressed: () => setState(() => _panelOpen = true), child: const Text('换线路')),
+                    if (_detail.lines.length > 1) OutlinedButton(onPressed: () => setState(() => _panelOpen = true), child: const Text('换线路')),
                   ],
                 ),
               ],
@@ -1007,7 +1103,7 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   Widget _buildControls(BuildContext context) {
-    final title = '${widget.detail.name} · ${_currentEpisode.name}';
+    final title = '${_detail.name} · ${_currentEpisode.name}';
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -1188,9 +1284,9 @@ class _PlayerPageState extends State<PlayerPage> {
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          for (var i = 0; i < widget.detail.lines.length; i++)
+                          for (var i = 0; i < _detail.lines.length; i++)
                             ChoiceChip(
-                              label: Text(widget.detail.lines[i].name),
+                              label: Text(_detail.lines[i].name),
                               selected: i == _line,
                               onSelected: (_) {
                                 setState(() => _panelOpen = false);
@@ -1364,9 +1460,9 @@ class _PlayerPageState extends State<PlayerPage> {
     final mobile = _mobile!;
     final caption = [_currentEpisode.name, _lineCaption].join(' · ');
     return PlayerPhoneInfo(
-      title: widget.detail.name,
+      title: _detail.name,
       caption: caption,
-      lines: widget.detail.lines,
+      lines: _detail.lines,
       line: _line,
       episode: _episode,
       onLine: (i) {

@@ -198,6 +198,7 @@ class SiteInfo {
     required this.quickSearch,
     required this.filterable,
     required this.runtime,
+    this.changeable = true,
   });
 
   final String key;
@@ -208,6 +209,10 @@ class SiteInfo {
   final bool filterable;
   final SiteRuntime runtime;
 
+  /// The config's `changeable`: whether playback may switch to this site, or away from it, on its own when a title
+  /// cannot be played where it is. True when the engine does not say (engines before v0.4.1421).
+  final bool changeable;
+
   factory SiteInfo.fromJson(Map<String, dynamic> json) => SiteInfo(
         key: json['key'] as String,
         name: json['name'] as String,
@@ -215,6 +220,7 @@ class SiteInfo {
         searchable: json['searchable'] as bool,
         quickSearch: json['quickSearch'] as bool,
         filterable: json['filterable'] as bool,
+        changeable: json['changeable'] as bool? ?? true,
         runtime: SiteRuntime.values.firstWhere(
           (r) => r.name == json['runtime'],
           orElse: () => SiteRuntime.unknown,

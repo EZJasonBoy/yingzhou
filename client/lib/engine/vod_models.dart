@@ -163,6 +163,25 @@ class VodDetail {
         remarks: j['remarks'] as String? ?? '',
         lines: [for (final l in j['lines'] as List<dynamic>? ?? const []) PlayLine.fromJson(l as Map<String, dynamic>)],
       );
+
+  /// This detail under [fallback] as its id when the site left the id out (older engines pass that through), so
+  /// history and favourites are kept under the id the card was opened with.
+  VodDetail withId(String fallback) => id.isNotEmpty || fallback.isEmpty ? this : copyWith(id: fallback);
+
+  VodDetail copyWith({String? site, String? id}) => VodDetail(
+        site: site ?? this.site,
+        id: id ?? this.id,
+        name: name,
+        pic: pic,
+        year: year,
+        area: area,
+        type: type,
+        actor: actor,
+        director: director,
+        content: content,
+        remarks: remarks,
+        lines: lines,
+      );
 }
 
 class PlayInfo {

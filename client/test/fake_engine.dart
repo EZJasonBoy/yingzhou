@@ -27,6 +27,17 @@ Map<String, Object> fakeLine(String name, String tag, {int count = 3}) => {
 /// [danmaku] are the site's danmaku by episode id (`*` for every episode), as `GET /api/v1/danmaku` items; the
 /// requests for them are noted in [danmakuAsked]. With [danmakuConfigApi] (the config's `danmaku` field, '' for
 /// none) the engine answers `/danmaku/services`, so the 弹幕 card shows on the 源 page. `POST /api/v1/danmaku/parse` gives one comment that names the file.
+///
+/// Several sites, for looking a title up elsewhere: [cmsSite] is laid over the `cms` site's entry (e.g.
+/// `{'changeable': false}`), [extraSites] come after the two default sites, [homeList] replaces the cards of
+/// `cms`'s home. [details] are detail answers by `'<site>/<id>'` (for `cms` they replace the default one; any
+/// other site without an entry answers SITE_BAD_RESULT). With [searchHits] (cards by site, in the order the sites
+/// answer) `/search/stream` answers those, only for the sites in `sites=` when it is given. [searchAsked] notes
+/// each search as `'<keyword>|<sites>'`, [detailAsked] each detail as `'<site>/<id>'`, [resolvedAt] each resolve
+/// as `'<site>:<line>'`. History and favourites work for any site (stored by id for `cms`, else `'<site>/<id>'`).
+///
+/// A multi-repository config: [repos] are the summary's entries; `activate` with `{"repo": url}` makes that entry
+/// the summary's url (502 for one in [failRepos]). [homeByConfig] gives `cms`'s home cards by the summary's url.
 MockClient fakeEngine({
   bool hasConfig = false,
   List<Map<String, Object>> history = const [],
@@ -45,6 +56,17 @@ MockClient fakeEngine({
   bool relays = false,
   List<bool>? directAsked,
   int filterRows = 1,
+  Map<String, Object> cmsSite = const {},
+  List<Map<String, Object>> extraSites = const [],
+  List<Map<String, Object>>? homeList,
+  Map<String, Map<String, Object>> details = const {},
+  Map<String, List<Map<String, Object>>> searchHits = const {},
+  List<String>? searchAsked,
+  List<String>? detailAsked,
+  List<String>? resolvedAt,
+  List<Map<String, Object>>? repos,
+  Set<String> failRepos = const {},
+  Map<String, List<Map<String, Object>>> homeByConfig = const {},
 }) {
   var configured = hasConfig;
   // With [savedSubscriptions] the engine keeps a list like the real one: `GET`, rename (`PUT`), `DELETE`, and
@@ -63,7 +85,7 @@ MockClient fakeEngine({
   final summary = {
     'subscriptionId': 's1',
     'url': 'http://example.test/tv.json',
-    'repos': <Object>[],
+    'repos': repos ?? <Object>[],
     'sites': 2,
     'parses': 0,
     'lives': 0,
@@ -71,9 +93,21 @@ MockClient fakeEngine({
     'wallpaper': '',
   };
   final sites = [
-    {'key': 'cms', 'name': '采集站', 'type': 1, 'searchable': true, 'quickSearch': true, 'filterable': true, 'runtime': 'cms'},
+    {'key': 'cms', 'name': '采集站', 'type': 1, 'searchable': true, 'quickSearch': true, 'filterable': true, 'runtime': 'cms', ...cmsSite},
     {'key': 'js1', 'name': '脚本站', 'type': 3, 'searchable': false, 'quickSearch': true, 'filterable': true, 'runtime': 'js'},
+    ...extraSites,
   ];
+  // activate's body: `{"repo": url}` picks an entry of a multi-repository config.
+  http.Response? activateRepo(http.Request request) {
+    if (repos == null || request.body.isEmpty) return null;
+    final repo = (jsonDecode(request.body) as Map<String, dynamic>)['repo'] as String?;
+    if (repo == null) return null;
+    if (failRepos.contains(repo)) {
+      return http.Response.bytes(utf8.encode(jsonEncode({'error': {'code': 'CONFIG_LOAD_FAILED', 'message': '$repo 打不开'}})), 502, headers: {'content-type': 'application/json; charset=utf-8'});
+    }
+    summary['url'] = repo;
+    return null;
+  }
   // What the engine would fetch: with the GitHub proxy off, a proxy in front of a GitHub address is taken off.
   var settings = <String, dynamic>{'githubProxy': false, 'githubProxyPrefix': 'https://ghfast.top/', 'streamCache': true, 'streamCacheMaxMB': 2048};
   // The summary as the engine would give it: with the proxy on, the config is fetched through it.
@@ -110,6 +144,8 @@ MockClient fakeEngine({
           sub['usedAt'] = clock++;
           summary['subscriptionId'] = sub['id']!;
           summary['url'] = sub['url']!;
+          final failed = activateRepo(request);
+          if (failed != null) return failed;
           configured = true;
           return json(summarised());
         case ('PUT', _, null):
@@ -126,11 +162,13 @@ MockClient fakeEngine({
       }
     }
 
-    // Library: /history[/cms/<id>] and /favorites[/cms/<id>]
-    final lib = RegExp(r'^/api/v1/(history|favorites)(?:/cms/(.+))?$').firstMatch(path);
+    // Library: /history[/<site>/<id>] and /favorites[/<site>/<id>]
+    final lib = RegExp(r'^/api/v1/(history|favorites)(?:/([^/]+)/(.+))?$').firstMatch(path);
     if (lib != null) {
       final store = lib.group(1) == 'history' ? historyById : favoritesById;
-      final id = lib.group(2) == null ? null : Uri.decodeComponent(lib.group(2)!);
+      final libSite = lib.group(2) == null ? 'cms' : Uri.decodeComponent(lib.group(2)!);
+      final vodId = lib.group(3) == null ? null : Uri.decodeComponent(lib.group(3)!);
+      final id = vodId == null ? null : (libSite == 'cms' ? vodId : '$libSite/$vodId');
       if (id == null) {
         if (request.method == 'DELETE') {
           store.clear();
@@ -143,7 +181,7 @@ MockClient fakeEngine({
           return store.containsKey(id) ? json(store[id]!) : json({'error': {'code': 'NOT_FOUND', 'message': 'none'}}, 404);
         case 'PUT':
           final body = jsonDecode(request.body) as Map<String, dynamic>;
-          store[id] = {...body, 'site': 'cms', 'vodId': id};
+          store[id] = {...body, 'site': libSite, 'vodId': vodId!};
           if (lib.group(1) == 'history') savedHistory?[id] = store[id]!;
           return json(store[id]!);
         case 'DELETE':
@@ -186,6 +224,8 @@ MockClient fakeEngine({
         final url = (jsonDecode(request.body) as Map<String, dynamic>)['url'];
         return json({'id': 's1', 'name': url, 'url': url}, 201);
       case ('POST', '/api/v1/subscriptions/s1/activate'):
+        final failed = activateRepo(request);
+        if (failed != null) return failed;
         configured = true;
         return json(summarised());
       case ('GET', '/api/v1/sites/cms/home'):
@@ -215,11 +255,15 @@ MockClient fakeEngine({
                 },
             ],
           },
-          'list': [card('7', '推荐片')],
+          'list': homeByConfig[summary['url']] ?? homeList ?? [card('7', '推荐片')],
         });
       case ('GET', '/api/v1/sites/cms/category'):
         return json({'page': 1, 'pageCount': 1, 'total': 1, 'list': [card('8', '分类片')]});
+      case ('GET', '/api/v1/sites/cms/detail') when details.containsKey('cms/${request.url.queryParameters['id']}'):
+        detailAsked?.add('cms/${request.url.queryParameters['id']}');
+        return json(details['cms/${request.url.queryParameters['id']}']!);
       case ('GET', '/api/v1/sites/cms/detail'):
+        detailAsked?.add('cms/${request.url.queryParameters['id']}');
         return json({
           'site': 'cms',
           'id': request.url.queryParameters['id'],
@@ -244,6 +288,7 @@ MockClient fakeEngine({
         final body = jsonDecode(request.body) as Map<String, dynamic>;
         final line = body['line'] as String;
         resolved?.add(line);
+        resolvedAt?.add('${body['site']}:$line');
         // With [relays], a resolve that asks for `direct` gets the address plus `?d=1`, and as the relay through the
         // engine the address plus `?relay=1` (cache key k1), like an engine with its stream cache on.
         final direct = body['direct'] == true;
@@ -331,13 +376,35 @@ MockClient fakeEngine({
           }, 400);
         }
         return json({'url': 'https://cdn.test/catchup/a.m3u8?start=${q['start']}&end=${q['end']}', 'headers': <String, String>{}, 'line': 0, 'alternates': <Object>[]});
+      case ('GET', '/api/v1/search/stream') when searchHits.isNotEmpty:
+        final wd = request.url.queryParameters['wd'] ?? '';
+        final only = request.url.queryParameters['sites']?.split(',').toSet();
+        searchAsked?.add('$wd|${request.url.queryParameters['sites'] ?? ''}');
+        final asked = [for (final site in searchHits.keys) if (only == null || only.contains(site)) site];
+        final sse = StringBuffer();
+        for (final site in asked) {
+          sse.write('event: site\ndata: ${jsonEncode({'site': site, 'status': 'started'})}\n\n');
+          final items = searchHits[site]!;
+          if (items.isNotEmpty) sse.write('event: results\ndata: ${jsonEncode({'site': site, 'items': items})}\n\n');
+          sse.write('event: site\ndata: ${jsonEncode({'site': site, 'status': 'done', 'count': items.length, 'ms': 5})}\n\n');
+        }
+        sse.write('event: end\ndata: ${jsonEncode({'sites': asked.length, 'ms': 6})}\n\n');
+        return http.Response.bytes(utf8.encode(sse.toString()), 200, headers: {'content-type': 'text/event-stream'});
       case ('GET', '/api/v1/search/stream'):
+        searchAsked?.add('${request.url.queryParameters['wd'] ?? ''}|${request.url.queryParameters['sites'] ?? ''}');
         final sse = StringBuffer()
           ..write('event: site\ndata: {"site":"cms","status":"started"}\n\n')
           ..write('event: results\ndata: ${jsonEncode({'site': 'cms', 'items': [card('7', '推荐片')]})}\n\n')
           ..write('event: site\ndata: {"site":"cms","status":"done","count":1,"ms":5}\n\n')
           ..write('event: end\ndata: {"sites":1,"ms":6}\n\n');
         return http.Response.bytes(utf8.encode(sse.toString()), 200, headers: {'content-type': 'text/event-stream'});
+    }
+    final otherDetail = RegExp(r'^/api/v1/sites/([^/]+)/detail$').firstMatch(path);
+    if (request.method == 'GET' && otherDetail != null) {
+      final key = '${Uri.decodeComponent(otherDetail.group(1)!)}/${request.url.queryParameters['id']}';
+      detailAsked?.add(key);
+      final body = details[key];
+      return body != null ? json(body) : json({'error': {'code': 'SITE_BAD_RESULT', 'message': 'detail is empty'}}, 502);
     }
     return json({
       'error': {'code': 'NOT_FOUND', 'message': path},

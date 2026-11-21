@@ -175,6 +175,20 @@ class AppState extends ChangeNotifier {
     SiteRuntime.unknown => false,
   };
 
+  SiteInfo? siteInfo(String key) {
+    for (final s in sites) {
+      if (s.key == key) return s;
+    }
+    return null;
+  }
+
+  /// The sites a title can be looked for on, when a card stands for a title (a recommendation) or a site cannot
+  /// play it: searchable, run by this engine, not a drive, and with a key the search's `sites=` list can carry.
+  List<SiteInfo> titleSearchSites({String? exclude}) => [
+        for (final s in sites)
+          if (s.searchable && supports(s.runtime) && !s.key.startsWith('drive:') && !s.key.contains(',') && s.key != exclude) s,
+      ];
+
   String siteName(String key) {
     if (key.startsWith('drive:')) return '网盘';
     for (final s in sites) {

@@ -46,10 +46,10 @@ extension _PlayerRemoteGlue on _PlayerPageState {
 
   Map<String, Object?> _remoteState() {
     final state = _player.state;
-    final lines = widget.detail.lines;
+    final lines = _detail.lines;
     return {
       'kind': 'vod',
-      'title': widget.detail.name,
+      'title': _detail.name,
       'subtitle': [_currentEpisode.name, _currentLine.name].where((s) => s.isNotEmpty).join(' · '),
       'position': (_seekingTo ?? state.position).inMilliseconds,
       'duration': state.duration.inMilliseconds,
@@ -128,7 +128,7 @@ extension _PlayerRemoteGlue on _PlayerPageState {
         if (on == null || on != _window.isFullScreen) _toggleFullScreen();
       case 'line':
         final index = args.integer('index');
-        final lines = widget.detail.lines;
+        final lines = _detail.lines;
         if (index == null || index < 0 || index >= lines.length) return '没有这条线路';
         if (lines[index].episodes.isEmpty) return '这条线路没有可以播放的集';
         if (index != _line) _pickLine(index);

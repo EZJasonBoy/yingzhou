@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:material_ui/material_ui.dart';
@@ -5,8 +6,10 @@ import 'package:material_ui/material_ui.dart';
 import '../app_state.dart';
 import '../engine/downloads.dart';
 import '../engine/library_models.dart';
+import '../engine/source_finder.dart';
 import '../engine/vod_models.dart';
 import '../ui/common.dart';
+import '../ui/device_form.dart';
 import '../ui/tv/tv_focus.dart';
 import 'browse_page.dart' show errorText;
 import 'download_sheet.dart';
@@ -27,7 +30,30 @@ class DetailPage extends StatefulWidget {
 }
 
 class _DetailPageState extends State<DetailPage> {
-  late Future<VodDetail> _detail;
+  /// The source on screen: the card that was opened, or another site's copy of the same title found for it.
+  late VodCard _shown = widget.preview;
+  VodDetail? _d;
+  Object? _error;
+  bool _loading = true;
+
+  /// Looking for the title on other sites; the message says why. Null when not.
+  String? _searching;
+
+  /// A card that stands for a title, and no other site has it.
+  bool _notFound = false;
+
+  /// Under the source line: why this source is the one on screen.
+  String? _note;
+
+  /// The user chose this source: it is never switched away from on its own (like a line chosen by hand).
+  bool _picked = false;
+
+  /// The search for this title on other sites, made when first needed; shared with the player.
+  SourceFinder? _finder;
+
+  /// Bumped by every load, so an answer that comes after another load began is dropped.
+  int _gen = 0;
+
   int _line = 0;
   bool _expanded = false;
   HistoryEntry? _history;
@@ -40,13 +66,15 @@ class _DetailPageState extends State<DetailPage> {
   @override
   void initState() {
     super.initState();
-    _load();
+    _start();
     _loadLibrary();
     _downloads.start();
   }
 
   @override
   void dispose() {
+    _gen++;
+    _finder?.dispose();
     _downloads.dispose();
     super.dispose();
   }
@@ -55,17 +83,162 @@ class _DetailPageState extends State<DetailPage> {
     if (mounted) setState(() {});
   }
 
-  void _load({bool refresh = false}) {
-    _detail = AppScope.read(context).client.detail(widget.preview.site, widget.preview.id, refresh: refresh);
+  /// The title looked for on other sites.
+  String get _title => widget.preview.name.trim().isNotEmpty ? widget.preview.name : (_d?.name ?? '');
+
+  bool _changeable(String site) => AppScope.read(context).siteInfo(site)?.changeable ?? true;
+
+  SourceFinder _ensureFinder() {
+    final state = AppScope.read(context);
+    return _finder ??= SourceFinder(client: state.client, title: _title, sites: state.titleSearchSites(exclude: widget.preview.site));
+  }
+
+  /// Loads what is on screen: a card that stands for a title is looked for on other sites instead (TVBox's
+  /// `msearch:`), anything else is asked of its site. Callers that are not `initState` wrap it in setState.
+  void _start({bool refresh = false}) {
+    final gen = ++_gen;
+    _loading = true;
+    _error = null;
+    _notFound = false;
+    _searching = null;
+    if (needsTitleSearch(_shown)) {
+      unawaited(_autoFind(gen, why: '正在别的站点找《$_title》…'));
+    } else {
+      unawaited(_fetch(gen, _shown, refresh: refresh, fallback: !_picked));
+    }
+  }
+
+  /// [card]'s detail. With [fallback], one that has no line to play, or does not load, sends the page looking for
+  /// the title elsewhere, unless its site is not `changeable`.
+  Future<void> _fetch(int gen, VodCard card, {bool refresh = false, bool fallback = true}) async {
+    final state = AppScope.read(context);
+    final VodDetail d;
+    try {
+      d = (await state.client.detail(card.site, card.id, refresh: refresh)).withId(card.id);
+    } catch (e) {
+      if (!mounted || gen != _gen) return;
+      if (fallback && _title.trim().isNotEmpty && _changeable(card.site)) {
+        return _autoFind(gen, why: '「${state.siteName(card.site)}」上的《$_title》打不开，正在别的站点找…', failure: e);
+      }
+      setState(() {
+        _loading = false;
+        _error = e;
+      });
+      return;
+    }
+    if (!mounted || gen != _gen) return;
+    if (fallback && d.lines.isEmpty && _title.trim().isNotEmpty && _changeable(d.site)) {
+      return _autoFind(gen, why: '「${state.siteName(d.site)}」上的《$_title》没有播放线路，正在别的站点找…', from: d);
+    }
+    setState(() {
+      _d = d;
+      _loading = false;
+    });
+  }
+
+  /// Looks for the title on other sites and shows the first copy of the same title that has lines (FongMi's way);
+  /// a copy without lines, one that does not load, or one of another year than [from] is marked and skipped.
+  /// Nothing found: [from] (the detail without lines) stays on screen with a note, a failed load shows its
+  /// [failure], and a card that stands for a title says so.
+  Future<void> _autoFind(int gen, {required String why, VodDetail? from, Object? failure}) async {
+    final finder = _ensureFinder();
+    setState(() {
+      _searching = why;
+      _loading = false;
+    });
+    final tried = <String>{};
+    for (var i = 0; i < 8; i++) {
+      final card = await finder.nextExact(skip: tried);
+      if (!mounted || gen != _gen) return;
+      if (card == null) break;
+      tried.add(sourceKey(card.site, card.id));
+      final VodDetail d;
+      try {
+        d = (await AppScope.read(context).client.detail(card.site, card.id)).withId(card.id);
+      } catch (_) {
+        finder.markBroken(card.site, card.id);
+        continue;
+      }
+      if (!mounted || gen != _gen) return;
+      if (d.lines.isEmpty || (from != null && yearsConflict(from.year, d.year))) {
+        finder.markBroken(card.site, card.id);
+        continue;
+      }
+      final origin = AppScope.read(context).siteName(widget.preview.site);
+      setState(() {
+        _show(card, d);
+        _note = needsTitleSearch(widget.preview) ? null : '「$origin」上没有可播放的线路，已换到这里';
+      });
+      unawaited(_loadLibrary());
+      return;
+    }
+    if (!mounted || gen != _gen) return;
+    setState(() {
+      _searching = null;
+      if (from != null) {
+        _d = from;
+        _note = '其他站点也没有找到同名的片';
+      } else if (failure != null) {
+        _error = failure;
+      } else {
+        _notFound = true;
+      }
+    });
+  }
+
+  /// [card] and its detail are what the page shows from now on.
+  void _show(VodCard card, VodDetail d) {
+    _shown = card;
+    _d = d;
+    _searching = null;
+    _loading = false;
+    _error = null;
+    _notFound = false;
+    _line = 0;
+    _lineFromHistory = false;
+    _history = null;
+    _favorite = false;
+  }
+
+  /// The user picked [card] in 换一个: it is loaded as it is, and stays even without lines.
+  void _pick(VodCard card) {
+    setState(() {
+      _picked = true;
+      _shown = card;
+      _note = null;
+      _d = null;
+      _line = 0;
+      _lineFromHistory = false;
+      _history = null;
+      _favorite = false;
+      _loading = true;
+      _error = null;
+      _notFound = false;
+      _searching = null;
+    });
+    unawaited(_fetch(++_gen, card, fallback: false));
+    unawaited(_loadLibrary());
+  }
+
+  /// The player found no line of [_shown] that plays and moved on to [card]: the page follows it.
+  void _switchedInPlayer(VodCard card, VodDetail d) {
+    if (!mounted) return;
+    final from = AppScope.read(context).siteName(_shown.site);
+    setState(() {
+      _show(card, d);
+      _note = '「$from」的线路都不能播放，已换到这里';
+    });
+    unawaited(_loadLibrary());
   }
 
   Future<void> _loadLibrary() async {
+    if (needsTitleSearch(_shown)) return;
     final client = AppScope.read(context).client;
-    final site = widget.preview.site;
-    final id = widget.preview.id;
+    final site = _shown.site;
+    final id = _shown.id;
     try {
       final results = await Future.wait([client.historyFor(site, id), client.isFavorite(site, id)]);
-      if (!mounted) return;
+      if (!mounted || site != _shown.site || id != _shown.id) return;
       setState(() {
         _history = results[0] as HistoryEntry?;
         _favorite = results[1] as bool;
@@ -91,10 +264,40 @@ class _DetailPageState extends State<DetailPage> {
   }
 
   Future<void> _play(VodDetail detail, int line, int episode, {Duration? start}) async {
+    // When every line fails, the player may look for the title on other sites (not for drives, and not for a source
+    // the user chose or a site that is not `changeable`).
+    final sources = detail.site.startsWith('drive:')
+        ? null
+        : PlayerSources(finder: _ensureFinder(), auto: !_picked && _changeable(detail.site), onSwitched: _switchedInPlayer);
     await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => PlayerPage(detail: detail, line: line, episode: episode, startPosition: start),
+      builder: (_) => PlayerPage(detail: detail, line: line, episode: episode, startPosition: start, sources: sources),
     ));
     if (mounted) _loadLibrary();
+  }
+
+  /// 换一个: every copy found on other sites, the same title first, updated while the search goes on.
+  Future<void> _showSourcePicker() async {
+    final finder = _ensureFinder()..start();
+    setState(() {});
+    final state = AppScope.read(context);
+    final current = _shown;
+    Widget picker(BuildContext ctx) =>
+        _SourcePicker(finder: finder, current: current, siteName: state.siteName, onPick: (c) => Navigator.of(ctx).pop(c));
+    final VodCard? picked;
+    if (isTouch(context)) {
+      picked = await showModalBottomSheet<VodCard>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (ctx) => FractionallySizedBox(heightFactor: 0.7, child: picker(ctx)),
+      );
+    } else {
+      picked = await showDialog<VodCard>(
+        context: context,
+        builder: (ctx) => Dialog(child: SizedBox(width: 480, height: MediaQuery.sizeOf(ctx).height * 0.6, child: picker(ctx))),
+      );
+    }
+    if (picked != null && mounted && !(picked.site == _shown.site && picked.id == _shown.id)) _pick(picked);
   }
 
   /// Where the history says we were: (line, episode, position), matched by line name and episode id.
@@ -122,32 +325,144 @@ class _DetailPageState extends State<DetailPage> {
         backgroundColor: Colors.transparent,
         actions: [
           // The engine keeps details for a while; this asks the site again (new episodes, repaired lines).
-          IconButton(key: const Key('detail-refresh'), tooltip: '刷新（重新向站点获取）', icon: const Icon(Icons.refresh), onPressed: () => setState(() => _load(refresh: true))),
+          IconButton(key: const Key('detail-refresh'), tooltip: '刷新（重新向站点获取）', icon: const Icon(Icons.refresh), onPressed: () => setState(() => _start(refresh: true))),
           const SizedBox(width: 8),
         ],
       ),
-      body: FutureBuilder<VodDetail>(
-        future: _detail,
-        builder: (context, snap) {
-          final pic = snap.data?.pic.isNotEmpty == true ? snap.data!.pic : widget.preview.pic;
-          return Stack(
-            children: [
-              _Backdrop(pic: pic),
-              if (snap.connectionState != ConnectionState.done)
-                const LoadingView()
-              else if (snap.hasError)
-                StatusView(
-                  icon: Icons.cloud_off,
-                  message: '详情加载失败\n${errorText(snap.error)}',
-                  actionLabel: '重试',
-                  onAction: () => setState(_load),
-                )
-              else
-                _content(context, snap.data!, state.siteName(snap.data!.site)),
-            ],
-          );
-        },
+      body: Stack(
+        children: [
+          _Backdrop(pic: _d?.pic.isNotEmpty == true ? _d!.pic : widget.preview.pic),
+          if (_searching != null)
+            _searchingView(context)
+          else if (_notFound)
+            _notFoundView(context)
+          else if (_loading)
+            const LoadingView()
+          else if (_error != null)
+            StatusView(
+              icon: Icons.cloud_off,
+              message: '详情加载失败\n${errorText(_error)}',
+              actionLabel: '重试',
+              onAction: () => setState(_start),
+            )
+          else
+            _content(context, _d!, state.siteName(_d!.site)),
+        ],
       ),
+    );
+  }
+
+  /// While the title is looked for on other sites.
+  Widget _searchingView(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final finder = _finder;
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          key: const Key('detail-searching'),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (widget.preview.pic.isNotEmpty) ...[
+              ClipRRect(borderRadius: BorderRadius.circular(12), child: SizedBox(width: 112, height: 160, child: NetImage(widget.preview.pic))),
+              const SizedBox(height: 16),
+            ],
+            Text(_title, textAlign: TextAlign.center, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 16),
+            const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 3)),
+            const SizedBox(height: 14),
+            Text(_searching!, textAlign: TextAlign.center, style: TextStyle(color: scheme.onSurfaceVariant)),
+            if (finder != null)
+              ListenableBuilder(
+                listenable: finder,
+                builder: (context, _) => Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    finder.siteCount == 0 ? '' : '已搜 ${finder.answered}/${finder.siteCount} 个站点',
+                    style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// A card that stands for a title, and no other site has a copy that plays.
+  Widget _notFoundView(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final finder = _ensureFinder();
+    final n = finder.siteCount;
+    final message = n == 0 ? '这个订阅里没有能搜索的站点，没法找《$_title》' : '没在其他站点找到《$_title》\n搜了 $n 个站点';
+    final others = finder.all.length;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          key: const Key('detail-not-found'),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.search_off_rounded, size: 48, color: scheme.onSurfaceVariant),
+            const SizedBox(height: 16),
+            Text(message, textAlign: TextAlign.center, style: TextStyle(color: scheme.onSurfaceVariant, height: 1.5)),
+            const SizedBox(height: 20),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              alignment: WrapAlignment.center,
+              children: [
+                if (n > 0)
+                  TvAutofocus(
+                    child: FilledButton.tonal(
+                      key: const Key('detail-find-retry'),
+                      onPressed: () {
+                        finder.restart();
+                        setState(_start);
+                      },
+                      child: const Text('重试'),
+                    ),
+                  ),
+                if (others > 0) OutlinedButton(onPressed: _showSourcePicker, child: Text('看看名字相近的（$others）')),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 「来自 XX · 换一个」, and why this source is on screen when it is not the one that was opened.
+  Widget _sourceLine(VodDetail d, String siteName, ColorScheme scheme) {
+    final style = TextStyle(color: scheme.onSurfaceVariant, fontSize: 13);
+    final finder = _finder;
+    Widget change(int others) => TextButton(
+          key: const Key('detail-change-source'),
+          onPressed: _showSourcePicker,
+          style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 8)),
+          child: Text(others > 0 ? '换一个（$others）' : '换一个'),
+        );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 4,
+          children: [
+            Text('来自 $siteName', style: style),
+            // Drives hold the user's own files: there is nothing to look for elsewhere.
+            if (!d.site.startsWith('drive:'))
+              finder == null
+                  ? change(0)
+                  : ListenableBuilder(
+                      listenable: finder,
+                      builder: (context, _) => change(finder.all.where((c) => c.site != _shown.site || c.id != _shown.id).length),
+                    ),
+          ],
+        ),
+        if (_note != null) Text(_note!, key: const Key('detail-source-note'), style: style),
+      ],
     );
   }
 
@@ -168,7 +483,7 @@ class _DetailPageState extends State<DetailPage> {
 
     final poster = ClipRRect(
       borderRadius: BorderRadius.circular(14),
-      child: SizedBox(width: wide ? 200 : 112, height: wide ? 286 : 160, child: NetImage(d.pic.isNotEmpty ? d.pic : widget.preview.pic)),
+      child: SizedBox(width: wide ? 200 : 112, height: wide ? 286 : 160, child: NetImage(d.pic.isNotEmpty ? d.pic : _shown.pic.isNotEmpty ? _shown.pic : widget.preview.pic)),
     );
     // Narrow (a phone held upright): the title and facts go beside a small poster, the buttons under both.
     final heading = [
@@ -176,7 +491,7 @@ class _DetailPageState extends State<DetailPage> {
       const SizedBox(height: 8),
       if (meta.isNotEmpty) Text(meta, style: TextStyle(color: scheme.onSurfaceVariant)),
       const SizedBox(height: 4),
-      Text('来源：$siteName', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+      _sourceLine(d, siteName, scheme),
       if (d.director.isNotEmpty) ...[const SizedBox(height: 10), _kv('导演', d.director, scheme)],
       if (d.actor.isNotEmpty) ...[const SizedBox(height: 4), _kv('主演', d.actor, scheme)],
     ];
@@ -354,6 +669,96 @@ class _DetailPageState extends State<DetailPage> {
       .replaceAll('&gt;', '>')
       .replaceAll('&quot;', '"')
       .trim();
+}
+
+/// The copies of a title found on other sites: the same title, then close names, as the search brings them.
+class _SourcePicker extends StatelessWidget {
+  const _SourcePicker({required this.finder, required this.current, required this.siteName, required this.onPick});
+
+  final SourceFinder finder;
+  final VodCard current;
+  final String Function(String key) siteName;
+  final ValueChanged<VodCard> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return ListenableBuilder(
+      listenable: finder,
+      builder: (context, _) {
+        final status = finder.finished
+            ? '搜了 ${finder.siteCount} 个站点'
+            : '还在搜… 已搜 ${finder.answered}/${finder.siteCount} 个站点';
+        var first = true;
+        Widget row(VodCard c) {
+          final here = c.site == current.site && c.id == current.id;
+          final broken = finder.isBroken(c);
+          final sub = [siteName(c.site), c.remarks, if (broken) '试过，不能播放'].where((s) => s.isNotEmpty).join(' · ');
+          final autofocus = first;
+          first = false;
+          if (isTv(context)) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: TvFocusable(
+                key: Key('source-${c.site}-${c.id}'),
+                autofocus: autofocus,
+                onTap: () => onPick(c),
+                scale: 1.03,
+                child: Container(
+                  constraints: const BoxConstraints(minHeight: 50),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(color: here ? scheme.primaryContainer : scheme.surfaceContainerHigh, borderRadius: BorderRadius.circular(12)),
+                  child: Row(children: [
+                    Icon(here ? Icons.check_rounded : null, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(c.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16)),
+                        Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+                      ]),
+                    ),
+                  ]),
+                ),
+              ),
+            );
+          }
+          return ListTile(
+            key: Key('source-${c.site}-${c.id}'),
+            leading: Icon(here ? Icons.check_rounded : null),
+            title: Text(c.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis),
+            onTap: () => onPick(c),
+          );
+        }
+
+        Widget heading(String text) => Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+              child: Text(text, style: theme.textTheme.labelLarge?.copyWith(color: scheme.primary)),
+            );
+        return ListView(
+          padding: const EdgeInsets.only(bottom: 16),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('换一个来源', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text(status, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
+              ]),
+            ),
+            if (finder.exact.isNotEmpty) ...[heading('同名'), for (final c in finder.exact) row(c)],
+            if (finder.similar.isNotEmpty) ...[heading('名字相近'), for (final c in finder.similar) row(c)],
+            if (finder.all.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(finder.finished ? '没有找到其他来源' : '还在搜…', textAlign: TextAlign.center, style: TextStyle(color: scheme.onSurfaceVariant)),
+              ),
+          ],
+        );
+      },
+    );
+  }
 }
 
 /// Blurred poster behind the header, fading into the page background.

@@ -178,7 +178,7 @@ extension _PlayerTv on _PlayerPageState {
   /// The episode list for the remote: lines on top, then the episodes, the one playing has the focus.
   Widget _buildTvEpisodePanel(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final lines = widget.detail.lines;
+    final lines = _detail.lines;
     final episodes = _currentLine.episodes;
     return PlayerSidePanel(
       width: 440,
@@ -246,7 +246,7 @@ extension _PlayerTv on _PlayerPageState {
   /// The settings of the remote (menu key).
   Widget _buildTvSettings(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final lines = widget.detail.lines;
+    final lines = _detail.lines;
     final rate = _player.state.rate;
     Widget heading(String text) => Padding(
       padding: const EdgeInsets.only(top: 18, bottom: 10),
