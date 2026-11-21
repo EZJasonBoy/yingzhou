@@ -79,7 +79,7 @@
 
 ### 2.4 网页嗅探（已实现）
 
-解析链遇到 type 0 解析或 `parse=1` 的页面时，由引擎自己嗅探（`Sniffer`），判定规则同 TVBox：`PlayRules` 解析配置 `rules`（`host`+`rule`/`filter` 正则、`hosts`+`regex` 里非广告的条目、`exclude`），再加内置视频地址正则；`hosts`+`script` 的点击脚本在页面加载后执行。桌面 / NAS 用无头 Edge/Chrome/Chromium（CDP，独立 profile，关闭站点隔离以便同一会话看到播放器 iframe 的请求；首次嗅探时启动，空闲 5 分钟、引擎退出、或上次被强杀时残留的都会关掉；`TVBOX_BROWSER` 可指定浏览器）。没有浏览器时 `capabilities.sniff=false`，返回 `kind=sniff` 给客户端。
+解析链遇到 type 0 解析或 `parse=1` 的页面时，由引擎自己嗅探（`Sniffer`），判定规则同 TVBox：`PlayRules` 解析配置 `rules`（`host`+`rule`/`filter` 正则、`hosts`+`regex` 里非广告的条目、`exclude`），再加内置视频地址正则；`hosts`+`script` 的点击脚本在页面加载后执行。桌面 / NAS 用无头 Edge/Chrome/Chromium（CDP，独立 profile，关闭站点隔离以便同一会话看到播放器 iframe 的请求；首次嗅探时启动，空闲 5 分钟、引擎退出、或上次被强杀时残留的都会关掉；`TVBOX_BROWSER` 可指定浏览器；Linux 上先找 Chrome、Edge，再找 Chromium，Ubuntu 的 snap 版 Chromium 看不到系统临时目录和家目录下的隐藏目录，它的 profile 放在 `~/snap/<名字>/common/` 下）。没有浏览器时 `capabilities.sniff=false`，返回 `kind=sniff` 给客户端。
 
 ### 2.5 解析与去广告（已实现）
 

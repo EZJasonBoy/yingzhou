@@ -4,10 +4,12 @@ project(runner LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "tvbox_client")
+set(BINARY_NAME "yingzhou")
 # The unique GTK application identifier for this application. See:
 # https://wiki.gnome.org/HowDoI/ChooseApplicationID
-set(APPLICATION_ID "tvbox.next.tvbox_client")
+# Also the name of the .desktop file and of the icons, and of the folders path_provider gives the app
+# (~/.local/share/<id>, ~/.cache/<id>): do not change it.
+set(APPLICATION_ID "io.github.sa1koro.yingzhou")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
@@ -74,6 +76,15 @@ set_target_properties(${BINARY_NAME}
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# mimalloc in place of glibc's malloc, which keeps growing under libmpv (media_kit's advice). media_kit_libs_linux
+# builds the object file.
+if(MIMALLOC_LIB)
+  target_link_libraries(${BINARY_NAME} PRIVATE ${MIMALLOC_LIB})
+  if(TARGET MIMALLOC_TARGET)
+    add_dependencies(${BINARY_NAME} MIMALLOC_TARGET)
+  endif()
+endif()
+
 
 # === Installation ===
 # By default, "installing" just makes a relocatable bundle in the build
@@ -120,6 +131,13 @@ install(CODE "
   " COMPONENT Runtime)
 install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
   DESTINATION "${INSTALL_BUNDLE_DATA_DIR}" COMPONENT Runtime)
+
+# The window icon (runner/my_application.cc) and the menu entry; tools/package-desktop.sh installs them system-wide
+# in the .deb, the tarball's install-desktop-entry.sh for one user.
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/icons/"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/share/icons" COMPONENT Runtime)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/${APPLICATION_ID}.desktop"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/share/applications" COMPONENT Runtime)
 
 # Install the AOT library on non-Debug builds only.
 if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")

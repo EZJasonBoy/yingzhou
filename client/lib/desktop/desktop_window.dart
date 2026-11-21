@@ -30,7 +30,25 @@ class DesktopWindow {
     }
   }
 
+  /// `x,y,width,height,maximized`: the frame's corner and size; on Linux the frame's corner and the content's size.
   static const _boundsKey = 'window.bounds';
+
+  /// On Linux the window manager draws the frame, and GTK learns how thick it is only once the window is on screen.
+  /// A frame size given before that is taken for the content's, and the window would grow by its title bar at every
+  /// start; so there the content's size is what is kept.
+  static bool get _frameDrawnLater => defaultTargetPlatform == TargetPlatform.linux;
+
+  /// Runs [f] once [window] is on screen, or after five seconds.
+  void _whenShown(Window window, void Function() f) {
+    var waited = 0;
+    Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      waited += 100;
+      if (!_guard(() => window.isVisible, true) && waited < 5000) return;
+      timer.cancel();
+      // Shown is not yet mapped and framed by the window manager.
+      Timer(const Duration(milliseconds: 300), () => _guard(f, null));
+    });
+  }
 
   bool get supported => _window != null;
 
@@ -54,7 +72,15 @@ class DesktopWindow {
       if (saved != null && saved.length == 5) {
         final v = saved.take(4).map(double.tryParse).toList();
         if (v.every((e) => e != null) && v[2]! >= 800 && v[3]! >= 520 && v[0]! > -10000 && v[1]! > -10000) {
-          window.bounds = Rect.fromLTWH(v[0]!, v[1]!, v[2]!, v[3]!).toNative();
+          final r = Rect.fromLTWH(v[0]!, v[1]!, v[2]!, v[3]!);
+          if (_frameDrawnLater) {
+            window.contentSize = r.size.toNative();
+            window.position = r.topLeft.toNative();
+            // GTK places a window that is not on screen yet where the window manager likes; move it once it is.
+            if (saved[4] != '1') _whenShown(window, () => window.position = r.topLeft.toNative());
+          } else {
+            window.bounds = r.toNative();
+          }
         }
         if (saved[4] == '1') window.maximize();
       }
@@ -73,7 +99,7 @@ class DesktopWindow {
     if (window.isFullScreen || window.isMinimized) return;
     final maximized = window.isMaximized;
     final previous = settings.getString(_boundsKey)?.split(',');
-    final r = window.bounds.toRect();
+    final r = _frameDrawnLater ? window.position.toOffset() & window.contentSize.toSize() : window.bounds.toRect();
     // While maximized keep the last normal bounds, so un-maximizing next time lands somewhere sensible.
     final bounds = maximized && previous != null && previous.length == 5
         ? previous.take(4).join(',')

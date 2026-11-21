@@ -2,7 +2,7 @@
 //
 //   node tools/brand/render-icons.mjs
 //
-// Writes the Windows .ico, macOS AppIcon set, Android launcher icons and web icons into client/,
+// Writes the Windows .ico, macOS AppIcon set, Linux hicolor icons, Android launcher icons and web icons into client/,
 // and the Windows installer's wizard images into tools/installer/.
 // Set TVBOX_BROWSER to the browser executable when it is not in the usual place.
 //
@@ -163,6 +163,10 @@ for (const size of [192, 512]) {
   write(`web/icons/Icon-${size}.png`, png[`art${size}`]);
   write(`web/icons/Icon-maskable-${size}.png`, png[`art${size}`]);
 }
+// Linux: the hicolor theme layout, named after the application ID (client/linux/CMakeLists.txt).
+const linuxIcon = (dir) => { fs.mkdirSync(path.join(client, `linux/icons/hicolor/${dir}/apps`), { recursive: true }); return `linux/icons/hicolor/${dir}/apps/io.github.sa1koro.yingzhou`; };
+for (const size of [16, 24, 32, 48, 64, 128, 256, 512]) write(`${linuxIcon(`${size}x${size}`)}.png`, png[`art${size}`]);
+write(`${linuxIcon('scalable')}.svg`, fs.readFileSync(path.join(brand, 'yingzhou-logo.svg')));
 for (const size of WIZARD) write(`tools/installer/wizard-${size}.bmp`, bmp(size), root);
 write('yingzhou-logo-512.png', png.art512, brand);
 write('yingzhou-icon-32.png', png.art32, brand);
