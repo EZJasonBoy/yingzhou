@@ -2,7 +2,7 @@
 
 版本由 GitHub Actions 打包发布在 [Releases](https://github.com/Sa1koro/yingzhou/releases)（目前都是预发布版）。以下按版本和开发迭代记录，最新的在上面。当前状态和已知缺口见 [docs/status.md](docs/status.md)。
 
-## v0.4.41421356（2026-11-21）
+## v0.4.1421356（2026-11-21）
 
 - 「设置 → 网络」里的 GitHub 镜像改为下拉选择。打开后，GitHub 配置、组件和应用更新优先经过所选镜像。HTTP 代理可以分别用于本机更新、模块和组件下载、源配置获取、播放链接解析。
 - 「Python 蜘蛛」可以从常用 PyPI 和运行时镜像中选择，也可填写自定义地址。
