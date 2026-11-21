@@ -1,11 +1,13 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
+import '../update/update_settings.dart';
 import 'cache_settings.dart';
 import 'danmaku_service_settings.dart';
 import 'download_settings.dart';
 import 'github_proxy_settings.dart';
 import 'lan_section.dart';
+import 'network_settings.dart';
 import 'python_settings.dart';
 import 'stream_cache_settings.dart';
 import 'theme_mode_settings.dart';
@@ -47,8 +49,14 @@ class SettingsPage extends StatelessWidget {
                 heading('播放', gap: 0),
                 const StreamCacheSettings(),
                 const DanmakuServiceSettings(),
-                heading('网络', gap: 0),
-                const GithubProxySettings(),
+                if (state.engineSettings != null) ...[
+                  heading('网络', gap: 0),
+                  _card(
+                    context,
+                    title: '代理与 DNS',
+                    children: const [GithubProxySettings(), NetworkSettings()],
+                  ),
+                ],
                 heading('局域网'),
                 const LanSection(part: LanPart.share),
                 heading('下载与数据', gap: 0),
@@ -78,8 +86,30 @@ class SettingsPage extends StatelessWidget {
                     ),
                   ),
                 ),
+                const UpdateSettings(),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// A card with a small title above its rows, like the cards that look after themselves.
+  static Widget _card(BuildContext context, {required String title, required List<Widget> children}) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+              const SizedBox(height: 10),
+              ...children,
+            ],
           ),
         ),
       ),

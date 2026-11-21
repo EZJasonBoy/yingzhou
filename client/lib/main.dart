@@ -15,6 +15,7 @@ import 'ui/pairing_dialog.dart';
 import 'ui/shell.dart';
 import 'ui/theme.dart';
 import 'ui/tv/tv_app.dart';
+import 'update/update_watcher.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -86,7 +87,7 @@ class _TvboxAppState extends State<TvboxApp> {
           },
           child: CallbackShortcuts(bindings: {const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): _back}, child: TvAppFrame(child: child ?? const SizedBox.shrink())),
         ),
-        home: const PairingGate(child: AppShell()),
+        home: const PairingGate(child: UpdateWatcher(child: AppShell())),
       ),
     );
   }

@@ -344,3 +344,61 @@ jobs:
           else
             gh release create "$TAG" packages/* --title "映舟 ${TAG}" --notes-file "$notes" --prerelease --verify-tag
           fi
+
+      # What the app's update check reads (client/lib/update): latest.json on the rolling pre-release `channel`, a
+      # plain download at a fixed address. No GitHub API (rate limits; accelerating proxies do not pass it), and
+      # /releases/latest skips pre-releases, which all of them are so far.
+      - name: Update channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          # Installed copies compare with the version they were built as; a tag that says otherwise would have
+          # them told to update to themselves, or never.
+          app="$(sed -n 's/^version: *\([^+ ]*\).*/\1/p' client/pubspec.yaml)"
+          if [ "$app" != "$version" ]; then
+            echo "::error::client/pubspec.yaml is $app but the tag is $TAG; latest.json left as it was"
+            exit 1
+          fi
+          # A rerun of an older tag does not take the channel back.
+          tmp="$(mktemp -d)"
+          if gh release download channel --pattern latest.json --dir "$tmp" 2> /dev/null; then
+            current="$(jq -r '.version // empty' "$tmp/latest.json" 2> /dev/null || true)"
+            if [ -n "$current" ] && [ "$current" != "$version" ] && [ "$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -n 1)" = "$current" ]; then
+              echo "channel already announces $current, newer than $version; left as it was"
+              exit 0
+            fi
+          fi
+          # What changed: this version's section of CHANGELOG.md (from "## v0.4.0…" to the next "## ").
+          notes="$(awk -v h="## $TAG" '
+            /^## / && on { exit }
+            on { print; next }
+            substr($0, 1, length(h)) == h && substr($0, length(h) + 1, 1) !~ /[0-9.]/ { on = 1 }
+          ' CHANGELOG.md)"
+          # The package for each platform, by the key the app looks for.
+          assets='{}'
+          for f in packages/*; do
+            name="$(basename "$f")"
+            case "$name" in
+              *-windows-x64-setup.exe) key=windows-x64 ;;
+              *-windows-x64.zip) key=windows-x64-zip ;;
+              *-macos-*.dmg) key="macos-$(echo "$name" | sed 's/.*-macos-\(.*\)\.dmg$/\1/')" ;;
+              *-android-*.apk) key="android-$(echo "$name" | sed 's/.*-android-\(.*\)\.apk$/\1/')" ;;
+              *linux*) key="${name#yingzhou-}" ;;
+              *) continue ;;
+            esac
+            assets="$(jq -c --arg k "$key" --arg n "$name" --argjson s "$(stat -c %s "$f")" '. + {($k): {name: $n, size: $s}}' <<< "$assets")"
+          done
+          jq -n \
+            --arg version "$version" --arg tag "$TAG" --arg date "$(date -u +%F)" --arg notes "$notes" \
+            --arg page "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}" \
+            --arg download "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/" \
+            --argjson assets "$assets" \
+            '{version: $version, tag: $tag, date: $date, notes: $notes, page: $page, download: $download, assets: $assets}' > latest.json
+          cat latest.json
+          if ! gh release view channel > /dev/null 2>&1; then
+            gh release create channel --target "$GITHUB_SHA" --prerelease --title "更新通道" \
+              --notes "映舟「检查更新」读取的 latest.json，每次发布新版本时自动更新。安装包请到各版本自己的发布页下载。"
+          fi
+          gh release upload channel latest.json --clobber

@@ -1,7 +1,12 @@
 package tvbox.engine.core.net
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import okhttp3.Interceptor
 import okhttp3.Response
+import tvbox.engine.core.model.GithubProxyPreset
+import tvbox.engine.core.model.GithubProxyProbeResult
 import java.io.IOException
 
 /**
@@ -17,7 +22,7 @@ import java.io.IOException
  *   proxy fails.
  *
  * Installed as an OkHttp interceptor on the engine's client, so it covers configs, jars, scripts, playlists and
- * the requests spiders make through the host's client.
+ * the requests spiders make through the host's client. A request tagged [AsWritten] is left alone ([probe]).
  */
 class GithubProxy(
     @Volatile var enabled: Boolean = false,
@@ -36,6 +41,7 @@ class GithubProxy(
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
+        if (request.tag(AsWritten::class.java) != null) return chain.proceed(request)
         val url = request.url.toString()
         val direct = direct(url) ?: return chain.proceed(request)
         fun to(target: String) = if (target == url) request else request.newBuilder().url(target).build()
@@ -51,9 +57,69 @@ class GithubProxy(
         return chain.proceed(to(direct))
     }
 
+    /** Tags a request that is to go exactly where it is addressed, whatever the setting (measuring a proxy). */
+    object AsWritten
+
     companion object {
         /** Used when the switch is turned on without naming a proxy. Proxies change; this one answered in 2026-11. */
         const val DEFAULT_PREFIX = "https://ghfast.top/"
+
+        /**
+         * The proxies offered to pick from. Each fetched [PROBE_URL] and a release asset of this project in 2026-11
+         * (5 tries each, all answered); [probe] tells the user which still do. Public gh-proxy instances are run by
+         * individuals and vanish without notice: check them again before a release, and drop the dead.
+         */
+        val PRESETS: List<GithubProxyPreset> = listOf(
+            "https://ghfast.top/",
+            "https://gh-proxy.com/",
+            "https://gh-proxy.org/",
+            "https://ghproxy.net/",
+            "https://gh.monlor.com/",
+            "https://ghm.078465.xyz/",
+            "https://ghproxy.imciel.com/",
+            "https://git.yylx.win/",
+            "https://jiashu.1win.eu.org/",
+            "https://gh.dpik.top/",
+        ).map { GithubProxyPreset(name = it.removePrefix("https://").trimEnd('/'), prefix = it) }
+
+        /**
+         * A small file of this project's public repository at a fixed commit, so it never changes: what [probe]
+         * fetches. [PROBE_MARK] is in it, and not in the error pages some proxies answer 200 with.
+         */
+        const val PROBE_URL = "https://raw.githubusercontent.com/Sa1koro/yingzhou/1eb1e14e7df59ddf061cea981812af38c53bd958/.gitattributes"
+        const val PROBE_MARK = "text=auto"
+        const val PROBE_TIMEOUT_MS = 8_000L
+
+        /** How many proxies one [probe] asks at most. */
+        const val PROBE_MAX = 20
+
+        /**
+         * Fetches [file] straight from GitHub (the result with an empty prefix, first) and through each of
+         * [prefixes] at once, past whatever the GitHub proxy setting says, and tells which answered with the file
+         * and how long that took. Nothing but that one GET is sent to each.
+         */
+        suspend fun probe(
+            http: SiteHttp,
+            prefixes: List<String>,
+            file: String = PROBE_URL,
+            mark: String = PROBE_MARK,
+            timeoutMs: Long = PROBE_TIMEOUT_MS,
+        ): List<GithubProxyProbeResult> = coroutineScope {
+            val targets = listOf("") + prefixes.map(::normalize).filter { it.isNotEmpty() }.distinct().take(PROBE_MAX)
+            targets.map { prefix ->
+                async {
+                    val started = System.nanoTime()
+                    fun ms() = (System.nanoTime() - started) / 1_000_000
+                    try {
+                        val body = http.getAsWritten(prefix + file, timeoutMs)
+                        if (mark in body) GithubProxyProbeResult(prefix, ok = true, ms = ms())
+                        else GithubProxyProbeResult(prefix, ok = false, ms = ms(), error = "answered, but not with the file")
+                    } catch (e: SiteHttpException) {
+                        GithubProxyProbeResult(prefix, ok = false, ms = ms(), error = e.message.orEmpty())
+                    }
+                }
+            }.awaitAll()
+        }
 
         private const val GITHUB_HOST = "(?:(?:raw|gist|objects|media|release-assets)\\.githubusercontent\\.com|(?:gist\\.|codeload\\.)?github\\.com)"
 

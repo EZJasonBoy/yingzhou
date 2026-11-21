@@ -57,6 +57,16 @@ class SiteHttp(private val client: OkHttpClient) {
         return execute(Request.Builder().url(base).headers(headers), timeoutMs) { it.body?.bytes() ?: ByteArray(0) }
     }
 
+    /**
+     * GET returning at most [maxBytes] of the body, sent exactly where [url] says: the GitHub proxy setting does not
+     * reroute it (see [GithubProxy.probe]).
+     */
+    suspend fun getAsWritten(url: String, timeoutMs: Long = DEFAULT_TIMEOUT_MS, maxBytes: Long = 64 * 1024): String {
+        val base = url.toHttpUrlOrNull() ?: throw SiteHttpException("invalid url: $url")
+        val request = Request.Builder().url(base).tag(GithubProxy.AsWritten::class.java, GithubProxy.AsWritten)
+        return execute(request, timeoutMs) { it.peekBody(maxBytes).string() }
+    }
+
     private suspend fun execute(builder: Request.Builder, timeoutMs: Long): Pair<String, String> =
         execute(builder, timeoutMs) { (it.body?.string() ?: "") to it.request.url.toString() }
 
