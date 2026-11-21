@@ -1,5 +1,8 @@
 package tvbox.engine.core.download
 
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -31,6 +34,8 @@ import java.io.File
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import javax.crypto.Cipher
@@ -118,6 +123,17 @@ class DownloadManagerTest {
                     path == "/master.m3u8" -> MockResponse().setBody(
                         "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=500000\nlow/index.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=2500000\nfilm/index.m3u8?token=a\n",
                     )
+                    path == "/split/master.m3u8" -> MockResponse().setBody(
+                        """#EXTM3U
+                            |#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",NAME="Another",URI="other.m3u8"
+                            |#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",NAME="Chinese, stereo",DEFAULT=YES,URI="audio.m3u8"
+                            |#EXT-X-STREAM-INF:BANDWIDTH=2000000,AUDIO="a"
+                            |video.m3u8
+                        """.trimMargin(),
+                    )
+                    path == "/split/video.m3u8" -> MockResponse().setBody(playlist(listOf("shared.ts?video")))
+                    path == "/split/audio.m3u8" -> MockResponse().setBody(playlist(listOf("shared.ts?audio")))
+                    path == "/split/shared.ts" -> MockResponse().setBody(Buffer().write(ts(query)))
                     path == "/low/index.m3u8" -> MockResponse().setBody(playlist(listOf("never.ts")))
                     path == "/live.m3u8" -> MockResponse().setBody(playlist(listOf("live1.ts", "live2.ts"), endless = true))
                     path == "/page.ts" -> MockResponse().setBody(playlist(listOf("notts.ts")))
@@ -170,9 +186,10 @@ class DownloadManagerTest {
         free: Long = Long.MAX_VALUE,
         resolver: suspend (PlayRequest) -> PlayInfo = { resolve(it) },
         start: Boolean = true,
+        dispatcher: CoroutineDispatcher = Dispatchers.IO,
     ): DownloadManager = DownloadManager(
         OkHttpClient(), store, stateFile, resolver = resolver, localBase = "http://127.0.0.1:1",
-        exportDir = { File(dir, "exports") }, reserveBytes = 1_000, freeSpace = { free },
+        exportDir = { File(dir, "exports") }, reserveBytes = 1_000, freeSpace = { free }, dispatcher = dispatcher,
     ).also {
         managers += it
         if (start) it.start()
@@ -316,6 +333,29 @@ class DownloadManagerTest {
     }
 
     @Test
+    fun `pause and resume before the download coroutine has started`(): Unit = runBlocking {
+        val executor = Executors.newSingleThreadExecutor()
+        val ready = CountDownLatch(1)
+        executor.submit { ready.await() }
+        executor.asCoroutineDispatcher().use { dispatcher ->
+            val manager = manager(dispatcher = dispatcher)
+            try {
+                val id = manager.add(listOf(request("/film.mp4"))).single().id
+                assertEquals("paused", manager.pause(id).state)
+                manager.resume(id)
+                assertEquals(0, resolved.get())
+                ready.countDown()
+                val done = manager.finished(id)
+                assertEquals("done", done.state, done.error)
+                assertEquals(1, resolved.get())
+            } finally {
+                ready.countDown()
+                manager.close()
+            }
+        }
+    }
+
+    @Test
     fun `HLS with an AES-128 key and an initialisation map`(): Unit = runBlocking {
         val m = manager()
         val id = m.add(listOf(request("/fmp4/index.m3u8", "第2集"))).single().id
@@ -431,6 +471,52 @@ class DownloadManagerTest {
         assertEquals("done", m.finished(id).state)
         assertEquals(segments, segmentRequests().size)
         assertTrue(asked.none { it.requestUrl!!.encodedPath == "/low/index.m3u8" })
+    }
+
+    @Test
+    fun `separate default audio and video play offline after restart`(): Unit = runBlocking {
+        val first = manager()
+        val episode = "/split/master.m3u8"
+        val id = first.add(listOf(request(episode))).single().id
+        val done = first.finished(id)
+        assertEquals("done", done.state, done.error)
+        assertEquals(2, done.partsDone)
+        assertEquals(10_000L, done.durationMs)
+        assertTrue(asked.none { it.requestUrl!!.encodedPath == "/split/other.m3u8" })
+        first.close()
+        site.shutdown()
+
+        val restored = manager()
+        assertNotNull(restored.offlinePlay(PlayRequest("s", "线路", episode)))
+        val base = "http://engine/dl/$id/"
+        val master = restored.offlinePlaylist(id, base)!!
+        assertTrue(master.contains("URI=\"${base}audio.m3u8\""), master)
+        assertTrue(master.lineSequence().any { it == "${base}video.m3u8" }, master)
+        for (track in listOf("video", "audio")) {
+            val playlist = restored.offlinePlaylist(id, base, "$track.m3u8")!!
+            val uri = playlist.lines().single { it.startsWith(base) }
+            assertArrayEquals(ts(track), restored.offlineFile(id, uri.removePrefix(base))!!.first.readBytes())
+        }
+        assertNull(restored.offlinePlaylist(id, base, "other.m3u8"))
+        assertTrue(runCatching { restored.exportOf(id) }.exceptionOrNull()?.message.orEmpty().contains("独立音轨"))
+    }
+
+    @Test
+    fun `a refused file switches to the freshly resolved HLS address and headers`(): Unit = runBlocking {
+        val attempts = AtomicInteger()
+        val manager = manager(resolver = {
+            if (attempts.getAndIncrement() == 0) PlayInfo(kind = "direct", url = site.url("/expired.mp4").toString())
+            else resolve(PlayRequest("s", "线路", "/film/index.m3u8?token={token}")).copy(headers = mapOf("Referer" to "https://episode.example/"))
+        })
+        val id = manager.add(listOf(request("/expired.mp4"))).single().id
+        val done = manager.finished(id)
+        assertEquals("done", done.state, done.error)
+        assertEquals("hls", done.kind)
+        assertEquals(2, attempts.get())
+        assertEquals(1, asked.count { it.requestUrl!!.encodedPath == "/expired.mp4" })
+        val hls = asked.filter { it.requestUrl!!.encodedPath.startsWith("/film/") }
+        assertEquals(segments + 1, hls.size)
+        assertTrue(hls.all { it.getHeader("Referer") == "https://episode.example/" })
     }
 
     @Test

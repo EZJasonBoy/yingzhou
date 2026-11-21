@@ -108,6 +108,23 @@ class GithubProxyTest {
     }
 
     @Test
+    fun `a custom mirror path is not doubled and authenticated requests go to the origin`() {
+        val proxy = GithubProxy(enabled = true, prefix = "https://mirror.test/download/")
+        val source = "https://api.github.com/repos/example/project/releases"
+        assertEquals(proxy.prefix + source, proxy.route(proxy.route(source)))
+        val net = Net { 200 }
+        val client = OkHttpClient.Builder().addInterceptor(proxy).addInterceptor(net).build()
+        val request = Request.Builder().url(proxy.route(source)).header("Authorization", "test-value").build()
+        client.newCall(request).execute().close()
+        assertEquals(listOf(source), net.asked)
+        for (privateUrl in listOf("$raw?X-Amz-Signature=test", "$raw?access_token=test", "$raw?sig=test", "https://fixture@github.com/owner/repo")) {
+            assertEquals(privateUrl, proxy.route(proxy.prefix + privateUrl))
+            get(proxy, net, proxy.prefix + privateUrl)
+            assertEquals(privateUrl, net.asked.last())
+        }
+    }
+
+    @Test
     fun `a probe fetches the file from github and through each proxy as written, whatever the setting`() = runBlocking {
         val file = "https://raw.githubusercontent.com/me/tv/abc123/.gitattributes"
         val asked = java.util.concurrent.CopyOnWriteArrayList<String>()

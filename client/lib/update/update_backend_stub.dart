@@ -16,11 +16,16 @@ class _NoUpdates implements UpdateBackend {
   List<String> get assetKeys => const [];
 
   @override
-  bool get downloadsInApp => false;
-
-  @override
-  Future<String> download(String url, String fileName, {String proxy = '', int expectedSize = 0, void Function(int, int)? progress, bool Function()? cancelled}) =>
-      throw UnsupportedError('no downloads on the web');
+  Future<String> download(
+    String url,
+    String fileName, {
+    required String expectedSha256,
+    String mirror = '',
+    String proxy = '',
+    int expectedSize = 0,
+    void Function(int, int)? progress,
+    bool Function()? cancelled,
+  }) => throw UnsupportedError('no downloads on the web');
 
   @override
   Future<bool> openInBrowser(String url) async => false;

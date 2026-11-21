@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:tvbox_client/app_state.dart';
 import 'package:tvbox_client/engine/engine_client.dart';
 import 'package:tvbox_client/main.dart';
+import 'package:tvbox_client/settings.dart';
 
 import 'fake_engine.dart';
 
@@ -13,7 +14,7 @@ import 'fake_engine.dart';
 /// two built-in DoH servers and one the config offers. Every settings object the app saves is kept in [saved].
 class _NetworkEngine extends http.BaseClient {
   _NetworkEngine({String doh = '', this.dohStatus = '', this.rules = false}) {
-    _settings['doh'] = doh;
+    _settings.addAll({'doh': doh, 'httpProxy': '', 'proxyScopes': <String>[]});
   }
 
   final String dohStatus;
@@ -23,6 +24,7 @@ class _NetworkEngine extends http.BaseClient {
   final http.Client _inner = fakeEngine(hasConfig: true);
   final _settings = <String, dynamic>{'githubProxy': false, 'githubProxyPrefix': 'https://ghfast.top/', 'doh': ''};
   final saved = <Map<String, dynamic>>[];
+  bool refuseWrites = false;
 
   http.StreamedResponse _json(Object body) =>
       http.StreamedResponse(Stream.value(utf8.encode(jsonEncode(body))), 200, headers: {'content-type': 'application/json; charset=utf-8'});
@@ -35,9 +37,8 @@ class _NetworkEngine extends http.BaseClient {
       case ('PUT', '/api/v1/settings'):
         final body = jsonDecode((request as http.Request).body) as Map<String, dynamic>;
         saved.add(body);
-        _settings
-          ..clear()
-          ..addAll(body);
+        if (refuseWrites) return http.StreamedResponse(Stream.value(utf8.encode('{"error":{"code":"OFFLINE","message":"引擎离线"}}')), 503);
+        _settings.addAll(body);
         return _json(_settings);
       case ('GET', '/api/v1/network'):
         return _json({
@@ -130,5 +131,46 @@ void main() {
     await openSources(tester, fakeEngine(hasConfig: true));
     expect(find.byKey(const Key('github-proxy-switch')), findsOneWidget);
     expect(find.byKey(const Key('doh-choice')), findsNothing);
+  });
+
+  testWidgets('one HTTP proxy has independent device and engine scopes', (tester) async {
+    final engine = _NetworkEngine();
+    await openSources(tester, engine);
+    await tester.tap(find.text('网络代理（HTTP）'));
+    await tester.pumpAndSettle();
+    final address = find.byKey(const Key('network-proxy-address'));
+    await tester.enterText(address, 'http://proxy.lan:7890');
+    await tester.tap(find.byKey(const Key('network-proxy-modules')));
+    await tester.tap(find.byKey(const Key('network-proxy-updates')));
+    await tester.tap(find.byKey(const Key('network-proxy-save')));
+    await tester.pumpAndSettle();
+    expect(engine.saved.last, {'httpProxy': 'proxy.lan:7890', 'proxyScopes': ['modules']});
+    expect(find.textContaining('经 HTTP 代理 proxy.lan:7890'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('network-proxy-updates')));
+    await tester.tap(find.byKey(const Key('network-proxy-playback')));
+    await tester.tap(find.byKey(const Key('network-proxy-config')));
+    await tester.tap(find.byKey(const Key('network-proxy-save')));
+    await tester.pumpAndSettle();
+    expect(engine.saved.last['proxyScopes'], unorderedEquals(['modules', 'playback', 'config']));
+    expect(find.textContaining('经 HTTP 代理 proxy.lan:7890'), findsNothing);
+  });
+
+  test('updates keep their network settings while the engine is offline or rejects settings', () async {
+    final settings = MemorySettings();
+    final engine = _NetworkEngine();
+    final state = AppState(clientFactory: (url) => EngineClient(url, httpClient: engine), settings: settings);
+    await state.setGithubProxy(enabled: true, prefix: 'https://mirror.test/');
+    await state.setNetworkProxy('proxy.lan:80', updates: true, scopes: {});
+    expect((state.network.updateMirror, state.network.updateProxy), ('https://mirror.test/', 'proxy.lan:80'));
+    expect(engine.saved, isEmpty);
+    await state.start();
+    expect(engine.saved.single, {'githubProxy': true, 'githubProxyPrefix': 'https://mirror.test/'});
+    engine.refuseWrites = true;
+    await state.setNetworkProxy('proxy.lan:81', updates: true, scopes: {});
+    expect(engine.saved, hasLength(1));
+    expect(state.error, isNull);
+    await state.setNetworkProxy('proxy.lan:82', updates: true, scopes: {'config'});
+    expect(state.network.updateProxy, 'proxy.lan:82');
+    expect(state.error, contains('本机设置已保存，引擎设置未保存'));
   });
 }

@@ -86,6 +86,9 @@ class Engine(
     private val cache: tvbox.engine.core.cache.DataCache? = null,
     /** Keeps the HLS streams this engine serves on disk (see [tvbox.engine.core.cache.StreamCache]); null: players fetch segments themselves. */
     val streamCache: tvbox.engine.core.cache.StreamCache? = null,
+    private val networkProxy: tvbox.engine.core.net.NetworkProxy = tvbox.engine.core.net.NetworkProxy(),
+    private val configHttp: SiteHttp = http,
+    private val playbackHttp: SiteHttp = http,
 ) {
     /** `py` also needs a Python on this machine, which can turn up while the engine runs (the user installs one). */
     val info: EngineInfo
@@ -129,16 +132,16 @@ class Engine(
 
     private val lock = Mutex()
     private val subscriptions = LinkedHashMap<String, Subscription>()
-    private val ext = ExtResolver(http, cache)
+    private val ext = ExtResolver(configHttp, cache)
     private val playResolver = PlayResolver(
-        http = http,
+        http = playbackHttp,
         proxyBase = proxyBase,
         sniffer = sniffer,
         jarParsers = runtimes.filterIsInstance<JarParsers>().firstOrNull(),
         playlistBase = proxyBase.substringBefore("/proxy") + "/m3u8?",
     )
     private val searchAggregator = SearchAggregator()
-    private val live = LiveService(http, proxyBase, spiderList = ::spiderLive, moreSpiderKinds = { runtimes.filter { it.kind == "py" && it.available }.map { it.kind } })
+    private val live = LiveService(configHttp, proxyBase, spiderList = ::spiderLive, moreSpiderKinds = { runtimes.filter { it.kind == "py" && it.available }.map { it.kind } })
 
     /** What the engine's own playlist addresses begin with (see [PlayResolver]). */
     private val playlistBase = proxyBase.substringBefore("/proxy") + "/m3u8?"
@@ -217,20 +220,27 @@ class Engine(
 
     /** The config's `headers` for the media host, added to what the player is told to send. */
     private fun playerHeaders(info: PlayInfo): PlayInfo {
-        val net = network?.takeIf { it.hasHeaders && info.kind == "direct" } ?: return info
-        return info.copy(headers = net.playerHeaders(info.url, info.headers, wrapper = playlistPrefix))
+        if (info.kind != "direct") return info
+        val headers = network?.takeIf { it.hasHeaders }?.playerHeaders(info.url, info.headers, wrapper = playlistPrefix) ?: info.headers
+        return info.copy(url = githubProxy?.route(info.url, headers) ?: info.url, headers = headers)
     }
 
     private fun playerHeaders(list: LiveList): LiveList {
-        val net = network?.takeIf { it.hasHeaders } ?: return list
+        val net = network?.takeIf { it.hasHeaders }
+        if (net == null && githubProxy == null) return list
         return list.copy(groups = list.groups.map { g ->
-            g.copy(channels = g.channels.map { c -> c.copy(urls = c.urls.map { u -> u.copy(headers = net.playerHeaders(u.url, u.headers)) }) })
+            g.copy(channels = g.channels.map { channel ->
+                channel.copy(urls = channel.urls.map { line ->
+                    val headers = net?.playerHeaders(line.url, line.headers) ?: line.headers
+                    line.copy(url = githubProxy?.route(line.url, headers) ?: line.url, headers = headers)
+                })
+            })
         })
     }
 
     private fun applySettings(settings: tvbox.engine.core.model.EngineSettings) {
         val prefix = tvbox.engine.core.net.GithubProxy.normalize(settings.githubProxyPrefix).ifEmpty { tvbox.engine.core.net.GithubProxy.DEFAULT_PREFIX }
-        currentSettings = settings.copy(githubProxyPrefix = prefix)
+        currentSettings = networkProxy.apply(settings).copy(githubProxyPrefix = prefix)
         // Which DNS answers is the user's choice as well; kept as the url the choice is compared by.
         currentSettings = currentSettings.copy(doh = network?.setDoh(settings.doh) ?: tvbox.engine.core.net.ConfigNetwork.normalizeDoh(settings.doh))
         githubProxy?.let {
@@ -509,9 +519,15 @@ class Engine(
         val rules = active?.config?.let { playResolver.rules(it) } ?: PlayRules.NONE
         val ads = (rules.adsFor(url) + rules.adsFor(finalUrl)).distinct()
         val cleaned = M3u8Cleaner.clean(text, finalUrl, ads, heuristic = true).text
-        if (direct) return cleaned
+        if (direct) return routeMediaResources(cleaned, headers)
         // A film (not a live playlist) is served from the stream cache: its segments, keys and maps then name the engine.
-        return streamCache?.playlist(url, finalUrl, cleaned, headers, key?.ifEmpty { null }, userAgent, selfBase.removeSuffix("m3u8?") + "hls/") ?: cleaned
+        val cached = streamCache?.playlist(url, finalUrl, cleaned, headers, key?.ifEmpty { null }, userAgent, selfBase.removeSuffix("m3u8?") + "hls/")
+        return cached ?: routeMediaResources(cleaned, headers)
+    }
+
+    private fun routeMediaResources(playlist: String, headers: Map<String, String>): String {
+        val proxy = githubProxy ?: return playlist
+        return M3u8Cleaner.routeResources(playlist) { proxy.route(it, headers) }
     }
 
     /** Episodes downloaded for offline viewing (see [tvbox.engine.core.download.DownloadManager]); null: this engine does not download. */
@@ -542,7 +558,11 @@ class Engine(
 
     /** The address that plays what a channel showed from [startMs] to [endMs] (回看). */
     suspend fun liveCatchup(index: Int, group: String?, channel: String, line: Int, startMs: Long, endMs: Long): tvbox.engine.core.model.LiveCatchup =
-        liveCall { live.catchup(index, group, channel, line, startMs, endMs) }
+        liveCall {
+            val address = live.catchup(index, group, channel, line, startMs, endMs)
+            val proxy = githubProxy ?: return@liveCall address
+            address.copy(url = proxy.route(address.url, address.headers), alternates = address.alternates.map { it.copy(url = proxy.route(it.url, it.headers)) })
+        }
 
     private suspend fun <T> liveCall(block: suspend () -> T): T {
         current()
@@ -712,7 +732,7 @@ class Engine(
 
     private fun createSource(bean: tvbox.engine.core.config.SiteBean, config: TvboxConfig): SiteSource = when (bean.runtime) {
         SiteRuntime.CMS -> CmsSource(bean, http, ext)
-        SiteRuntime.REMOTE -> RemoteSource(bean, http, ext)
+        SiteRuntime.REMOTE -> RemoteSource(bean, http, ext, playbackHttp)
         else -> runtimes.firstOrNull { it.supports(bean) }
             ?.let { SpiderSource(bean, it, vipFlags = { config.flags }) }
             ?: UnsupportedSource(bean)

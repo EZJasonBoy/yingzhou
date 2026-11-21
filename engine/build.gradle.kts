@@ -8,7 +8,7 @@ plugins {
 
 subprojects {
     group = "tvbox.engine"
-    version = "0.4.14213"
+    version = "0.4.41421356"
 
     // Built with JDK 21, but emits Java 17 bytecode so the same modules can be embedded in the Android app.
     plugins.withId("org.jetbrains.kotlin.jvm") {

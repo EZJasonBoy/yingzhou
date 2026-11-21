@@ -9,20 +9,19 @@ abstract class UpdateBackend {
 
   bool get supported;
 
-  /// Fetches `latest.json`: GitHub first, then through [mirror] when it is set.
+  /// Fetches `latest.json` through [mirror] when set, with a direct fallback.
   Future<UpdateCheckResult> check({String mirror = '', String proxy = ''});
 
   /// Keys of [ReleaseInfo.assets] for this machine, best first (see `assetKeysFor`).
   List<String> get assetKeys;
-
-  /// Whether packages are downloaded by the app ([download]) rather than by the browser.
-  bool get downloadsInApp;
 
   /// Saves [url] as [fileName] in the downloads folder; answers the file's path. A file not of [expectedSize]
   /// (when known) is refused.
   Future<String> download(
     String url,
     String fileName, {
+    required String expectedSha256,
+    String mirror = '',
     String proxy = '',
     int expectedSize = 0,
     void Function(int received, int total)? progress,

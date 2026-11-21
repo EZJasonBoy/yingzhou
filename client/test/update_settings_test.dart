@@ -31,7 +31,7 @@ void main() {
     addTearDown(tester.view.reset);
     final engine = fakeEngine(hasConfig: true);
     final state = AppState(clientFactory: (url) => EngineClient(url, httpClient: engine), settings: settings);
-    final service = UpdateService(settings: state.settings, backend: backend, clock: clock);
+    final service = UpdateService(settings: state.settings, network: state.network, backend: backend, clock: clock);
     UpdateService.debugUse(state, service);
     final app = TvboxApp(state: state);
     await tester.pumpWidget(tv ? DeviceFormScope.fixed(DeviceForm.tv, child: app) : app);
@@ -63,7 +63,7 @@ void main() {
   testWidgets('check now: a newer version shows what changed, and the desktop saves the package', (tester) async {
     final backend = FakeUpdateBackend(result: newerRelease());
     final (_, service) = await pumpApp(tester, backend);
-    expect(text(tester, 'update-version'), '映舟 0.4.14213');
+    expect(text(tester, 'update-version'), '映舟 0.4.41421356');
     expect(text(tester, 'update-status'), '还没有检查过');
     expect(tester.widget<SwitchListTile>(find.byKey(const Key('update-auto'))).value, isFalse, reason: 'off by default');
     expect(backend.checks, isEmpty, reason: 'nothing is asked on its own');
@@ -102,7 +102,7 @@ void main() {
     expect(find.byKey(const Key('update-reveal')), findsOneWidget, reason: 'the download is remembered');
   });
 
-  testWidgets('the same version, a failure, and the proxy field', (tester) async {
+  testWidgets('update settings reflect the HTTP proxy selected in network settings', (tester) async {
     final backend = FakeUpdateBackend();
     final (_, service) = await pumpApp(tester, backend);
     await tester.tap(find.byKey(const Key('update-check')));
@@ -114,18 +114,25 @@ void main() {
     await tester.tap(find.byKey(const Key('update-check')));
     await tester.pumpAndSettle();
     expect(text(tester, 'update-status'), '检查失败：直连 GitHub：连不上');
-    expect(text(tester, 'update-route-explain'), contains('可以在「网络」里打开 GitHub 加速代理'));
-
-    await tester.enterText(find.byKey(const Key('update-proxy')), '127.0.0.1');
-    await tester.tap(find.byKey(const Key('update-proxy-save')));
+    expect(text(tester, 'update-route-explain'), contains('设置 → 网络'));
+    expect(find.byKey(const Key('update-proxy')), findsNothing);
+    await tester.ensureVisible(find.text('网络代理（HTTP）'));
+    await tester.tap(find.text('网络代理（HTTP）'));
     await tester.pumpAndSettle();
-    expect(find.text('格式是 主机:端口，如 127.0.0.1:7890'), findsOneWidget);
-    expect(service.proxy, '');
-    await tester.enterText(find.byKey(const Key('update-proxy')), 'http://127.0.0.1:7890/');
-    await tester.tap(find.byKey(const Key('update-proxy-save')));
+    final address = find.byKey(const Key('network-proxy-address'));
+    final save = find.byKey(const Key('network-proxy-save'));
+    await tester.enterText(address, '127.0.0.1');
+    await tester.tap(find.byKey(const Key('network-proxy-updates')));
+    await tester.tap(save);
     await tester.pumpAndSettle();
-    expect(service.proxy, '127.0.0.1:7890');
-    expect(tester.widget<TextField>(find.byKey(const Key('update-proxy'))).controller!.text, '127.0.0.1:7890');
+    expect(find.text('请输入 HTTP 代理地址，例如 127.0.0.1:7890'), findsOneWidget);
+    expect(service.network.updateProxy, '');
+    await tester.enterText(address, 'http://127.0.0.1:7890/');
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    expect(service.network.updateProxy, '127.0.0.1:7890');
+    expect(tester.widget<TextField>(address).controller!.text, '127.0.0.1:7890');
+    await tester.ensureVisible(find.byKey(const Key('update-check')));
     await tester.tap(find.byKey(const Key('update-check')));
     await tester.pumpAndSettle();
     expect(backend.checks.last, ('', '127.0.0.1:7890'));
@@ -137,22 +144,27 @@ void main() {
     expect(find.textContaining('每天最多检查一次'), findsOneWidget);
   });
 
-  testWidgets('through the accelerating prefix: said so, and the package comes the same way (browser on Android)', (tester) async {
+  testWidgets('Android downloads the package through current network settings before opening the installer', (tester) async {
     final backend = FakeUpdateBackend(
-      inApp: false,
       keys: const ['android-arm64-v8a'],
-      result: newerRelease(route: UpdateRoute.mirror, mirror: 'https://ghfast.top/', failures: const ['直连 GitHub：超时']),
+      result: newerRelease(route: UpdateRoute.mirror, mirror: 'https://ghfast.top/'),
     );
-    await pumpApp(tester, backend);
+    final (state, _) = await pumpApp(tester, backend);
+    await state.setGithubProxy(enabled: true, prefix: 'https://ghfast.top/');
+    await state.setNetworkProxy('proxy.lan:8080', updates: true, scopes: {});
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('update-check')));
     await tester.pumpAndSettle();
-    expect(text(tester, 'update-route'), '更新信息：经加速前缀 ghfast.top');
-    expect(find.textContaining('浏览器下载时不经过「更新用的代理」，地址已换成加速前缀'), findsOneWidget);
+    expect(text(tester, 'update-route'), '更新信息：经加速前缀 ghfast.top（经代理 proxy.lan:8080）');
 
     await tester.tap(find.byKey(const Key('update-download')));
     await tester.pumpAndSettle();
-    expect(backend.opened.single, 'https://ghfast.top/https://github.com/Sa1koro/yingzhou/releases/download/v0.4.0/yingzhou-android-arm64-v8a.apk');
-    expect(backend.downloads, isEmpty);
+    expect(backend.downloads.single, ('https://github.com/Sa1koro/yingzhou/releases/download/v0.4.0/yingzhou-android-arm64-v8a.apk', 'yingzhou-android-arm64-v8a.apk', 'proxy.lan:8080'));
+    expect(backend.downloadMirrors.single, 'https://ghfast.top/');
+    expect(backend.opened, isEmpty);
+    await tester.tap(find.byKey(const Key('update-reveal')));
+    await tester.pumpAndSettle();
+    expect(backend.revealed.single, endsWith('.apk'));
 
     // A box without a browser: the address, to take elsewhere.
     backend.canOpen = false;
@@ -163,7 +175,7 @@ void main() {
 
     await tester.tap(find.text('以后再说'));
     await tester.pumpAndSettle();
-    expect(text(tester, 'update-status-route'), '获取途径：直连 GitHub：超时；改为经加速前缀 ghfast.top');
+    expect(text(tester, 'update-status-route'), '获取途径：经加速前缀 ghfast.top（经代理 proxy.lan:8080）');
   });
 
   testWidgets('automatic check: off does nothing; on, a newer version is shown once; on a TV with the D-pad', (tester) async {

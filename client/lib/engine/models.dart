@@ -83,12 +83,18 @@ class RepoInfo {
 
 /// Engine-wide settings (`/api/v1/settings`).
 class EngineSettings {
-  const EngineSettings({this.githubProxy = false, this.githubProxyPrefix = '', this.doh = '', this.streamCache = true, this.streamCacheMaxMB = 2048});
+  const EngineSettings({
+    this.githubProxy = false, this.githubProxyPrefix = '', this.doh = '', this.streamCache = true, this.streamCacheMaxMB = 2048,
+    this.httpProxy = '', this.proxyScopes = const {}, this.supportsProxyScopes = false,
+  });
 
   /// Off: files on GitHub come from GitHub, and a proxy a subscription put in front of them is taken off.
   /// On: they are fetched through [githubProxyPrefix].
   final bool githubProxy;
   final String githubProxyPrefix;
+  final String httpProxy;
+  final Set<String> proxyScopes;
+  final bool supportsProxyScopes;
 
   /// The url of the DNS-over-HTTPS server names are looked up with; empty (default) for the system's DNS.
   final String doh;
@@ -100,6 +106,9 @@ class EngineSettings {
   factory EngineSettings.fromJson(Map<String, dynamic> json) => EngineSettings(
     githubProxy: json['githubProxy'] as bool? ?? false,
     githubProxyPrefix: json['githubProxyPrefix'] as String? ?? '',
+    httpProxy: json['httpProxy'] as String? ?? '',
+    proxyScopes: (json['proxyScopes'] as List?)?.whereType<String>().toSet() ?? const {},
+    supportsProxyScopes: json.containsKey('proxyScopes'),
     doh: json['doh'] as String? ?? '',
     streamCache: json['streamCache'] as bool? ?? true,
     streamCacheMaxMB: (json['streamCacheMaxMB'] as num?)?.toInt() ?? 2048,
@@ -111,6 +120,9 @@ class EngineSettings {
   EngineSettings copyWith({bool? githubProxy, String? githubProxyPrefix, String? doh}) => EngineSettings(
     githubProxy: githubProxy ?? this.githubProxy,
     githubProxyPrefix: githubProxyPrefix ?? this.githubProxyPrefix,
+    httpProxy: httpProxy,
+    proxyScopes: proxyScopes,
+    supportsProxyScopes: supportsProxyScopes,
     doh: doh ?? this.doh,
     streamCache: streamCache,
     streamCacheMaxMB: streamCacheMaxMB,

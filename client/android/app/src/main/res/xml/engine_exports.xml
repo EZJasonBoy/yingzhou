@@ -3,4 +3,5 @@
 <paths>
     <external-files-path name="exports" path="Download/" />
     <files-path name="exports-internal" path="exports/" />
+    <files-path name="updates" path="updates/" />
 </paths>

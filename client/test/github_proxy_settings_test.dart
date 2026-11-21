@@ -73,57 +73,53 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Finder row(String name) => find.byKey(Key('github-proxy-preset-$name'));
-  bool picked(WidgetTester tester, String name) =>
-      tester.widget<Icon>(find.descendant(of: row(name), matching: find.byType(Icon))).icon == Icons.radio_button_checked;
+  final choice = find.byKey(const Key('github-proxy-choice'));
 
   testWidgets('presets to pick from, measured with 测速, and an address of the user\'s own', (tester) async {
     final engine = _ProxyEngine();
     await openSettings(tester, engine);
 
     // Off by default: no list, nothing measured.
-    expect(row('fast.test'), findsNothing);
+    expect(choice, findsNothing);
     expect(find.byKey(const Key('github-proxy-probe')), findsNothing);
     await tester.tap(find.byKey(const Key('github-proxy-switch')));
     await tester.pumpAndSettle();
     expect(engine.saved.last, containsPair('githubProxy', true));
     expect(engine.saved.last, containsPair('githubProxyPrefix', 'https://fast.test/'));
-    expect(row('fast.test'), findsOneWidget);
-    expect(row('dead.test'), findsOneWidget);
-    expect(picked(tester, 'fast.test'), isTrue);
-    expect(find.widgetWithText(TextField, '自定义代理地址'), findsOneWidget);
-    expect(tester.widget<TextField>(find.byKey(const Key('github-proxy-custom'))).controller!.text, '', reason: 'a preset is picked in the list');
+    expect(tester.widget<DropdownButton<String>>(choice).value, 'https://fast.test/');
+    expect(find.text('dead.test').hitTestable(), findsNothing);
+    expect(find.byKey(const Key('github-proxy-custom')), findsNothing);
     expect(engine.probed, isEmpty, reason: 'nothing is measured until asked');
 
     await tester.tap(find.byKey(const Key('github-proxy-probe')));
     await tester.pumpAndSettle();
     expect(engine.probed.single, ['https://fast.test/', 'https://slow.test/', 'https://dead.test/']);
     expect(find.text('直连 GitHub：35 ms'), findsOneWidget);
-    expect(find.descendant(of: row('fast.test'), matching: find.text('120 ms')), findsOneWidget);
-    expect(find.descendant(of: row('slow.test'), matching: find.text('2400 ms')), findsOneWidget);
-    expect(find.descendant(of: row('dead.test'), matching: find.text('超时')), findsOneWidget);
+    await tester.tap(choice);
+    await tester.pumpAndSettle();
+    expect(find.text('fast.test · 120 ms').hitTestable(), findsOneWidget);
+    expect(find.text('dead.test · 超时').hitTestable(), findsOneWidget);
 
     // Another preset.
-    await tester.tap(row('slow.test'));
+    await tester.tap(find.text('slow.test · 2400 ms').last);
     await tester.pumpAndSettle();
     expect(engine.saved.last, containsPair('githubProxyPrefix', 'https://slow.test/'));
-    expect(picked(tester, 'slow.test'), isTrue);
-    expect(picked(tester, 'fast.test'), isFalse);
+    expect(tester.widget<DropdownButton<String>>(choice).value, 'https://slow.test/');
 
     // One of the user's own: 自定义 is picked, and the next 测速 measures it too.
+    await tester.tap(choice);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('自定义地址…').last);
+    await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('github-proxy-custom')), 'https://mine.test/');
     await tester.tap(find.byKey(const Key('github-proxy-apply')));
     await tester.pumpAndSettle();
     expect(engine.saved.last, containsPair('githubProxyPrefix', 'https://mine.test/'));
-    expect(picked(tester, 'slow.test'), isFalse);
-    expect(
-      tester.widget<Icon>(find.descendant(of: find.byKey(const Key('github-proxy-custom-choice')), matching: find.byType(Icon))).icon,
-      Icons.radio_button_checked,
-    );
+    expect(tester.widget<DropdownButton<String>>(choice).value, '');
     await tester.tap(find.byKey(const Key('github-proxy-probe')));
     await tester.pumpAndSettle();
     expect(engine.probed.last, contains('https://mine.test/'));
-    expect(find.descendant(of: find.byKey(const Key('github-proxy-custom-choice')), matching: find.text('超时')), findsOneWidget);
+    expect(find.text('自定义地址 · 超时').hitTestable(), findsOneWidget);
   });
 
   testWidgets('an engine from before presets: the switch and the address field, as before', (tester) async {
@@ -131,7 +127,7 @@ void main() {
     await openSettings(tester, engine);
     await tester.tap(find.byKey(const Key('github-proxy-switch')));
     await tester.pumpAndSettle();
-    expect(row('fast.test'), findsNothing);
+    expect(choice, findsNothing);
     expect(tester.widget<TextField>(find.widgetWithText(TextField, '代理地址')).controller!.text, 'https://fast.test/');
     expect(find.byKey(const Key('github-proxy-probe')), findsNothing, reason: 'it cannot measure either');
     await tester.enterText(find.widgetWithText(TextField, '代理地址'), 'https://mine.test/');

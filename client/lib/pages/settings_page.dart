@@ -7,6 +7,7 @@ import 'cache_settings.dart';
 import 'danmaku_service_settings.dart';
 import 'download_settings.dart';
 import 'github_proxy_settings.dart';
+import 'http_proxy_settings.dart';
 import 'lan_section.dart';
 import 'network_settings.dart';
 import 'python_settings.dart';
@@ -53,10 +54,8 @@ class SettingsPage extends StatelessWidget {
                   heading('播放', gap: 0),
                   const StreamCacheSettings(),
                   const DanmakuServiceSettings(),
-                  if (state.engineSettings != null) ...[
-                    heading('网络', gap: 0),
-                    _card(context, title: '代理与 DNS', children: const [GithubProxySettings(), NetworkSettings()]),
-                  ],
+                  heading('网络', gap: 0),
+                  _card(context, title: '代理与 DNS', children: const [GithubProxySettings(), HttpProxySettings(), NetworkSettings()]),
                   heading('局域网'),
                   const LanSection(part: LanPart.share),
                   heading('下载与数据', gap: 0),

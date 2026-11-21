@@ -28,24 +28,27 @@ class IoUpdateBackend implements UpdateBackend {
   }
 
   @override
-  bool get downloadsInApp => os.downloadsInApp;
-
-  @override
   Future<String> download(
     String url,
     String fileName, {
+    required String expectedSha256,
+    String mirror = '',
     String proxy = '',
     int expectedSize = 0,
     void Function(int, int)? progress,
     bool Function()? cancelled,
   }) async {
-    final dir = await getDownloadsDirectory() ?? await getTemporaryDirectory();
+    final dir = Platform.isAndroid
+        ? Directory('${(await getApplicationSupportDirectory()).path}/updates')
+        : await getDownloadsDirectory() ?? await getTemporaryDirectory();
     // Only the file's own name: nothing from the manifest decides the folder.
     final last = fileName.split(RegExp(r'[\\/]')).last;
     final name = last.isEmpty || last.startsWith('.') ? 'yingzhou-update' : last;
     final file = await client.download(
       url,
       File('${dir.path}${Platform.pathSeparator}$name'),
+      expectedSha256: expectedSha256,
+      mirror: mirror,
       proxy: proxy,
       expectedSize: expectedSize,
       progress: progress,

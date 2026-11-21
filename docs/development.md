@@ -270,7 +270,8 @@ CI 的 `linux` 作业打完包后：用 apt 装上 deb（检验依赖能解析�
 
 应用的「检查更新」（`client/lib/update/`）读的是滚动预发布版 `channel` 上的 `latest.json`：`https://github.com/Sa1koro/yingzhou/releases/download/channel/latest.json`。它是普通的下载地址，不走 GitHub API（没有频率限制，加速代理也能转发），也不依赖 `/releases/latest`（所有版本都是预发布版，那个地址找不到它们）。
 
-- `desktop.yml` 的 release 任务在发布 `v*` 之后生成它：`version`（标签去掉 `v`）、`tag`、`date`、`notes`（`CHANGELOG.md` 里 `## v<版本>` 那一节）、`page`、`download`（这个版本安装包所在的目录地址）和 `assets`（按平台：`windows-x64` 安装程序、`windows-x64-zip`、`macos-arm64`、`android-arm64-v8a` / `armeabi-v7a` / `x86_64`，Linux 包以 `linux` 开头，各带 `name` 和 `size`），用 `gh release upload channel latest.json --clobber` 覆盖。`channel` 不存在时先建（预发布版，标签指向这次的提交）。
+- `desktop.yml` 按打包结果生成包含 `version`、`tag`、`date`、`notes`、`page`、`download` 和 `assets` 的 UTF-8 清单。每个资产记录 `name`、`size` 和 `sha256`。`tools/sign-update.mjs` 用 Actions 密钥 `UPDATE_MANIFEST_ED25519`（PKCS#8 PEM）签署清单的原始字节，并核对客户端内置公钥 `client/assets/update-ed25519.hex`。发布任务先校验签名，再发布安装包和滚动通道。
+- `latest.json` 的 `signed` 和 `signature` 都是 Base64。新客户端先验证 Ed25519 签名，再读取 `signed` 中的字段并校验下载包的 SHA-256。外层保留旧字段，供老版本升级使用。轮换密钥前须先向已安装客户端分发新的信任公钥。
 - **版本号要一致**：`client/pubspec.yaml` 的 `version`（不含 `+构建号`）必须等于标签去掉 `v`，否则这一步报错、`latest.json` 不动——不然装了这一版的人会一直被提示"更新"到它自己。应用里的版本号是 `lib/update/release_info.dart` 的 `appVersion`，`test/update_test.dart` 检查它和 pubspec 一致，所以改版本号时两处一起改。
 - 重新跑一个旧标签的 release 任务不会把通道退回旧版本（已公布的版本更新时跳过）。
 - 某个平台的构建失败时 `assets` 里就没有它，那个平台的用户会看到"这次没有适合这台设备的安装包"；补跑成功后 release 任务重跑，`latest.json` 会补上。

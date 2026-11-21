@@ -15,9 +15,18 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.webkit.ProxyConfig
+import androidx.webkit.ProxyController
+import androidx.webkit.WebViewFeature
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import tvbox.engine.core.model.SniffRequest
+import tvbox.engine.core.net.NetworkProxy
 import tvbox.engine.core.play.SniffResult
 import tvbox.engine.core.play.Sniffer
 import java.lang.ref.WeakReference
@@ -29,8 +38,9 @@ import kotlin.coroutines.resume
  * rules accept wins. The WebView is attached (1x1, transparent) to the visible activity when there is one, since
  * some players only start loading inside a window; otherwise it runs detached.
  */
-class WebViewSniffer(private val app: Application) : Sniffer {
+class WebViewSniffer(private val app: Application, private val proxy: NetworkProxy) : Sniffer {
     private val main = Handler(Looper.getMainLooper())
+    private val sniffLock = Mutex()
     @Volatile private var resumed: WeakReference<Activity>? = null
 
     init {
@@ -51,7 +61,29 @@ class WebViewSniffer(private val app: Application) : Sniffer {
         })
     }
 
-    override suspend fun sniff(request: SniffRequest, isMedia: (String) -> Boolean): SniffResult? {
+    override suspend fun sniff(request: SniffRequest, isMedia: (String) -> Boolean): SniffResult? = sniffLock.withLock {
+        val endpoint = proxy.endpoint(NetworkProxy.PLAYBACK)
+        if (endpoint.isEmpty()) return@withLock load(request, isMedia)
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) throw IllegalStateException("当前 Android System WebView 不支持播放解析代理，请更新 WebView")
+        val config = ProxyConfig.Builder().addProxyRule("http://$endpoint").apply { NetworkProxy.browserBypass.forEach { addBypassRule(it) } }.build()
+        try {
+            setProxy(config)
+            load(request, isMedia)
+        } finally {
+            withContext(NonCancellable) { setProxy(null) }
+        }
+    }
+
+    private suspend fun setProxy(config: ProxyConfig?) = withContext(Dispatchers.Main.immediate) {
+        kotlin.coroutines.suspendCoroutine<Unit> { continuation ->
+            val executor = java.util.concurrent.Executor { it.run() }
+            val complete = Runnable { continuation.resume(Unit) }
+            val controller = ProxyController.getInstance()
+            if (config == null) controller.clearProxyOverride(executor, complete) else controller.setProxyOverride(config, executor, complete)
+        }
+    }
+
+    private suspend fun load(request: SniffRequest, isMedia: (String) -> Boolean): SniffResult? {
         var web: WebView? = null
         try {
             return withTimeoutOrNull(request.timeoutMs) {

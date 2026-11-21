@@ -83,8 +83,8 @@ android {
 
 dependencies {
     // Embedded engine (composite build of ../../engine).
-    implementation("tvbox.engine:api:0.4.14213")
-    implementation("tvbox.engine:runtime-js:0.4.14213")
+    implementation("tvbox.engine:api:0.4.41421356")
+    implementation("tvbox.engine:runtime-js:0.4.41421356")
     implementation("io.ktor:ktor-server-cio:3.6.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     // Host API for jar spiders: TVBox's OkHttp helper exposes androidx ArrayMap in its signatures.
@@ -95,6 +95,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     // FileProvider: the share sheet for exports on Android 9 and earlier (already in the APK through Flutter's embedding).
     implementation("androidx.core:core:1.13.1")
+    implementation("androidx.webkit:webkit:1.12.1")
 }
 
 kotlin {

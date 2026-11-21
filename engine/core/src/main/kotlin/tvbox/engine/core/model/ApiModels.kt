@@ -94,6 +94,8 @@ data class EngineSettings(
      * `{episode}`); asked after the site and the config's API. Empty (default): none.
      */
     val danmakuApi: String = "",
+    val httpProxy: String = "",
+    val proxyScopes: List<String> = emptyList(),
 )
 
 @Serializable

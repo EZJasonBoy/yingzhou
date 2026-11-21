@@ -9,10 +9,13 @@ import android.net.Uri
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
+import android.provider.Settings
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.content.FileProvider
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 /** Tells the Flutter side what kind of device this is: a TV, or a phone / tablet (client/lib/ui/device_form.dart). */
 object DeviceChannel {
@@ -21,8 +24,13 @@ object DeviceChannel {
         MethodChannel(engine.dartExecutor.binaryMessenger, "yingzhou/device").setMethodCallHandler { call, result ->
             when (call.method) {
                 "info" -> result.success(info(app))
-                // An address in the browser (an update's APK); false when nothing can open it (a box without one).
                 "openUrl" -> result.success(openUrl(context, call.argument<String>("url").orEmpty()))
+                "openUpdate" -> try {
+                    openUpdate(context, call.argument<String>("path").orEmpty())
+                    result.success(null)
+                } catch (error: Exception) {
+                    result.error("INSTALLER", error.message ?: "无法打开系统安装程序", null)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -32,6 +40,21 @@ object DeviceChannel {
             root.viewTreeObserver.addOnGlobalFocusChangeListener { _, focused -> focused?.let { noFocusHighlight(it) } }
             root.post { noFocusHighlight(root) }
         }
+    }
+
+    private fun openUpdate(context: Context, path: String) {
+        val directory = File(context.filesDir, "updates").canonicalFile
+        val file = File(path).canonicalFile
+        require(file.parentFile == directory && file.extension.equals("apk", ignoreCase = true) && file.isFile) { "找不到已下载的安装包，请重新下载" }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
+            val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            throw IllegalStateException("允许映舟安装应用后，请返回并再次点「打开安装包」")
+        }
+        val uri = FileProvider.getUriForFile(context, context.packageName + ".exports", file)
+        val install = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(install)
     }
 
     fun info(context: Context): Map<String, Any> {

@@ -22,6 +22,8 @@ import 'package:tvbox_client/update/update_backend_io.dart';
 import 'package:tvbox_client/update/update_client.dart';
 import 'package:tvbox_client/update/update_service.dart';
 
+import '../test/support/update_signer.dart';
+
 const engineUrl = String.fromEnvironment('ENGINE_URL', defaultValue: 'http://127.0.0.1:19978');
 const shotDir = String.fromEnvironment('SHOT_DIR');
 
@@ -66,19 +68,18 @@ void main() {
     MediaKit.ensureInitialized();
     // latest.json as the release job writes it, served here.
     final server = (await tester.runAsync(() => HttpServer.bind(InternetAddress.loopbackIPv4, 0)))!;
+    final manifest = await signUpdateFixture(jsonEncode({
+      'version': '9.9.9',
+      'tag': 'v9.9.9',
+      'date': '2026-12-01',
+      'notes': '### 2026-12-01（演示）\n\n- **检查更新**：有新版本时提示，并下载这台设备的安装包。\n- GitHub 加速代理可以从列表里选，并能「测速」。\n',
+      'assets': {
+        'windows-x64': {'name': 'yingzhou-windows-x64-setup.exe', 'size': 3, 'sha256': 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'},
+      },
+    }));
     server.listen((request) {
       request.response.headers.contentType = ContentType.json;
-      request.response.write(
-        jsonEncode({
-          'version': '9.9.9',
-          'tag': 'v9.9.9',
-          'date': '2026-12-01',
-          'notes': '### 2026-12-01（演示）\n\n- **检查更新**：有新版本时提示，并下载这台设备的安装包。\n- GitHub 加速代理可以从列表里选，并能「测速」。\n',
-          'assets': {
-            'windows-x64': {'name': 'yingzhou-windows-x64-setup.exe', 'size': 123456789},
-          },
-        }),
-      );
+      request.response.write(manifest);
       request.response.close();
     });
     addTearDown(() => server.close(force: true));
@@ -87,7 +88,7 @@ void main() {
     final state = AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings);
     UpdateService.debugUse(
       state,
-      UpdateService(settings: settings, backend: IoUpdateBackend(UpdateClient(latestUrl: 'http://127.0.0.1:${server.port}/latest.json'))),
+      UpdateService(settings: settings, network: state.network, backend: IoUpdateBackend(UpdateClient(latestUrl: 'http://127.0.0.1:${server.port}/latest.json', verificationKey: await testUpdatePublicKey))),
     );
     await tester.pumpWidget(TvboxApp(state: state));
     await until(tester, find.text('设置'));
@@ -113,13 +114,14 @@ void main() {
     await tester.tap(probe);
     await until(tester, find.textContaining('直连 GitHub：'), timeout: const Duration(seconds: 20));
     print('PROBE:${text(const Key('github-proxy-probe-status'))}');
-    for (final e in find.byWidgetPredicate((w) => w is ListTile && (w.key as ValueKey?)?.value.toString().startsWith('github-proxy-preset-') == true).evaluate()) {
-      final tile = e.widget as ListTile;
-      final trailing = tile.trailing is Tooltip ? ((tile.trailing as Tooltip).child as Text).data : '-';
-      print('PROBE:${(tile.title as Text).data} $trailing');
+    final chooser = tester.widget<DropdownButton<String>>(find.byKey(const Key('github-proxy-choice')));
+    for (final item in chooser.items!) {
+      print('PROBE:${(item.child as Text).data}');
     }
     await tester.ensureVisible(find.byKey(const Key('github-proxy-probe')));
     await mark(tester, 'probe');
+
+    await state.setGithubProxy(enabled: false);
 
     // 更新: a newer version from the local latest.json.
     // At the bottom of 设置, under 关于: built once scrolled to.

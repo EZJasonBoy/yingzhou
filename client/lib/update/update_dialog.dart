@@ -5,9 +5,6 @@ import 'release_info.dart';
 import 'update_models.dart';
 import 'update_service.dart';
 
-/// What the newer release in [result] brings, and its package for this device: saved by the app on a desktop
-/// (through the proxy and the way the check got through), handed to the browser on Android. Works with the D-pad:
-/// the download button has the focus, ↑ goes to the notes, which ↑ / ↓ scroll.
 Future<void> showUpdateDialog(BuildContext context, UpdateCheckResult result) {
   final release = result.release;
   if (release == null) return Future.value();
@@ -34,6 +31,14 @@ class _UpdateDialogState extends State<UpdateDialog> {
     setState(() => _address = opened ? null : url);
   }
 
+  Future<void> _reveal(UpdateService service, String path) async {
+    try {
+      await service.backend.reveal(path);
+    } on PlatformException catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message ?? '无法打开安装包')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final service = UpdateService.of(context);
@@ -46,7 +51,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
     return ListenableBuilder(
       listenable: service,
       builder: (context, _) {
-        final download = service.download != null && service.download!.asset.name == asset?.name ? service.download : null;
+        final download = asset != null && service.download?.url == release.urlOf(asset) ? service.download : null;
         return AlertDialog(
           key: const Key('update-dialog'),
           title: Text(result.newer ? '发现新版本 ${release.version}' : '映舟 ${release.version}'),
@@ -70,11 +75,9 @@ class _UpdateDialogState extends State<UpdateDialog> {
                 const SizedBox(height: 8),
                 if (asset == null) Text('这次没有适合这台设备的安装包，可以到发布页看看', style: small),
                 if (download != null) _DownloadLine(download: download, service: service),
-                if (asset != null && !service.backend.downloadsInApp)
-                  Text('浏览器下载时不经过「更新用的代理」${result.route == UpdateRoute.mirror ? '，地址已换成加速前缀' : ''}', style: small),
                 if (_address != null) ...[
                   const SizedBox(height: 8),
-                  Text('没有可以打开链接的浏览器。下载地址：', style: small),
+                  Text('没有可以打开链接的浏览器。发布页地址：', style: small),
                   SelectableText(_address!, key: const Key('update-address'), style: theme.textTheme.bodySmall),
                 ],
               ],
@@ -88,8 +91,8 @@ class _UpdateDialogState extends State<UpdateDialog> {
                 FilledButton(
                   key: const Key('update-reveal'),
                   autofocus: true,
-                  onPressed: () => service.backend.reveal(download!.path!),
-                  child: const Text('打开所在文件夹'),
+                  onPressed: () => _reveal(service, download!.path!),
+                  child: Text(theme.platform == TargetPlatform.android ? '打开安装包' : '打开所在文件夹'),
                 )
               else if (download?.running ?? false)
                 FilledButton.tonal(key: const Key('update-cancel'), autofocus: true, onPressed: service.cancelDownload, child: const Text('取消下载'))
@@ -97,7 +100,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
                 FilledButton(
                   key: const Key('update-download'),
                   autofocus: true,
-                  onPressed: () => service.backend.downloadsInApp ? service.startDownload(release, asset) : _open(service, service.urlOf(release, asset)),
+                  onPressed: () => service.startDownload(release, asset),
                   child: Text(download?.error != null ? '重新下载' : '下载'),
                 ),
           ],

@@ -2,28 +2,34 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart' show sha256;
+import 'package:cryptography/cryptography.dart' show SimplePublicKey;
+
+import 'manifest_signature.dart';
 import 'release_info.dart';
 import 'update_models.dart';
 
-/// Asks for `latest.json` and downloads packages. GitHub directly first; when that fails, through the user's
-/// GitHub accelerating prefix (the engine's setting, when it is on). Everything goes through the HTTP proxy when
-/// one is set — only these requests, nothing else in the app.
+/// Fetches the release and its packages, trying the selected mirror before GitHub.
 class UpdateClient {
   UpdateClient({
     this.latestUrl = latestJsonUrl,
     this.currentVersion = appVersion,
     this.timeout = const Duration(seconds: 15),
+    this.verificationKey,
     HttpClient Function()? httpClient,
   }) : _newClient = httpClient ?? HttpClient.new;
 
   final String latestUrl;
   final String currentVersion;
+  final SimplePublicKey? verificationKey;
 
   /// For each try at `latest.json`, and for a download to start answering.
   final Duration timeout;
   final HttpClient Function() _newClient;
 
   static const _maxJson = 1024 * 1024;
+
+  List<(UpdateRoute, String)> _routes(String url, String mirror) => [if (mirror.isNotEmpty) (UpdateRoute.mirror, '$mirror$url'), (UpdateRoute.direct, url)];
 
   HttpClient _client(String proxy) {
     final client = _newClient()
@@ -35,14 +41,21 @@ class UpdateClient {
 
   Future<UpdateCheckResult> check({String mirror = '', String proxy = ''}) async {
     final prefix = normalizeMirror(mirror);
-    final routes = [(UpdateRoute.direct, latestUrl), if (prefix.isNotEmpty) (UpdateRoute.mirror, '$prefix$latestUrl')];
     final failures = <String>[];
     final client = _client(proxy);
     try {
-      for (final (route, url) in routes) {
+      for (final (route, url) in _routes(latestUrl, prefix)) {
         try {
-          final release = ReleaseInfo.fromJson(jsonDecode(await _getText(client, Uri.parse(url))));
-          return UpdateCheckResult(current: currentVersion, at: DateTime.now(), release: release, route: route, mirror: prefix, proxy: proxy, failures: failures);
+          final release = await verifyUpdateManifest(await _getText(client, Uri.parse(url)), verificationKey: verificationKey);
+          return UpdateCheckResult(
+            current: currentVersion,
+            at: DateTime.now(),
+            release: release,
+            route: route,
+            mirror: prefix,
+            proxy: proxy,
+            failures: failures,
+          );
         } on Object catch (e) {
           failures.add('${route == UpdateRoute.direct ? '直连 GitHub' : '经加速前缀 ${mirrorHost(prefix)}'}：${describeFailure(e)}');
         }
@@ -57,7 +70,7 @@ class UpdateClient {
     final request = await client.getUrl(url).timeout(timeout);
     final response = await request.close().timeout(timeout);
     if (response.statusCode != HttpStatus.ok) {
-      await response.drain<void>().catchError((_) {});
+      await response.listen(null).cancel();
       throw HttpException('HTTP ${response.statusCode}', uri: url);
     }
     final bytes = <int>[];
@@ -74,11 +87,34 @@ class UpdateClient {
   Future<File> download(
     String url,
     File target, {
+    required String expectedSha256,
+    String mirror = '',
     String proxy = '',
     int expectedSize = 0,
     void Function(int received, int total)? progress,
     bool Function()? cancelled,
   }) async {
+    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(expectedSha256)) throw const UpdateIntegrityException('更新清单缺少安装包的 SHA-256 摘要');
+    for (final (route, address) in _routes(url, normalizeMirror(mirror))) {
+      if (cancelled?.call() ?? false) throw const UpdateCancelled();
+      try {
+        return await _download(address, target, proxy, expectedSize, expectedSha256, progress, cancelled);
+      } catch (error) {
+        if (route == UpdateRoute.direct || error is UpdateCancelled || error is FileSystemException) rethrow;
+      }
+    }
+    throw StateError('no update route');
+  }
+
+  Future<File> _download(
+    String url,
+    File target,
+    String proxy,
+    int expectedSize,
+    String expectedSha256,
+    void Function(int, int)? progress,
+    bool Function()? cancelled,
+  ) async {
     final client = _client(proxy);
     final part = File('${target.path}.part');
     IOSink? sink;
@@ -86,7 +122,7 @@ class UpdateClient {
       final request = await client.getUrl(Uri.parse(url)).timeout(timeout);
       final response = await request.close().timeout(timeout);
       if (response.statusCode != HttpStatus.ok) {
-        await response.drain<void>().catchError((_) {});
+        await response.listen(null).cancel();
         throw HttpException('HTTP ${response.statusCode}', uri: Uri.parse(url));
       }
       final total = response.contentLength < 0 ? 0 : response.contentLength;
@@ -104,7 +140,9 @@ class UpdateClient {
       sink = null;
       if (total > 0 && received != total) throw HttpException('incomplete: $received of $total bytes', uri: Uri.parse(url));
       if (expectedSize > 0 && received != expectedSize) throw HttpException('wrong size: $received bytes, not $expectedSize', uri: Uri.parse(url));
-      if (await target.exists()) await target.delete();
+      final digest = await sha256.bind(part.openRead()).first;
+      if (digest.toString() != expectedSha256) throw const UpdateIntegrityException('安装包的 SHA-256 与发布清单不符');
+      if (cancelled?.call() ?? false) throw const UpdateCancelled();
       return await part.rename(target.path);
     } catch (_) {
       await sink?.close().catchError((_) {});
@@ -131,6 +169,7 @@ String describeFailure(Object e) => switch (e) {
   HttpException(:final message) => message,
   FormatException() => '更新信息的格式不对',
   UpdateCancelled() => '已取消',
+  UpdateIntegrityException(:final message) => message,
   FileSystemException(:final message, :final path) => '无法保存文件：$message${path == null ? '' : '（$path）'}',
   _ => '$e',
 };

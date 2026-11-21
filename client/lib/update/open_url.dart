@@ -27,6 +27,10 @@ Future<bool> openInBrowser(String url) async {
 
 /// Shows [path] in the system's file manager.
 Future<void> revealFile(String path) async {
+  if (Platform.isAndroid) {
+    await const MethodChannel('yingzhou/device').invokeMethod<void>('openUpdate', {'path': path});
+    return;
+  }
   try {
     if (Platform.isWindows) {
       await Process.run('explorer.exe', ['/select,', path]);
@@ -53,6 +57,3 @@ Future<void> revealFile(String path) async {
   }
   return (os: Platform.operatingSystem, abi: Abi.current().toString(), installed: installed);
 }
-
-/// Downloads are saved in the app here (desktop); Android leaves them to the browser.
-bool get downloadsInApp => Platform.isWindows || Platform.isMacOS || Platform.isLinux;

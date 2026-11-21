@@ -271,6 +271,8 @@ def op_call(req):
     args = list(req.get('args') or [])
     if method == 'searchContent':
         result = _call_variants(fn, [args, args[:2], args[:1]])
+    elif method == 'playerContent':
+        result = _host.resolve_playback(fn, args)
     elif method == 'homeContent':
         result = _call_variants(fn, [args, []])
     else:

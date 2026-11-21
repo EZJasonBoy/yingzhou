@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
 
-import '../app_state.dart';
 import 'update_dialog.dart';
 import 'update_service.dart';
 
@@ -44,7 +43,7 @@ class _UpdateWatcherState extends State<UpdateWatcher> {
     if (!mounted) return;
     final service = UpdateService.of(context);
     if (!service.due || service.checking) return;
-    final result = await service.check(mirror: UpdateService.mirrorOf(AppScope.read(context)));
+    final result = await service.check();
     if (result == null || !result.newer || service.notifiedVersion == result.release!.version) return;
     _waitToShow?.cancel();
     // Not over the player or another page: when the home page is on top again.

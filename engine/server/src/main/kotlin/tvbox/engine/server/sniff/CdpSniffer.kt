@@ -53,6 +53,7 @@ class CdpSniffer(
     private val log: (String) -> Unit = { System.err.println(it) },
     /** The active config's `hosts` (the browser resolves names the same way) and `ads` (those requests are blocked). */
     private val network: tvbox.engine.core.net.ConfigNetwork? = null,
+    private val networkProxy: tvbox.engine.core.net.NetworkProxy? = null,
 ) : Sniffer {
     private val profileDir = profileDirFor(browser, profileDir)
     private val mutex = Mutex()
@@ -64,12 +65,13 @@ class CdpSniffer(
     override suspend fun sniff(request: SniffRequest, isMedia: (String) -> Boolean): SniffResult? {
         // `hosts` reach the browser as a start option, so one started under other rules is replaced.
         val rules = network?.hostResolverRules().orEmpty()
+        val proxy = networkProxy?.endpoint(tvbox.engine.core.net.NetworkProxy.PLAYBACK).orEmpty()
         val s = mutex.withLock {
             idleJob?.cancel()
             busy.incrementAndGet()
-            session?.takeIf { it.isAlive && it.resolverRules == rules } ?: run {
+            session?.takeIf { it.isAlive && it.resolverRules == rules && it.proxy == proxy } ?: run {
                 session?.close()
-                withContext(Dispatchers.IO) { start(rules) }.also { session = it }
+                withContext(Dispatchers.IO) { start(rules, proxy) }.also { session = it }
             }
         }
         try {
@@ -102,16 +104,18 @@ class CdpSniffer(
         session = null
     }
 
-    private suspend fun start(resolverRules: String = ""): CdpSession {
+    private suspend fun start(resolverRules: String, proxy: String): CdpSession {
         profileDir.mkdirs()
         val portFile = File(profileDir, "DevToolsActivePort")
         closeLeftover(portFile)
         portFile.delete()
         // The config's `hosts`, e.g. "MAP a.example b.example, MAP c.example 1.2.3.4".
         val hostRules = if (resolverRules.isEmpty()) emptyArray() else arrayOf("--host-resolver-rules=$resolverRules")
+        val proxyRules = if (proxy.isEmpty()) emptyArray() else arrayOf("--proxy-server=http://$proxy", "--proxy-bypass-list=${tvbox.engine.core.net.NetworkProxy.browserBypass.joinToString(";")}")
         val process = ProcessBuilder(
             browser.absolutePath,
             *hostRules,
+            *proxyRules,
             "--headless=new",
             "--remote-debugging-port=0",
             "--user-data-dir=${profileDir.absolutePath}",
@@ -145,7 +149,7 @@ class CdpSniffer(
                 Thread.sleep(100)
             }
             if (lines.size < 2) throw IOException("${browser.name} did not open its DevTools port")
-            val session = CdpSession(launcher, "ws://127.0.0.1:${lines[0].trim()}${lines[1].trim()}", http, resolverRules)
+            val session = CdpSession(launcher, "ws://127.0.0.1:${lines[0].trim()}${lines[1].trim()}", http, resolverRules, proxy)
             // The process that actually serves DevTools, so it can be shut down with the engine.
             browserProcess = session.browserProcess()
             browserProcess?.let(ChildProcesses::register)
@@ -255,6 +259,7 @@ internal class CdpSession(
     http: OkHttpClient,
     /** The `--host-resolver-rules` this browser was started with. */
     val resolverRules: String = "",
+    val proxy: String = "",
 ) {
     @Volatile private var process: ProcessHandle = launcher
     private val nextId = AtomicInteger()

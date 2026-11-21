@@ -20,6 +20,20 @@ class PythonSettings extends StatefulWidget {
 }
 
 class _PythonSettingsState extends State<PythonSettings> {
+  static const indexPresets = {
+    '': '跟随 pip 设置',
+    'https://pypi.org/simple/': 'PyPI 官方',
+    'https://pypi.tuna.tsinghua.edu.cn/simple/': '清华 TUNA',
+    'https://mirrors.aliyun.com/pypi/simple/': '阿里云',
+    'https://mirrors.cloud.tencent.com/pypi/simple/': '腾讯云',
+  };
+  static const runtimePresets = {
+    '': 'Python 官方（python.org）',
+    'https://mirrors.huaweicloud.com/python/': '华为云',
+    'https://registry.npmmirror.com/-/binary/python/': 'npmmirror',
+  };
+  bool _customIndex = false;
+  bool _customRuntime = false;
   PythonStatus? _status;
 
   /// Which engine [_status] is from.
@@ -71,8 +85,14 @@ class _PythonSettingsState extends State<PythonSettings> {
     final before = _status;
     setState(() {
       if (before == null || before.settings.path != status.settings.path) _path.text = status.settings.path;
-      if (before == null || before.settings.indexUrl != status.settings.indexUrl) _index.text = status.settings.indexUrl;
-      if (before == null || before.settings.downloadMirror != status.settings.downloadMirror) _mirror.text = status.settings.downloadMirror;
+      if (before == null || before.settings.indexUrl != status.settings.indexUrl) {
+        _index.text = status.settings.indexUrl;
+        _customIndex = !indexPresets.containsKey(_index.text);
+      }
+      if (before == null || before.settings.downloadMirror != status.settings.downloadMirror) {
+        _mirror.text = status.settings.downloadMirror;
+        _customRuntime = !runtimePresets.containsKey(_mirror.text);
+      }
       _status = status;
     });
     final running = status.task?.running ?? false;
@@ -333,19 +353,10 @@ class _PythonSettingsState extends State<PythonSettings> {
                   title: Text('镜像', style: text.bodyMedium),
                   subtitle: Text('下载慢时可以换成国内镜像', style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
                   children: [
-                    TextField(
-                      key: const Key('python-index'),
-                      controller: _index,
-                      enabled: !busy,
-                      decoration: const InputDecoration(labelText: 'PyPI 镜像（装包用）', hintText: '如 https://mirrors.aliyun.com/pypi/simple/，留空用 pip 的设置'),
-                    ),
+                    _mirrorPicker('python-index', 'PyPI 镜像（安装依赖）', indexPresets, _index, _customIndex, busy, (custom) => _customIndex = custom),
                     const SizedBox(height: 8),
-                    TextField(
-                      key: const Key('python-mirror'),
-                      controller: _mirror,
-                      enabled: !busy,
-                      decoration: const InputDecoration(labelText: 'Python 下载镜像', hintText: '如 https://mirrors.huaweicloud.com/python/，留空用 python.org'),
-                    ),
+                    if (offer != null)
+                      _mirrorPicker('python-mirror', 'Python 运行时下载镜像', runtimePresets, _mirror, _customRuntime, busy, (custom) => _customRuntime = custom),
                     const SizedBox(height: 8),
                     Align(
                       alignment: Alignment.centerRight,
@@ -361,6 +372,54 @@ class _PythonSettingsState extends State<PythonSettings> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _mirrorPicker(
+    String name,
+    String title,
+    Map<String, String> presets,
+    TextEditingController controller,
+    bool custom,
+    bool busy,
+    ValueChanged<bool> chooseCustom,
+  ) {
+    const customValue = 'custom';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title),
+        DropdownButton<String>(
+          key: Key('$name-choice'),
+          value: custom ? customValue : controller.text,
+          isExpanded: true,
+          items: [
+            for (final preset in presets.entries) DropdownMenuItem(value: preset.key, child: Text(preset.value)),
+            const DropdownMenuItem(value: customValue, child: Text('自定义地址…')),
+          ],
+          onChanged: busy
+              ? null
+              : (value) {
+                  if (value == null) return;
+                  setState(() {
+                    chooseCustom(value == customValue);
+                    if (value != customValue) {
+                      controller.text = value;
+                    } else if (presets.containsKey(controller.text)) {
+                      controller.clear();
+                    }
+                  });
+                },
+        ),
+        if (custom)
+          TextField(
+            key: Key(name),
+            controller: controller,
+            enabled: !busy,
+            keyboardType: TextInputType.url,
+            decoration: const InputDecoration(labelText: '自定义镜像地址', hintText: 'https://…'),
+          ),
+      ],
     );
   }
 }

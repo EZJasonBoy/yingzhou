@@ -27,6 +27,7 @@ public class OkHttp {
     private static final long TIMEOUT = TimeUnit.SECONDS.toMillis(30);
     private static OkDns dns;
     private static OkHttpClient client;
+    private static OkHttpClient playbackClient;
 
     public static synchronized OkDns dns() {
         if (dns == null) dns = new OkDns();
@@ -34,19 +35,26 @@ public class OkHttp {
     }
 
     public static synchronized OkHttpClient client() {
+        if (Boolean.TRUE.equals(HostBridge.resolvingPlayback.get()) && HostBridge.playbackClient != null) return player();
         if (client != null) return client;
         OkHttpClient base = HostBridge.baseClient;
         // Built from the engine's client: its interceptors apply and its DNS (the config's hosts, the user's DoH
         // choice) is what OkDns asks. Spiders keep TVBox's timeouts, and a dispatcher of their own so that a spider
         // calling cancelAll() stops spiders' requests only.
-        if (base != null) return client = base.newBuilder().dns(dns()).dispatcher(new okhttp3.Dispatcher()).connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS).readTimeout(TIMEOUT, TimeUnit.MILLISECONDS).writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS).build();
+        if (base != null) return client = fromBase(base);
         OkHttpClient.Builder builder = new OkHttpClient.Builder().dns(dns()).connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS).readTimeout(TIMEOUT, TimeUnit.MILLISECONDS).writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS);
         setOkHttpSsl(builder);
         return client = builder.build();
     }
 
-    public static OkHttpClient player() {
-        return client();
+    private static OkHttpClient fromBase(OkHttpClient base) {
+        return base.newBuilder().dns(dns()).dispatcher(new okhttp3.Dispatcher()).connectTimeout(TIMEOUT, TimeUnit.MILLISECONDS).readTimeout(TIMEOUT, TimeUnit.MILLISECONDS).writeTimeout(TIMEOUT, TimeUnit.MILLISECONDS).build();
+    }
+
+    public static synchronized OkHttpClient player() {
+        if (HostBridge.playbackClient == null) return client();
+        if (playbackClient == null) playbackClient = fromBase(HostBridge.playbackClient);
+        return playbackClient;
     }
 
     public static OkHttpClient client(long timeout) {
@@ -65,11 +73,13 @@ public class OkHttp {
 
     public static synchronized void reset() {
         client = null;
+        playbackClient = null;
         dns = null;
     }
 
     public static synchronized void resetClient() {
         client = null;
+        playbackClient = null;
     }
 
     public static OkHttpClient client(boolean redirect, long timeout) {

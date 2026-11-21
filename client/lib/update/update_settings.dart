@@ -6,9 +6,6 @@ import 'update_dialog.dart';
 import 'update_models.dart';
 import 'update_service.dart';
 
-/// 更新: this version, 「检查更新」, the switch for the daily automatic check, and the HTTP proxy update checks and
-/// downloads go through. Self-contained (state in [UpdateService]); shows nothing where updates are not checked
-/// (the web build).
 class UpdateSettings extends StatefulWidget {
   const UpdateSettings({super.key});
 
@@ -18,28 +15,10 @@ class UpdateSettings extends StatefulWidget {
 
 class _UpdateSettingsState extends State<UpdateSettings> {
   late final UpdateService _service = UpdateService.of(context);
-  late final _proxyField = TextEditingController(text: _service.proxy);
-  String? _proxyError;
-
-  @override
-  void dispose() {
-    _proxyField.dispose();
-    super.dispose();
-  }
 
   Future<void> _check() async {
-    final result = await _service.check(mirror: UpdateService.mirrorOf(AppScope.read(context)));
+    final result = await _service.check();
     if (result != null && result.newer && mounted) await showUpdateDialog(context, result);
-  }
-
-  Future<void> _saveProxy() async {
-    final ok = await _service.setProxy(_proxyField.text);
-    if (!mounted) return;
-    setState(() => _proxyError = ok ? null : '格式是 主机:端口，如 127.0.0.1:7890');
-    if (ok) {
-      _proxyField.text = _service.proxy;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(_service.proxy.isEmpty ? '已清除更新用的代理' : '检查和下载更新将经过 ${_service.proxy}')));
-    }
   }
 
   @override
@@ -50,7 +29,8 @@ class _UpdateSettingsState extends State<UpdateSettings> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final small = theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant);
-    final mirror = UpdateService.mirrorOf(state);
+    final mirror = state.network.updateMirror;
+    final proxy = state.network.updateProxy;
 
     return Padding(
       padding: const EdgeInsets.only(top: 12),
@@ -96,29 +76,10 @@ class _UpdateSettingsState extends State<UpdateSettings> {
                     value: service.autoCheck,
                     onChanged: service.setAutoCheck,
                   ),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          key: const Key('update-proxy'),
-                          controller: _proxyField,
-                          keyboardType: TextInputType.url,
-                          decoration: InputDecoration(labelText: '更新用的代理（HTTP）', hintText: '如 127.0.0.1:7890，留空不用', errorText: _proxyError),
-                          onSubmitted: (_) => _saveProxy(),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: FilledButton.tonal(key: const Key('update-proxy-save'), onPressed: _saveProxy, child: const Text('使用')),
-                      ),
-                    ],
-                  ),
                   const SizedBox(height: 4),
                   Text(
-                    '先直连 GitHub；连不上时${mirror.isEmpty ? '，可以在「网络」里打开 GitHub 加速代理，检查更新也会经它重试' : '经 GitHub 加速代理 ${mirrorHost(mirror)} 重试'}。'
-                    '代理只用于检查和下载更新，引擎和播放不经过它',
+                    '检查和下载更新遵循「设置 → 网络」：${mirror.isEmpty ? '直连 GitHub' : '优先使用 ${mirrorHost(mirror)}，失败时尝试直连'}'
+                    '${proxy.isEmpty ? '' : '，经 HTTP 代理 $proxy'}。',
                     key: const Key('update-route-explain'),
                     style: small,
                   ),

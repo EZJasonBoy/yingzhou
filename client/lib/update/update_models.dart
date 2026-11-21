@@ -1,5 +1,7 @@
 import 'release_info.dart';
 
+export '../network_preferences.dart' show normalizeProxy;
+
 // What an update check found, and the user's addresses for it, independent of how requests are made.
 
 /// How a check reached `latest.json`.
@@ -62,18 +64,6 @@ class UpdateCheckResult {
 String mirrorHost(String prefix) {
   final host = Uri.tryParse(prefix)?.host ?? '';
   return host.isEmpty ? prefix : host;
-}
-
-/// `host:port` of an HTTP proxy as the user typed it (`http://` and a trailing slash are dropped); '' for none,
-/// null when it is not one.
-String? normalizeProxy(String text) {
-  var t = text.trim();
-  if (t.isEmpty) return '';
-  t = t.replaceFirst(RegExp(r'^https?://', caseSensitive: false), '').replaceFirst(RegExp(r'/+$'), '');
-  final m = RegExp(r'^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+):(\d{1,5})$').firstMatch(t);
-  if (m == null) return null;
-  final port = int.parse(m.group(2)!);
-  return port > 0 && port < 65536 ? t : null;
 }
 
 /// A GitHub accelerating prefix as the engine keeps it: ends with one slash; '' for none.

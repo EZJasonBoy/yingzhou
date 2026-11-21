@@ -2,6 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
+import 'package:http/http.dart' as http;
 
 import 'poster_cache_stub.dart' if (dart.library.io) 'poster_cache_io.dart' as impl;
 
@@ -30,11 +31,12 @@ abstract class PosterCache {
 /// An image that comes through a [PosterCache].
 @immutable
 class CachedPoster extends ImageProvider<CachedPoster> {
-  const CachedPoster(this.url, this.cache, {this.headers, this.key});
+  const CachedPoster(this.url, this.cache, {this.headers, this.key, this.fallback});
 
   final String url;
-  final PosterCache cache;
+  final PosterCache? cache;
   final Map<String, String>? headers;
+  final String? fallback;
 
   /// What the image is kept and recognised under, in memory and on disk; [url] when null.
   final String? key;
@@ -52,8 +54,22 @@ class CachedPoster extends ImageProvider<CachedPoster> {
     informationCollector: () => [DiagnosticsProperty<String>('poster', url)],
   );
 
-  Future<ui.Codec> _codec(ImageDecoderCallback decode) async =>
-      decode(await ui.ImmutableBuffer.fromUint8List(await cache.load(url, headers: headers, key: key)));
+  Future<ui.Codec> _codec(ImageDecoderCallback decode) async {
+    Future<ui.Codec> load(String target, String? cacheKey) async {
+      final bytes =
+          await (cache?.load(target, headers: headers, key: cacheKey) ??
+              http.readBytes(Uri.parse(target), headers: headers).timeout(const Duration(seconds: 30)));
+      return decode(await ui.ImmutableBuffer.fromUint8List(bytes));
+    }
+
+    final direct = fallback;
+    if (direct == null) return load(url, key);
+    try {
+      return await load(url, url);
+    } on Object {
+      return load(direct, key);
+    }
+  }
 
   @override
   bool operator ==(Object other) => other is CachedPoster && other._id == _id && identical(other.cache, cache);

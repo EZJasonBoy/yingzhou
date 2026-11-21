@@ -139,7 +139,7 @@ abstract class JarSpiderRuntime(
         val candidates = listOfNotNull(recent, globalSpider.takeIf { it.isNotEmpty() }?.let { runCatching { load(it, null) }.getOrNull() })
         val cls = candidates.firstNotNullOfOrNull { jar -> runCatching { jar.loader.loadClass(className) }.getOrNull() } ?: return@withContext null
         try {
-            call(cls)?.toString()
+            resolvingPlayback { call(cls)?.toString() }
         } catch (e: Throwable) {
             System.err.println("$className failed: ${(e.cause ?: e)}")
             null
@@ -177,7 +177,7 @@ class CatSpiderAdapter(private val spider: CatSpider, private val onUse: () -> U
         io { spider.categoryContent(tid, pg, filter, HashMap(extend)) }
     override suspend fun detail(id: String): String? = io { spider.detailContent(listOf(id)) }
     override suspend fun search(key: String, quick: Boolean, pg: String): String? = io { spider.searchContent(key, quick, pg) }
-    override suspend fun play(flag: String, id: String, vipFlags: List<String>): String? = io { spider.playerContent(flag, id, vipFlags) }
+    override suspend fun play(flag: String, id: String, vipFlags: List<String>): String? = io { resolvingPlayback { spider.playerContent(flag, id, vipFlags) } }
     override suspend fun live(url: String): String? = io { spider.liveContent(url) }
 
     override suspend fun proxy(params: Map<String, String>): ProxyResponse? =
@@ -185,6 +185,16 @@ class CatSpiderAdapter(private val spider: CatSpider, private val onUse: () -> U
 
     override fun destroy() {
         runCatching { spider.destroy() }
+    }
+}
+
+private inline fun <T> resolvingPlayback(block: () -> T): T {
+    val previous = HostBridge.resolvingPlayback.get()
+    HostBridge.resolvingPlayback.set(true)
+    return try {
+        block()
+    } finally {
+        if (previous == null) HostBridge.resolvingPlayback.remove() else HostBridge.resolvingPlayback.set(previous)
     }
 }
 

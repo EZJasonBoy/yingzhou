@@ -86,6 +86,10 @@ class DownloadRoutesTest {
                         """{"list":[{"vod_id":7,"vod_name":"片名","vod_play_from":"线路","vod_play_url":"第1集${'$'}${site.url("/ads/index.m3u8")}#直播${'$'}${site.url("/ads/live.m3u8")}"}]}""",
                     )
                     path == "/ads/index.m3u8" -> MockResponse().setBody(film)
+                    path == "/split.m3u8" -> MockResponse().setBody(
+                        "#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"track\",NAME=\"Audio\",URI=\"sound.m3u8\"\n#EXT-X-STREAM-INF:BANDWIDTH=1500000,AUDIO=\"track\"\nads/index.m3u8\n",
+                    )
+                    path == "/sound.m3u8" -> MockResponse().setBody("#EXTM3U\n#EXTINF:120,\nads/seg-audio.ts\n#EXT-X-ENDLIST\n")
                     path == "/ads/live.m3u8" -> MockResponse().setBody("#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXTINF:10.0,\nlive1.ts\n")
                     path.endsWith(".ts") && path.startsWith("/ads/seg") -> MockResponse().setHeader("Content-Type", "video/mp2t").setBody(Buffer().write(ts(path.substringAfterLast('/'))))
                     else -> MockResponse().setResponseCode(404)
@@ -249,6 +253,23 @@ class DownloadRoutesTest {
         }
         assertEquals(HttpStatusCode.OK, export.status)
         assertEquals(12 * 40_000, export.readRawBytes().size)
+    }
+
+    @Test
+    fun `remote players can open both local tracks of a split HLS download`() = withEngine {
+        val id = add("/split.m3u8", "独立音轨")["id"]!!.jsonPrimitive.content
+        val done = waitFor(id)
+        assertEquals("done", done["state"]!!.jsonPrimitive.content, done.toString())
+        val host = "192.168.1.5:9978"
+        val url = resolve("/split.m3u8", host)["url"]!!.jsonPrimitive.content
+        site.shutdown()
+        suspend fun playlist(address: String) = client.get(local(address)) { header(HttpHeaders.Host, host) }.bodyAsText()
+        val master = playlist(url)
+        val audio = Regex("URI=\"([^\"]+)\"").find(master)!!.groupValues[1]
+        val video = addresses(master).single()
+        val sample = addresses(playlist(audio)).single()
+        assertArrayEquals(ts("seg-audio.ts"), client.get(local(sample)) { header(HttpHeaders.Host, host) }.readRawBytes())
+        assertEquals(12, addresses(playlist(video)).size)
     }
 
     @Test

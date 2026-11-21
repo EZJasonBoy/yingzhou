@@ -120,6 +120,23 @@ void main() {
     expect(fetched.single.$2, {'Referer': ImageAddress.doubanReferer, 'User-Agent': ImageAddress.browserUserAgent});
   });
 
+  testWidgets('public GitHub covers try the configured mirror and fall back; private covers stay direct', (tester) async {
+    final state = AppState(clientFactory: (url) => EngineClient(url, httpClient: fakeEngine(hasConfig: true)));
+    const prefix = 'https://mirror.test/';
+    const url = 'https://raw.githubusercontent.com/org/repo/main/art.jpg';
+    await state.setGithubProxy(enabled: true, prefix: prefix);
+    PosterCache.instance = PosterCache.at(dir.path, fetch: (address, headers) async {
+      fetched.add((address, Map.of(headers)));
+      if (address.host == 'mirror.test') throw const HttpException('mirror unavailable');
+      return Uint8List.fromList(_png);
+    });
+    await pumpCovers(tester, [url, '$url?token=private', '$url@Cookie=private'], state: state);
+    expect(fetched.where((request) => request.$1.host == 'mirror.test').map((request) => request.$1.toString()), ['$prefix$url']);
+    expect(fetched.where((request) => request.$1.toString() == url), hasLength(2));
+    expect(sentTo('$url?token=private'), isEmpty);
+    expect(fetched.any((request) => request.$1.toString() == url && request.$2['Cookie'] == 'private'), isTrue);
+  });
+
   testWidgets('the pairing token goes only to the paired engine, proxy and loopback addresses included', (tester) async {
     final engine = FakeLanEngine(fakeEngine(hasConfig: true));
     final state = AppState(clientFactory: (url) => EngineClient(url, httpClient: engine), engineUrl: _remote, waitStep: const Duration(milliseconds: 1));

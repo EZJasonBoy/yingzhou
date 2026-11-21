@@ -7,6 +7,7 @@ import 'engine/engine_client.dart';
 import 'engine/lan.dart';
 import 'engine/local_engine.dart';
 import 'engine/models.dart';
+import 'network_preferences.dart';
 import 'player_backend.dart';
 import 'settings.dart';
 import 'ui/theme.dart';
@@ -34,6 +35,7 @@ class AppState extends ChangeNotifier {
 
   /// Local preferences of this client (window, player volume...).
   SettingsStore get settings => _settings;
+  late final network = ClientNetworkPreferences(_settings, () => engineUrl);
 
   /// Light or dark, as chosen in 设置 → 外观.
   late final ThemeChoice themeChoice = ThemeChoice(_settings);
@@ -61,6 +63,7 @@ class AppState extends ChangeNotifier {
   /// bundled engine (desktop) or waits for the embedded one (Android) to come up.
   Future<void> start() async {
     engineUrl = _settings.getString(_engineUrlKey) ?? engineUrl;
+    await network.migrateUpdateProxy();
     currentSiteKey = _settings.getString(_siteKey);
     await connect();
     if (connected || !_isLocal(engineUrl)) return;
@@ -220,6 +223,7 @@ class AppState extends ChangeNotifier {
     client.token = saved == null || saved.isEmpty ? null : saved;
     client.onUnauthorized = (e) => _pairingRequired(client, e);
     info = null;
+    engineSettings = null;
     summary = null;
     sites = const [];
     subscriptions = const [];
@@ -229,6 +233,11 @@ class AppState extends ChangeNotifier {
     await _settings.setString(_engineUrlKey, engineUrl);
     try {
       engineSettings = await client.settings();
+      if (network.githubPending) {
+        final pending = network.githubSettings;
+        engineSettings = await client.patchSettings({'githubProxy': pending.githubProxy, 'githubProxyPrefix': pending.githubProxyPrefix});
+      }
+      await network.rememberGithub(engineSettings!);
     } on EngineException catch (e) {
       if (_refused(e)) return;
       engineSettings = null;
@@ -335,10 +344,12 @@ class AppState extends ChangeNotifier {
 
   /// Turns the GitHub proxy on or off (and names it), then loads the current subscription again the new way.
   Future<void> setGithubProxy({required bool enabled, String? prefix}) => _run(() async {
-    final current = engineSettings ?? const EngineSettings();
-    engineSettings = await client.updateSettings(
-      current.copyWith(githubProxy: enabled, githubProxyPrefix: prefix),
-    );
+    final current = engineSettings ?? network.githubSettings;
+    final next = current.copyWith(githubProxy: enabled, githubProxyPrefix: prefix);
+    await network.rememberGithub(next, pending: true);
+    if (!connected || engineSettings == null) return;
+    engineSettings = await client.updateSettings(next);
+    await network.rememberGithub(engineSettings!);
     final active = summary;
     if (active == null) {
       // Nothing loaded, perhaps because of the very address this setting changes: let the engine try again.
@@ -347,6 +358,19 @@ class AppState extends ChangeNotifier {
     }
     summary = await client.activate(active.subscriptionId, repo: active.repos.isEmpty ? null : active.url);
     await _loadSites();
+  });
+
+  Future<void> setNetworkProxy(String address, {required bool updates, required Set<String> scopes}) => _run(() async {
+    await network.saveHttp(address, updates: updates);
+    final current = engineSettings;
+    if (!connected || current == null || !current.supportsProxyScopes) return;
+    final changed = scopes.length != current.proxyScopes.length || !scopes.containsAll(current.proxyScopes);
+    if (!changed && (scopes.isEmpty || address == current.httpProxy)) return;
+    try {
+      engineSettings = await client.patchSettings({'httpProxy': address, 'proxyScopes': scopes.toList()});
+    } on EngineException catch (exception) {
+      throw EngineException(exception.code, '本机设置已保存，引擎设置未保存（${exception.message}）', statusCode: exception.statusCode);
+    }
   });
 
   /// Chooses the DNS-over-HTTPS server the engine looks names up with ('' for the system's DNS). It applies from
