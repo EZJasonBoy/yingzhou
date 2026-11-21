@@ -119,7 +119,8 @@ TVBox 的订阅生态很大，能好好用它的地方却几乎只有安卓。�
 |---|---|
 | [使用说明](docs/user-guide.md) | 各页面怎么用、快捷键、手势、遥控器、常见问题 |
 | [兼容性](docs/compatibility.md) | TVBox 配置逐字段的支持情况 |
-| [进度](docs/status.md) | 里程碑、已验证 / 未验证、已知缺口、下一步 |
+| [路线图](docs/roadmap.md) | 接下来做什么、先后顺序、想法池 |
+| [进度](docs/status.md) | 里程碑、已验证 / 未验证、已知缺口 |
 | [需求](docs/requirements.md) | 目标、平台优先级、功能清单 |
 | [架构](docs/architecture.md) | 引擎 / 客户端 / 协议的分工，各子系统的实现 |
 | [引擎协议](docs/protocol.md) | 客户端与引擎之间的 HTTP 接口 |
