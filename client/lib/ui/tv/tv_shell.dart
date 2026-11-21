@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../device_form.dart';
 import 'tv_focus.dart';
 
 /// One entry of the navigation (the same list the desktop rail shows).
@@ -12,7 +14,8 @@ typedef TvDestination = ({IconData icon, IconData selected, String label});
 ///
 /// - ↑/↓ move along the entries, OK opens one and moves the focus into it; → goes into the page where its focus was
 ///   last time; ← from the left edge of a page comes back to the entry.
-/// - BACK from inside a page goes to its entry; from an entry, back to 首页; on 首页 it asks before quitting.
+/// - BACK from inside a page goes to its entry; from an entry, back to 首页; on 首页 it asks before quitting (a
+///   desktop in the TV layout is also offered its desktop layout back there).
 /// - Live TV in full screen ([immersive]) hides the column; the page keeps its state either way.
 class TvShell extends StatefulWidget {
   const TvShell({super.key, required this.index, required this.destinations, required this.onSelect, required this.pages, this.immersive = false});
@@ -188,17 +191,31 @@ class TvShellState extends State<TvShell> {
       });
       return;
     }
-    final quit = await showDialog<bool>(
+    // A computer in the TV layout (full screen): the way back to its desktop layout is offered here too.
+    final forms = DeviceFormScope.maybeControllerOf(context);
+    final desktop = forms != null && forms.isDesktopPlatform;
+    final choice = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('退出映舟？'),
         actions: [
-          TextButton(autofocus: true, onPressed: () => Navigator.of(context).pop(false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('退出')),
+          TextButton(autofocus: true, onPressed: () => Navigator.of(context).pop(), child: const Text('取消')),
+          if (desktop && forms.canOverride)
+            TextButton(key: const Key('tv-leave-mode'), onPressed: () => Navigator.of(context).pop('desktop'), child: const Text('回到桌面界面')),
+          FilledButton(onPressed: () => Navigator.of(context).pop('quit'), child: const Text('退出')),
         ],
       ),
     );
-    if (quit == true) await SystemNavigator.pop();
+    if (choice == 'desktop') {
+      await forms?.setOverride(DeviceFormOverride.auto);
+    } else if (choice == 'quit') {
+      // Desktops have no "back out of the app"; they are asked to close it.
+      if (desktop) {
+        await ServicesBinding.instance.exitApplication(ui.AppExitType.cancelable);
+      } else {
+        await SystemNavigator.pop();
+      }
+    }
   }
 
   void _onEdge(TraversalDirection direction) {

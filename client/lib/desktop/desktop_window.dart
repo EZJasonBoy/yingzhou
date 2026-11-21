@@ -55,8 +55,31 @@ class DesktopWindow {
   bool get isFullScreen => _guard(() => _window?.isFullScreen ?? false, false);
 
   set fullScreen(bool value) => _guard(() {
+    // Pinned (the TV layout on a desktop): pages that leave full screen when they close do not take the app out of it.
+    if (_pinned && !value) return;
     if (_window != null && _window.isFullScreen != value) _window.isFullScreen = value;
   }, null);
+
+  bool _pinned = false;
+  bool _fullScreenBeforePin = false;
+
+  /// Whether the window is held in full screen ([pinFullScreen]).
+  bool get pinnedFullScreen => _pinned;
+
+  /// Holds the window in full screen until it is let go again: the TV layout on a desktop (an HTPC) fills the
+  /// screen like a TV app, and the player or live TV closing does not drop back to a window. Letting go puts the
+  /// window back as it was before.
+  set pinFullScreen(bool value) {
+    if (value == _pinned) return;
+    if (value) {
+      _fullScreenBeforePin = isFullScreen;
+      fullScreen = true;
+      _pinned = true;
+    } else {
+      _pinned = false;
+      fullScreen = _fullScreenBeforePin;
+    }
+  }
 
   void toggleFullScreen() => fullScreen = !isFullScreen;
 

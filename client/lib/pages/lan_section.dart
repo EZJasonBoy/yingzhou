@@ -8,23 +8,29 @@ import '../app_state.dart';
 import '../engine/discovery.dart';
 import '../engine/lan.dart';
 import '../engine/models.dart';
+import '../remote/remote_page.dart';
+import '../remote/remote_screen.dart';
+import '../remote/remote_settings.dart';
+import '../ui/device_form.dart';
 
 /// Which half of [LanSection] a page shows.
 enum LanPart {
   /// Both, in one card.
   all,
 
-  /// Using an engine on another device (源): the engines found on the LAN, the pairing with the one in use, and where
-  /// players fetch the video from.
+  /// Using an engine on another device (源): the engines found on the LAN, the pairing with the one in use, where
+  /// players fetch the video from, and on a phone or tablet 「遥控另一台映舟」.
   connect,
 
-  /// Letting other devices use this machine's engine (设置): the sharing switch, addresses, pairing code, devices.
+  /// Letting other devices use this machine (设置): the sharing switch, addresses, pairing code, devices, and
+  /// 「允许手机遥控」 ([RemoteControlSettings]).
   share,
 }
 
-/// 「局域网」: the LAN sharing switch of the engine on this machine (addresses, pairing code, paired devices), the
-/// engines found on the LAN, and the pairing with the engine in use when it is on another device. 源 shows the
-/// [LanPart.connect] half and 设置 the [LanPart.share] half.
+/// 「局域网」: the LAN sharing switch of the engine on this machine (addresses, pairing code, paired devices),
+/// 「允许手机遥控」 ([RemoteControlSettings]), the engines found on the LAN, the pairing with the engine in use when it
+/// is on another device, and 「遥控另一台映舟」 on touch devices. 源 shows the [LanPart.connect] half and 设置 the
+/// [LanPart.share] half.
 class LanSection extends StatefulWidget {
   const LanSection({super.key, this.discovery, this.part = LanPart.all});
 
@@ -159,9 +165,15 @@ class _LanSectionState extends State<LanSection> {
     final showPairing = connectHalf && remote;
     final showSharing = shareHalf && !remote && status != null && status.supported;
     final showDiscovery = connectHalf && _discovery != null;
+    // A phone or tablet as the remote of a 映舟 on a TV or computer.
+    final showRemoteOther = connectHalf && isTouch(context);
     // 设置 on a device that uses another device's engine: there is nothing to share from here.
     final elsewhere = widget.part == LanPart.share && remote;
-    if (!showPairing && !showSharing && !showDiscovery && !elsewhere && _error == null) return const SizedBox.shrink();
+    // This app as a screen of the remote control of that other engine.
+    final screenElsewhere = shareHalf && remote && state.connected;
+    if (!showPairing && !showSharing && !showDiscovery && !showRemoteOther && !elsewhere && !screenElsewhere && _error == null) {
+      return const SizedBox.shrink();
+    }
 
     return Card(
       child: Padding(
@@ -169,9 +181,25 @@ class _LanSectionState extends State<LanSection> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(switch (widget.part) { LanPart.connect => '局域网里的引擎', LanPart.share => '共享这台设备的引擎', LanPart.all => '局域网' }, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+            Text(switch (widget.part) { LanPart.connect => '局域网里的引擎', LanPart.share => '共享与遥控', LanPart.all => '局域网' }, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
             const SizedBox(height: 10),
             if (elsewhere) Text('正在使用另一台设备上的引擎。局域网共享在引擎所在的那台设备上设置。', style: small),
+            if (screenElsewhere) ...[
+              const SizedBox(height: 12),
+              RemoteControlSettings(engineUrl: state.engineUrl, busy: state.busy),
+            ],
+            if (showRemoteOther) ...[
+              ListTile(
+                key: const Key('lan-remote-other'),
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.settings_remote_outlined),
+                title: const Text('遥控另一台映舟'),
+                subtitle: Text('用这台设备当电视、电脑上映舟的遥控器（那边要打开「允许手机遥控」）', style: small),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => RemoteFinderPage(discovery: widget.discovery))),
+              ),
+              const Divider(height: 20),
+            ],
             // The engine in use is on another device: pairing.
             if (showPairing) ...[
               Row(
@@ -193,10 +221,20 @@ class _LanSectionState extends State<LanSection> {
               ),
               const SizedBox(height: 16),
               _streamSource(state, small),
-              const SizedBox(height: 12),
             ],
-            // The engine on this machine: the sharing switch.
-            if (showSharing) _sharing(context, state, status, small),
+            // The engine on this machine: the sharing switch, and the phone as a remote control (which needs it).
+            if (showSharing) ...[
+              _sharing(context, state, status, small),
+              RemoteControlSettings(
+                engineUrl: state.engineUrl,
+                lan: status,
+                busy: _working,
+                onEnableSharing: () async {
+                  await _do(() => state.client.setLanSharing(true));
+                  return _status?.enabled ?? false;
+                },
+              ),
+            ],
             if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: TextStyle(color: scheme.error))),
             if (showDiscovery) ...[
               if (showPairing || showSharing) const Divider(height: 28),
@@ -277,7 +315,16 @@ class _LanSectionState extends State<LanSection> {
                 : '已关闭：只有$_thisDevice能用这个引擎',
           ),
           value: status.enabled,
-          onChanged: _working || status.forced ? null : (on) => _do(() => state.client.setLanSharing(on)),
+          onChanged: _working || status.forced
+              ? null
+              : (on) {
+                  // Without sharing no phone gets in: the remote control goes off with it.
+                  final agent = RemoteScreen.maybeAgentOf(context);
+                  _do(() async {
+                    if (!on) await agent?.setEnabled(false);
+                    return state.client.setLanSharing(on);
+                  });
+                },
         ),
         if (status.enabled) ...[
           if (status.error.isNotEmpty) Text(status.error, style: TextStyle(color: scheme.error, fontSize: 12)),

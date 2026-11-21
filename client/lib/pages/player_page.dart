@@ -15,6 +15,7 @@ import '../engine/models.dart' show EngineException;
 import '../engine/vod_models.dart';
 import '../player_backend.dart';
 import '../player_cache.dart';
+import '../remote/remote_host.dart';
 import '../settings.dart';
 import '../ui/device_form.dart';
 import '../ui/theme.dart';
@@ -28,6 +29,7 @@ import 'player_tracks.dart';
 import 'seek_bar.dart';
 import 'touch_gestures.dart';
 
+part 'player_remote.dart';
 part 'player_tv.dart';
 
 /// Full-window player: resolves the episode through the engine, plays it with media_kit (libmpv on desktop),
@@ -66,6 +68,16 @@ class _PlayerPageState extends State<PlayerPage> {
   /// The remote control on a TV (player_tv.dart).
   final _tvUi = _TvPlayerUi();
   void _tvSet(VoidCallback change) => setState(change);
+
+  /// The LAN remote control: a phone that drives this player (player_remote.dart).
+  late final _remote = _PlayerRemote(this);
+
+  /// Whatever changes what is on the screen is also news for a remote.
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    RemoteHost.instance.changed();
+  }
   final _subs = <StreamSubscription<dynamic>>[];
 
   late int _line = widget.line;
@@ -254,6 +266,7 @@ class _PlayerPageState extends State<PlayerPage> {
       _savedSubtitle = h?.subtitle ?? '';
       _savedAudio = h?.audio ?? '';
     }).catchError((Object _) {});
+    _remoteAttach();
     _open(_line, _episode, resume: widget.startPosition);
     _pokeControls();
   }
@@ -303,6 +316,7 @@ class _PlayerPageState extends State<PlayerPage> {
     if (_window.isFullScreen) _window.fullScreen = false;
     _window.title = '映舟';
     _saveProgress();
+    _remoteDetach();
     _tracks.dispose();
     _danmakuPrefs.dispose();
     _mobile?.dispose();
@@ -785,7 +799,7 @@ class _PlayerPageState extends State<PlayerPage> {
       mobile.setFullScreen(false);
       return;
     }
-    if (_window.isFullScreen) {
+    if (_window.isFullScreen && !_window.pinnedFullScreen) {
       _window.fullScreen = false;
       setState(() {});
     } else if (_panelOpen) {
@@ -1135,7 +1149,8 @@ class _PlayerPageState extends State<PlayerPage> {
                   icon: const Icon(Icons.playlist_play_rounded, color: Colors.white),
                   label: const Text('选集', style: TextStyle(color: Colors.white)),
                 ),
-                if (_window.supported)
+                // Not in the TV layout on a desktop, which is full screen for as long as it lasts.
+                if (_window.supported && !_window.pinnedFullScreen)
                   IconButton(
                     tooltip: _window.isFullScreen ? '退出全屏 (Esc)' : '全屏 (F / 双击)',
                     onPressed: _toggleFullScreen,

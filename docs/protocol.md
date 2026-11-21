@@ -9,7 +9,7 @@
 - 基础路径：`/api/v1`。JSON 使用 UTF-8，字段名 camelCase。
 - 鉴权：`Authorization: Bearer <token>`，令牌由配对得到（见下面"鉴权与配对"）。本机的调用方不需要令牌。
 - 错误：HTTP 状态码 + `{"error": {"code": "SITE_TIMEOUT", "message": "…"}}`。
-- 流式结果用 **SSE**（`text/event-stream`）；引擎主动推送的事件用 **WebSocket** `/api/v1/events` **（未实现）**。
+- 流式结果用 **SSE**（`text/event-stream`）；引擎主动推送的事件用 **WebSocket** `/api/v1/events` **（未实现）**。遥控（见"遥控"）的两条 WebSocket 已实现。
 - 版本：`GET /api/v1/info` 返回 `protocol` 版本号，不兼容的改动升主版本。
 
 ## 引擎信息与配对
@@ -27,11 +27,11 @@
 
 **检查顺序**（一个拦截器挡在所有路由前面，之后新加的路由自动受保护，默认拒绝）：
 
-1. 公开：`GET /api/v1/info`、`POST /api/v1/pair`；演示引擎（`--demo`）的 `/demo/` 也公开，因为它代表的是第三方站点，别的引擎（模拟器里的安卓引擎）要不带令牌地取它。
+1. 公开：`GET /api/v1/info`、`POST /api/v1/pair`、网页遥控器的静态文件 `/remote/`（见"遥控"）；演示引擎（`--demo`）的 `/demo/` 也公开，因为它代表的是第三方站点，别的引擎（模拟器里的安卓引擎）要不带令牌地取它。
 2. 本机 → 放行。
 3. GET / HEAD、路径不在 `/api/` 下、带有效的 `tvsig` 签名 → 只放行这一个地址（见下面"签名地址"）。
 4. 局域网共享关闭 → `403 LAN_SHARING_OFF`（带令牌也一样）。
-5. 有效的 `Authorization: Bearer <token>` → 放行（`/api/v1/lan` 除外，它只认本机）。
+5. 有效的 `Authorization: Bearer <token>` → 放行（`/api/v1/lan` 除外，它只认本机）。遥控的两条 WebSocket 路由还接受放在子协议里的令牌，并且在第 1 步之前先检查 `Origin`（见"遥控"）。
 6. 其余 → `401 UNAUTHORIZED`，响应头 `WWW-Authenticate: Bearer`。客户端收到 401 就回到配对。
 
 **配对码**：6 位数字，一次有效，10 分钟过期。没有界面的引擎把它打印在标准输出里；本机的应用经 `GET /api/v1/lan` 读取。`POST /pair` 带空的 `code` 不算一次尝试：没有有效的码时引擎会生成一个（并打印），回答 `400 PAIR_CODE_REQUIRED`——客户端打开配对窗口时就发这个请求。
@@ -408,6 +408,119 @@ DriveEntry   {name, path, dir, size, modified, type: folder|video|subtitle|other
 - `download`：可以下载的 CPython；不是 Windows 时没有这个字段。下载与安装在后台进行，`task` 是正在进行的或上一次的（`state`：`running` / `done` / `failed`），客户端每秒问一次直到结束。
 
 Python 站点调用失败时的错误码：`PY_UNAVAILABLE`（没有可用的 Python）、`PY_MODULE_MISSING`（缺包，消息里有包名）、`PY_CRASHED`（Python 进程退出了，下次调用会重启它）；蜘蛛自己抛的异常是 `SITE_ERROR`，加载时就出错是 `SPIDER_LOAD_FAILED`。
+
+## 遥控
+
+让手机驱动一个映舟客户端：接在电视上的电脑（Windows / macOS / Linux）、电视盒子、没有键盘的旧安卓设备。**引擎是中枢**：允许被遥控的客户端向它正在用的引擎登记为一块**屏幕**，保持一条 WebSocket；配对过的手机（**遥控端**）列出屏幕，向其中一块开一条控制 WebSocket。引擎只转发：屏幕的状态里有什么、有哪些命令，是客户端和遥控端之间的事，引擎不解释（以后加字段、加命令不用动引擎）。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/remote/screens` | `[{id, name, platform, form, version, title, controllers, connectedAt}]`：现在能遥控的屏幕。`form` 是屏幕的界面形态：`desktop` / `tv` / `phone` / `tablet`；`title` 取自屏幕最近一次状态的 `title`；`controllers` 是正连着它的遥控端个数 |
+| WS | `/remote/screen` | 屏幕端：先说 `hello`，然后发状态、收命令 |
+| WS | `/remote/control?screen=<id>` | 遥控端：立即收到那块屏幕最近的状态，之后每次变化都收到；发命令 |
+
+网页遥控器在 `/remote/`（不在 `/api/v1` 下）：`index.html`、`remote.css`、`remote.js`、`icon.svg`、`manifest.webmanifest` 五个静态文件，没有依赖也没有构建步骤，**不需要令牌**（它自己经 `POST /pair` 配对，令牌存在手机浏览器的 localStorage 里）。地址后面可以带 `#code=<配对码>`，网页拿它直接配对后从地址里去掉；`#tab=play` 直接打开「播放」页。响应带 `Content-Security-Policy`（只运行自己的脚本）：屏幕报上来的片名、集名来自第三方站点，网页只把它们当文字显示。
+
+**谁能被遥控**：屏幕都是自己连上来的。客户端里的「允许手机遥控」默认关闭，关着的时候它根本不连 `/remote/screen`，不在列表里，也就没有任何办法遥控它；打开后登记，关掉即断开。能遥控的是能通过引擎鉴权的调用方：本机，或局域网共享开着时配对过的设备。配对过的设备可以遥控登记在这台引擎上的任何屏幕（它本来也能用这台引擎的全部接口）。
+
+### 鉴权
+
+和其他接口同一套（见"鉴权与配对"），没有第二套令牌。两点不同：
+
+- **令牌可以放在 `Sec-WebSocket-Protocol` 里**。浏览器不能给 WebSocket 设置请求头，只能指定子协议，所以这两条 WebSocket 路由除了 `Authorization: Bearer` 之外，还接受一个名为 `yingzhou.token.<令牌>` 的子协议。网页打开连接时写 `new WebSocket(url, ['yingzhou.remote.v1', 'yingzhou.token.' + token])`；引擎回答里选中的子协议永远是 `yingzhou.remote.v1`，不会把令牌回显出来。不带子协议也能连（脚本、其他客户端用请求头）。这个子协议只在这两条路由上有效，别的接口不认。
+- **检查 `Origin`**。WebSocket 没有同源策略：本机浏览器里任何网站的网页都能连 `ws://127.0.0.1:9978/…`，而且会被当成本机（不需要令牌）。所以这两条路由在所有检查之前先看 `Origin`：有 `Origin`（是浏览器）就必须等于 `http(s)://<请求的 Host>`，也就是引擎自己发出去的网页，否则 `403 BAD_ORIGIN`；没有 `Origin`（不是浏览器）不受影响。
+
+握手被拒绝时是普通的 HTTP 回答（`401 UNAUTHORIZED`、`403 LAN_SHARING_OFF`、`403 BAD_ORIGIN`），浏览器的 WebSocket 读不到状态码，所以网页连不上时会用 `GET /remote/screens` 再问一次原因。连接建立之后引擎每 3 秒复查一次：设备被撤销或局域网共享关掉，连接以 4401 关闭。
+
+### 消息
+
+都是 JSON 文本帧，带 `type`。引擎每 15 秒发一次 WebSocket ping，20 秒没有回应就断开（屏幕掉线后从列表里拿掉）；浏览器发不了 ping 帧，遥控端可以发 `{"type":"ping"}`，引擎回 `{"type":"pong"}`。屏幕发来的消息最长 512 KB，遥控端的 32 KB，超过即断开。
+
+| 方向 | 消息 | 说明 |
+|---|---|---|
+| 屏幕 → 引擎 | `{"type":"hello","id","name","platform","form","version"}` | 第一条消息，10 秒内必须到。`id` 是屏幕自己保存的固定标识（`[A-Za-z0-9._-]`，最长 64），`name` 最长 40 字 |
+| 引擎 → 屏幕 | `{"type":"welcome","id","controllers":0}` | 登记成功 |
+| 屏幕 → 引擎 | `{"type":"state","state":{…}}` | 屏幕现在的状态（见下）。引擎留着最近的一份，并转给所有遥控端 |
+| 引擎 → 屏幕 | `{"type":"controllers","count","names":[…]}` | 遥控端来了或走了；`names` 是它们配对时的设备名（本机是"本机"） |
+| 引擎 → 屏幕 | `{"type":"command","from","id","name","args":{…}}` | 一个遥控端的命令。`from` 是那个遥控端在引擎里的会话号，`id` 是遥控端自己给的（可以没有） |
+| 屏幕 → 引擎 | `{"type":"result","to","id","ok","message"}` | 命令的结果，`to` 填命令的 `from`。做不了时 `ok=false`，`message` 是给拿着手机的人看的原因 |
+| 遥控端 → 引擎 | `{"type":"command","id","name","args":{…}}` | 转给屏幕 |
+| 引擎 → 遥控端 | `{"type":"screen","screen":{id,name,platform,form,version}}` | 连上后的第一条 |
+| 引擎 → 遥控端 | `{"type":"state","state":{…}}` | 连上后立即一条（屏幕已经报过状态的话），之后每次变化一条 |
+| 引擎 → 遥控端 | `{"type":"result","id","ok","message"}` | 自己发的那条命令的结果（只发给发命令的那个遥控端） |
+| 引擎 → 遥控端 | `{"type":"gone"}` | 屏幕断开了；随后连接以 4410 关闭 |
+
+关闭码：
+
+| 码 | 含义 |
+|---|---|
+| 4400 | 消息不对（屏幕的第一条不是合法的 `hello`） |
+| 4401 | 不再允许：设备被撤销，或局域网共享关了 |
+| 4404 | 没有这块屏幕（没登记，或已经断开）。遥控端应回到屏幕列表，等它出现再连 |
+| 4409 | 同一个 `id` 的屏幕又连了一次，旧连接被顶替（客户端重连得比引擎发现断线还快）；它的遥控端收到 `gone` 后重新连接 |
+| 4410 | 屏幕断开了 |
+| 4429 | 太多了：一台引擎最多 32 块屏幕，一块屏幕最多 8 个遥控端 |
+
+### 状态
+
+屏幕在状态变化时发送（80 毫秒内的多次变化合并成一次；内容没变不发）。播放位置不是每秒都发：遥控端按 `position`、`speed`、`paused`、`buffering` 自己往前推，屏幕只在跳转、暂停、换集等变化时发，另外在有遥控端连着时每 5 秒发一次校正，有新的遥控端连上时也发一次。
+
+```
+{
+  "title":  "星河往事 第二季",        // 一句话说明现在在看什么，空串表示没在播放；屏幕列表里显示
+  "page":   "browse" | "player" | "live",
+  "form":   "tv" | "desktop" | "phone" | "tablet",
+  "canTv":  true,                     // 这块屏幕能不能切换界面模式（命令 uiMode）
+  "text":   null | {"value", "hint", "secret", "multiline"},   // 屏幕上有输入框得到焦点时；密码框的 value 永远是空串
+  "player": null | {
+    "kind": "vod" | "live",
+    "title": "星河往事 第二季",        // 点播是片名，直播是频道名
+    "subtitle": "第3集 · 线路一",      // 点播：集名 · 线路；直播：分组 · 正在播出的节目，回看时是节目名
+    "position": 754000, "duration": 2712000,     // 毫秒；直播（不是回看）时都是 0
+    "seekable": true,
+    "paused": false, "buffering": false,
+    "error": "",                      // 播放失败时的说明（这时遥控端可以发 retry）
+    "speed": 1.0, "speeds": [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0],   // 直播 speeds 为空
+    "volume": 80, "muted": false,     // 播放器的音量 0–100，不是系统音量
+    "fullscreen": true, "canFullscreen": true,
+    "lines": ["线路一", "线路二"], "line": 0,
+    "episodes": ["第1集", …], "episode": 2,        // 直播：正在浏览的分组里的频道，episode 是正在播的那个（不在这个分组时 -1）
+    "groups": ["央视", …], "group": 0,             // 只有直播有：频道分组，group 是正在浏览的分组
+    "subtitles": [{"id": "off", "name": "关闭"}, {"id", "name"}, …], "subtitleId": "…",   // 只有点播有；没有字幕时是空数组
+    "audios": [{"id", "name"}, …], "audioId": "…",
+    "danmaku": true                   // 只有点播有：弹幕开关
+  }
+}
+```
+
+### 命令
+
+`name` 和 `args`。前五个由客户端的外壳处理，其余交给正在播放的页面（点播播放页或直播页）；没有在播放时回答 `ok=false`「屏幕上现在没有在播放」。
+
+| 命令 | 参数 | 作用 |
+|---|---|---|
+| `key` | `{key, action}` | 按键。`key`：`up` `down` `left` `right` `ok` `back` `menu`、`playpause` `next` `previous` `fastforward` `rewind`、`channelup` `channeldown`、`0`–`9`。`action`：`press`（默认，按下再松开）、`down`、`repeat`、`up`。按住不放时遥控端先发 `down`，约 0.4 秒后每 0.1 秒发一次 `repeat`，松手发 `up`；`down` 之后 1.5 秒没有 `repeat` 或 `up`（手机断线了），屏幕自己松开这个键 |
+| `home` | — | 关掉所有打开的页面，回到首页 |
+| `text` | `{value}` | 把得到焦点的输入框的内容换成 `value`（和在屏幕上打字一样触发它的 `onChanged`） |
+| `submit` | — | 输入框的回车（搜索、连接、完成） |
+| `uiMode` | `{mode: "tv" \| "auto"}` | 切到电视模式，或回到这台设备本来的界面 |
+| `toggle` / `play` / `pause` | — | 播放 / 暂停 |
+| `seek` | `{position}` | 跳到这个位置（毫秒）。直播只有回看时可以 |
+| `seekBy` | `{delta}` | 往前或往后跳（毫秒，可为负） |
+| `speed` | `{value}` | 倍速，必须是 `speeds` 里的一个 |
+| `volume` / `volumeBy` | `{value}` / `{delta}` | 播放器音量 |
+| `mute` | `{on?}` | 静音；不带 `on` 是切换 |
+| `fullscreen` | `{on?}` | 全屏；不带 `on` 是切换。电脑的电视模式本来就一直全屏，不能切 |
+| `line` | `{index}` | 换线路（`lines` 的下标） |
+| `episode` | `{index}` | 点播：换集；直播：播放正在浏览的分组里的这个频道（也可以带 `group`） |
+| `next` / `previous` | — | 下一集 / 上一集；直播是下一个 / 上一个频道 |
+| `group` | `{index}` | 直播：浏览另一个分组（`episodes` 随之换成它的频道，不换台） |
+| `subtitle` / `audio` | `{id}` | 点播：选字幕（`off` 关闭）/ 音轨 |
+| `danmaku` | `{on?}` | 点播：弹幕开关 |
+| `retry` | — | 出错后重试 |
+| `stop` | — | 点播：退出播放页；直播：退出全屏 |
+
+**按键是真的按键**：客户端把 `key` 合成为 Flutter 的按键事件（方向键、`select`、`goBack`、`contextMenu`、媒体键），走和电视盒子遥控器完全相同的路径，所以焦点移动、每个页面自己的按键处理都不用为遥控另写。`back` 没有任何页面处理时，客户端像安卓的系统返回键那样关掉最上面的页面。不提供、也不打算提供的：控制操作系统的鼠标键盘、系统音量、唤醒和关机。
 
 ## 兼容端点（不在 `/api/v1` 下）
 

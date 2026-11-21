@@ -10,6 +10,8 @@ dependencies {
     implementation(libs.ktor.server.content.negotiation)
     implementation(libs.ktor.server.status.pages)
     implementation(libs.ktor.server.cors)
+    // The LAN remote control: screens and controllers meet over WebSockets (remote/RemoteHub.kt).
+    implementation(libs.ktor.server.websockets)
     implementation(libs.ktor.serialization.json)
 
     testImplementation(platform(libs.junit.bom))

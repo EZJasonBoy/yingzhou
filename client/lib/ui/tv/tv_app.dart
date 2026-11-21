@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../desktop/desktop_window.dart';
+import '../../remote/remote_screen.dart';
 import '../device_form.dart';
 import 'tv_focus.dart';
 import 'tv_text_input.dart';
@@ -12,10 +16,14 @@ import 'tv_text_input.dart';
 /// - slightly larger type;
 /// - the remote's BACK key closes menus the way Esc does on a keyboard (then, if nothing took it, Android's own back);
 /// - the focus outline ([TvFocusRing]) and the gate that keeps the system keyboard closed until OK
-///   ([TvTextInputGate]).
+///   ([TvTextInputGate]);
+/// - on a desktop, full screen for as long as the TV layout lasts ([_DesktopTvWindow]).
 ///
 /// Off TV nothing changes: the same widgets are there (so switching modes keeps the navigator and its pages), but
 /// they pass everything through.
+///
+/// In every layout it is also where a phone's remote control comes in ([RemoteScreen]): its keys are dispatched
+/// like a TV remote's, so it sits around everything that handles keys.
 class TvAppFrame extends StatelessWidget {
   const TvAppFrame({super.key, required this.child});
 
@@ -33,7 +41,7 @@ class TvAppFrame extends StatelessWidget {
     final media = MediaQuery.of(context);
     final size = media.size;
     final safe = tv ? EdgeInsets.symmetric(horizontal: size.width * overscan, vertical: size.height * overscan) : EdgeInsets.zero;
-    return MediaQuery(
+    return RemoteScreen(child: _DesktopTvWindow(tv: tv, child: MediaQuery(
       data: tv
           ? media.copyWith(
               padding: _max(media.padding, safe),
@@ -57,7 +65,7 @@ class TvAppFrame extends StatelessWidget {
           ),
         ),
       ),
-    );
+    )));
   }
 
   /// BACK closes menus like Esc; ↑ / ↓ move the focus out of a text field too (a single-line field would move its
@@ -74,6 +82,50 @@ class TvAppFrame extends StatelessWidget {
     a.right > b.right ? a.right : b.right,
     a.bottom > b.bottom ? a.bottom : b.bottom,
   );
+}
+
+/// The TV layout on a desktop (a computer on the television): the window fills the screen while it lasts, and is
+/// put back as it was when the user returns to the desktop layout. Nothing happens on Android or off TV.
+class _DesktopTvWindow extends StatefulWidget {
+  const _DesktopTvWindow({required this.tv, required this.child});
+
+  final bool tv;
+  final Widget child;
+
+  @override
+  State<_DesktopTvWindow> createState() => _DesktopTvWindowState();
+}
+
+class _DesktopTvWindowState extends State<_DesktopTvWindow> {
+  @override
+  void initState() {
+    super.initState();
+    if (widget.tv) _apply();
+  }
+
+  @override
+  void didUpdateWidget(_DesktopTvWindow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.tv != oldWidget.tv) _apply();
+  }
+
+  @override
+  void dispose() {
+    _pin(false);
+    super.dispose();
+  }
+
+  void _apply() => _pin(widget.tv);
+
+  /// After the build: going in or out of full screen changes the window's size at once, and the framework must not
+  /// be told of that while it builds or takes the tree down.
+  static void _pin(bool on) {
+    if (!DesktopWindow.isDesktop) return;
+    scheduleMicrotask(() => DesktopWindow.instance.pinFullScreen = on);
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// Android goes back a page when BACK is let go (key up) and the app did not take the key. A panel or a dialog that

@@ -202,14 +202,18 @@ class _TvFocusRingState extends State<TvFocusRing> with SingleTickerProviderStat
       _node = null;
       _drawn = null;
       _repaint.ping();
+      _highlight(FocusHighlightStrategy.automatic);
     }
   }
 
   void _setup() {
     // Remote controls only ever produce keys: show focus the way a keyboard does.
-    FocusManager.instance.highlightStrategy = FocusHighlightStrategy.alwaysTraditional;
+    _highlight(FocusHighlightStrategy.alwaysTraditional);
     _focusChanged();
   }
+
+  /// After the frame: the layout can change while the app runs (界面模式), which is in the middle of a build.
+  static void _highlight(FocusHighlightStrategy s) => SchedulerBinding.instance.addPostFrameCallback((_) => FocusManager.instance.highlightStrategy = s);
 
   @override
   void dispose() {

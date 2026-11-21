@@ -5,15 +5,20 @@ import 'package:tvbox_client/settings.dart';
 import 'package:tvbox_client/ui/device_form.dart';
 
 void main() {
-  test('desktop platforms are always desktop, whatever the override says', () async {
-    final settings = MemorySettings();
-    await settings.setString(DeviceFormController.overrideKey, 'tv');
+  test('desktop platforms are desktop whatever the system or the window says; only the TV override changes that', () async {
     for (final p in [TargetPlatform.windows, TargetPlatform.macOS, TargetPlatform.linux]) {
+      final settings = MemorySettings();
+      await settings.setString(DeviceFormController.overrideKey, 'touch');
       final c = DeviceFormController(info: const DeviceInfo(tvMode: true), settings: settings, platform: p);
       expect(c.isTv, isFalse);
-      expect(c.canOverride, isFalse);
       expect(c.formFor(const Size(1920, 1080)), DeviceForm.desktop);
       expect(c.formFor(const Size(400, 800)), DeviceForm.desktop);
+      // The TV layout for a computer on the television (test/remote_test.dart has the rest).
+      expect(c.canOverride, isTrue);
+      await settings.setString(DeviceFormController.overrideKey, 'tv');
+      final tv = DeviceFormController(settings: settings, platform: p);
+      expect(tv.isTv, isTrue);
+      expect(tv.formFor(const Size(400, 800)), DeviceForm.tv);
     }
   });
 

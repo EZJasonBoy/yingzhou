@@ -46,6 +46,7 @@ import tvbox.engine.core.util.Base64Compat
 import tvbox.engine.core.search.SearchEvent
 import tvbox.engine.api.access.AccessControl
 import tvbox.engine.api.access.installAccess
+import tvbox.engine.api.remote.installRemote
 
 val EngineJson = Json {
     encodeDefaults = true
@@ -63,6 +64,11 @@ data class EngineModuleOptions(
     val access: tvbox.engine.api.access.AccessControl? = null,
     /** The user's cloud drives and folders (see [driveRoutes]); null: this engine has none. */
     val drives: tvbox.engine.core.drive.DriveService? = null,
+    /**
+     * The LAN remote control (see [installRemote]); null: this engine has none. One hub for every listener of the
+     * engine: the module is installed once per address, and screens and remotes come in over different ones.
+     */
+    val remote: tvbox.engine.api.remote.RemoteHub? = null,
 )
 
 /** Installs protocol v1 (docs/protocol.md) on a Ktor application. Shared by the server and the Android app. */
@@ -97,7 +103,9 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
             call.respond(HttpStatusCode.InternalServerError, ErrorBody(ApiError("INTERNAL", e.message ?: e.javaClass.simpleName)))
         }
     }
-    installAccess(options.access ?: AccessControl())
+    val access = options.access ?: AccessControl()
+    installAccess(access)
+    options.remote?.let { installRemote(it, access) }
 
     routing {
         // TVBox 9978 compatibility. Jar spiders probe 9978..9999 with /proxy?do=ck to find the host, and serve media,

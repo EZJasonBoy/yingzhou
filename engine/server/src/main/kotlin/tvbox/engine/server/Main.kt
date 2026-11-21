@@ -171,8 +171,11 @@ fun main(args: Array<String>) {
     // The demo site stands in for a third-party site, which other engines (an emulator's) fetch without a token.
     if (demo != null) access.publicPrefixes = listOf("/demo/")
 
+    // Where the clients that let a phone drive them meet the phones (the LAN remote control); a check has none.
+    val remote = if (check) null else tvbox.engine.api.remote.RemoteHub()
+
     val serverModule: io.ktor.server.application.Application.() -> Unit = {
-        engineModule(engine, EngineModuleOptions(allowLocalhostCors = "--dev-cors" in args, access = access, drives = drives))
+        engineModule(engine, EngineModuleOptions(allowLocalhostCors = "--dev-cors" in args, access = access, drives = drives, remote = remote))
         routing {
             localFileRoutes()
             if (demo != null) demoRoutes(demo)

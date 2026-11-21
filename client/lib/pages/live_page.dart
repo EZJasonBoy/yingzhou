@@ -10,6 +10,7 @@ import '../desktop/desktop_window.dart';
 import '../engine/engine_client.dart';
 import '../engine/live_models.dart';
 import '../player_backend.dart';
+import '../remote/remote_host.dart';
 import '../settings.dart';
 import '../ui/device_form.dart';
 import '../ui/engine_image.dart';
@@ -20,6 +21,7 @@ import 'browse_page.dart' show errorText;
 import 'player_mobile.dart';
 import 'touch_gestures.dart';
 
+part 'live_remote.dart';
 part 'live_tv.dart';
 
 /// Live TV: the config's `lives` as sources, channel groups, a player and the programme guide.
@@ -54,6 +56,16 @@ class _LivePageState extends State<LivePage> {
   /// The remote control on a TV (live_tv.dart).
   final _tvUi = _TvLiveUi();
   void _tvSet(VoidCallback change) => setState(change);
+
+  /// The LAN remote control: a phone that changes channel here (live_remote.dart).
+  late final _remote = _LiveRemote(this);
+
+  /// Whatever changes what is on the screen is also news for a remote.
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    RemoteHost.instance.changed();
+  }
   final _subs = <StreamSubscription<dynamic>>[];
 
   String _configKey = '';
@@ -136,6 +148,7 @@ class _LivePageState extends State<LivePage> {
       }),
     );
     _subs.add(player.stream.volume.listen((v) => _settings.setString(_volumeKey, v.toStringAsFixed(0))));
+    _remoteWatch(player);
     _mobile?.attach(player);
     return player;
   }
@@ -153,6 +166,7 @@ class _LivePageState extends State<LivePage> {
     _clock = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) setState(() => _now = DateTime.now());
     });
+    RemoteHost.instance.attach(_remote);
   }
 
   @override
@@ -194,6 +208,8 @@ class _LivePageState extends State<LivePage> {
   void didUpdateWidget(LivePage old) {
     super.didUpdateWidget(old);
     if (old.visible == widget.visible) return;
+    // The tab came up or went away: a remote drives live TV only while it shows.
+    RemoteHost.instance.changed();
     _mobile?.setActive(widget.visible);
     if (widget.visible && _mobile != null) {
       // A phone already on its side when the tab comes up: full screen at once.
@@ -220,6 +236,7 @@ class _LivePageState extends State<LivePage> {
 
   @override
   void dispose() {
+    RemoteHost.instance.detach(_remote);
     _watchdog?.cancel();
     _clock?.cancel();
     _overlayTimer?.cancel();

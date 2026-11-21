@@ -11,8 +11,9 @@ import '../settings.dart';
 /// instead of looking at the platform or the window width yourself.
 enum DeviceForm { desktop, phone, tablet, tv }
 
-/// The user's choice in 源 → 界面 (Android only): let the system decide, or force the remote-control or the touch
-/// layout. Desktops are always [DeviceForm.desktop].
+/// The user's choice in 设置 → 外观 → 界面模式: let the system decide, or force the remote-control or the touch layout.
+/// A desktop is [DeviceForm.desktop] unless the user chose [tv] (an HTPC on the television, driven from the sofa
+/// with a remote or a phone); [touch] means nothing there.
 enum DeviceFormOverride { auto, tv, touch }
 
 /// What the system says about this device. On Android it comes from `yingzhou/device` (`DeviceChannel.kt`); elsewhere
@@ -77,14 +78,15 @@ class DeviceFormController extends ChangeNotifier {
   /// Windows, macOS, Linux (and the web build): mouse and keyboard, whatever the window size.
   bool get isDesktopPlatform => kIsWeb || _platform == TargetPlatform.windows || _platform == TargetPlatform.macOS || _platform == TargetPlatform.linux;
 
-  /// The override is offered where it means something: a phone, tablet or TV.
-  bool get canOverride => _fixed == null && !isDesktopPlatform;
+  /// The layout can be chosen: everywhere but in a test that fixed it. Phones, tablets and boxes choose between
+  /// what the system says, the TV layout and the touch layout; desktops between the desktop and the TV layout.
+  bool get canOverride => _fixed == null;
 
   /// Driven with a remote control.
   bool get isTv {
     final fixed = _fixed;
     if (fixed != null) return fixed == DeviceForm.tv;
-    if (isDesktopPlatform) return false;
+    if (isDesktopPlatform) return _override == DeviceFormOverride.tv;
     return switch (_override) {
       DeviceFormOverride.tv => true,
       DeviceFormOverride.touch => false,
@@ -97,8 +99,8 @@ class DeviceFormController extends ChangeNotifier {
   DeviceForm formFor(Size size) {
     final fixed = _fixed;
     if (fixed != null) return fixed;
-    if (isDesktopPlatform) return DeviceForm.desktop;
     if (isTv) return DeviceForm.tv;
+    if (isDesktopPlatform) return DeviceForm.desktop;
     return size.shortestSide >= 600 ? DeviceForm.tablet : DeviceForm.phone;
   }
 
