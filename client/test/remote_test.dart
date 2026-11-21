@@ -619,4 +619,41 @@ void main() {
     expect(find.text('共享与遥控'), findsOneWidget);
     await leave(tester);
   });
+
+  // ------------------------------------------------------------------- macOS
+
+  // Flutter's default shortcuts make select (a remote's OK, what the phone sends) activate the focused item on Android,
+  // Windows and Linux, but not on macOS and iOS: there a phone's OK did nothing outside the pages that read the key
+  // themselves (the player, live TV).
+  testWidgets('on macOS the phone\'s OK opens what has the focus, in the TV layout', (tester) async {
+    final hub = await pumpApp(tester);
+    await press(tester, hub, 'right');
+    await pass(tester, const Duration(milliseconds: 400));
+    expect(focusOnText('推荐片'), isTrue, reason: '→ goes into the page on macOS too (arrows are in its table)');
+    await press(tester, hub, 'ok');
+    await pass(tester, const Duration(seconds: 1));
+    expect(find.text('片名'), findsOneWidget, reason: 'OK opens the detail page');
+    await press(tester, hub, 'back');
+    await pass(tester, const Duration(seconds: 1));
+    expect(find.text('片名'), findsNothing, reason: 'BACK closes it');
+    await hub.screen.command(tester, 'home');
+    await pass(tester, const Duration(milliseconds: 500));
+    await press(tester, hub, 'down', times: 3);
+    await press(tester, hub, 'ok');
+    await pass(tester, const Duration(milliseconds: 500));
+    expect(tester.widget<TvShell>(find.byType(TvShell)).index, 3, reason: 'OK on a rail entry opens its page');
+    await leave(tester);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
+
+  testWidgets('on macOS the phone\'s OK opens what has the focus, in the desktop layout', (tester) async {
+    final hub = await pumpApp(tester, form: DeviceForm.desktop);
+    await pass(tester, const Duration(seconds: 1));
+    final poster = find.ancestor(of: find.text('推荐片'), matching: find.byType(Focus)).first;
+    Focus.of(tester.element(find.descendant(of: poster, matching: find.text('推荐片')))).requestFocus();
+    await tester.pump();
+    await press(tester, hub, 'ok');
+    await pass(tester, const Duration(seconds: 1));
+    expect(find.text('片名'), findsOneWidget, reason: 'OK opens the detail page');
+    await leave(tester);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 }

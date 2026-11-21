@@ -54,7 +54,7 @@ class TvAppFrame extends StatelessWidget {
         // Phones and tablets send BACK as a key too (button navigation), with the same double back.
         enabled: !isDesktop(context),
         child: Shortcuts(
-          shortcuts: tv ? _tvShortcuts : const <ShortcutActivator, Intent>{},
+          shortcuts: tv ? _tvShortcuts : okShortcuts,
           child: FocusTraversalGroup(
             // Off TV the same policy as the app's own top-level group, so nothing changes there.
             policy: tv ? TvTraversalPolicy() : ReadingOrderTraversalPolicy(),
@@ -68,9 +68,18 @@ class TvAppFrame extends StatelessWidget {
     )));
   }
 
-  /// BACK closes menus like Esc; ↑ / ↓ move the focus out of a text field too (a single-line field would move its
-  /// caret to the start or the end and keep the focus, trapping the remote). ← / → still move the caret.
+  /// A remote's OK (`select`, which a phone's 遥控 sends too) and a game pad's A activate the focused item, in every
+  /// layout and on every platform. Flutter's own table does this on Android, Windows and Linux but leaves both keys
+  /// out on macOS and iOS, where OK then did nothing outside the pages that read the key themselves.
+  static const okShortcuts = <ShortcutActivator, Intent>{
+    SingleActivator(LogicalKeyboardKey.select): ActivateIntent(),
+    SingleActivator(LogicalKeyboardKey.gameButtonA): ActivateIntent(),
+  };
+
+  /// [okShortcuts]; BACK closes menus like Esc; ↑ / ↓ move the focus out of a text field too (a single-line field
+  /// would move its caret to the start or the end and keep the focus, trapping the remote). ← / → still move the caret.
   static const _tvShortcuts = <ShortcutActivator, Intent>{
+    ...okShortcuts,
     SingleActivator(LogicalKeyboardKey.goBack): DismissIntent(),
     SingleActivator(LogicalKeyboardKey.arrowUp): DirectionalFocusIntent(TraversalDirection.up, ignoreTextFields: false),
     SingleActivator(LogicalKeyboardKey.arrowDown): DirectionalFocusIntent(TraversalDirection.down, ignoreTextFields: false),
