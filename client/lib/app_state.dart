@@ -47,6 +47,16 @@ class AppState extends ChangeNotifier {
   static const _engineUrlKey = 'engineUrl';
   static const _siteKey = 'siteKey';
 
+  /// The site last chosen in one config of one subscription: `siteKey|<subscription>|<config url>`.
+  String? get _configSiteKey => summary == null ? null : '$_siteKey|${summary!.subscriptionId}|${summary!.url}';
+
+  /// The entry last used in a multi-repository subscription: `repo|<subscription>`.
+  static String _repoKey(String subscriptionId) => 'repo|$subscriptionId';
+
+  /// Bumped whenever the sites are loaded again (another config, a refresh): pages keyed on it start afresh, even
+  /// when the new config has a site with the same key.
+  int configVersion = 0;
+
   /// Restores the last engine and site, then connects. When nothing answers on the local address, starts the
   /// bundled engine (desktop) or waits for the embedded one (Android) to come up.
   Future<void> start() async {
@@ -449,7 +459,14 @@ class AppState extends ChangeNotifier {
   /// Switches to a saved subscription.
   Future<void> useSubscription(String id) => _run(() async {
     try {
-      summary = await client.activate(id);
+      // Back to the entry used last time in this subscription; when it is gone or broken, its first one.
+      final repo = _settings.getString(_repoKey(id));
+      try {
+        summary = await client.activate(id, repo: repo);
+      } on EngineException {
+        if (repo == null) rethrow;
+        summary = await client.activate(id);
+      }
       await _loadSites();
     } finally {
       await _loadSubscriptions();
@@ -475,6 +492,7 @@ class AppState extends ChangeNotifier {
   Future<void> switchRepo(String repoUrl) => _run(() async {
     try {
       summary = await client.activate(summary!.subscriptionId, repo: repoUrl);
+      await _settings.setString(_repoKey(summary!.subscriptionId), summary!.url);
     } catch (_) {
       // The current config stays; a list that was opened on the way now shows its entries.
       summary = await client.config().catchError((_) => summary!);
@@ -487,13 +505,21 @@ class AppState extends ChangeNotifier {
     if (key == currentSiteKey) return;
     currentSiteKey = key;
     _settings.setString(_siteKey, key);
+    final perConfig = _configSiteKey;
+    if (perConfig != null) _settings.setString(perConfig, key);
     notifyListeners();
   }
 
   Future<void> _loadSites() async {
     sites = await client.sites();
+    configVersion++;
     final browsable = browsableSites;
-    if (browsable.every((s) => s.key != currentSiteKey)) {
+    // The site last chosen in this config, else the current one if this config has it, else its first.
+    final perConfig = _configSiteKey;
+    final remembered = perConfig == null ? null : _settings.getString(perConfig);
+    if (remembered != null && browsable.any((s) => s.key == remembered)) {
+      currentSiteKey = remembered;
+    } else if (browsable.every((s) => s.key != currentSiteKey)) {
       currentSiteKey = browsable.isEmpty ? null : browsable.first.key;
     }
   }

@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
@@ -10,15 +11,31 @@ import '../ui/device_form.dart';
 import '../ui/poster.dart';
 import '../ui/tv/tv_widgets.dart';
 import 'detail_page.dart';
+import 'home_switcher.dart';
 
 /// 首页：current site's recommendations and categories.
-class BrowsePage extends StatelessWidget {
+class BrowsePage extends StatefulWidget {
   const BrowsePage({super.key, required this.onOpenSources});
 
   final VoidCallback onOpenSources;
 
   @override
+  State<BrowsePage> createState() => _BrowsePageState();
+}
+
+class _BrowsePageState extends State<BrowsePage> {
+  /// The refresh of the site on screen, once its home has loaded; the header's button uses it.
+  final _refresh = _RefreshSlot();
+
+  @override
+  void dispose() {
+    _refresh.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final onOpenSources = widget.onOpenSources;
     final state = AppScope.of(context);
     final site = state.currentSite;
     final Widget body;
@@ -39,16 +56,41 @@ class BrowsePage extends StatelessWidget {
     } else if (site == null) {
       body = StatusView(icon: Icons.block, message: '当前订阅里没有这台引擎能打开的站点\n（Python 站点要先在「设置」页设置 Python）', actionLabel: '查看站点', onAction: onOpenSources);
     } else {
-      body = _SiteBrowser(key: ValueKey(site.key), site: site);
+      // Keyed on the config too: another subscription or entry with a site of the same key starts afresh.
+      body = _SiteBrowser(key: ValueKey('${state.configVersion}|${site.key}'), site: site, refresh: _refresh);
     }
-    return Scaffold(body: SafeArea(child: body));
+    // The header (where the content comes from, and refresh) stays while the content below changes, so a switch
+    // keeps the TV's focus on it; it is there whenever a config is, also one without a site to show.
+    return Scaffold(
+      body: SafeArea(
+        child: state.connected && state.hasConfig
+            ? Column(children: [_Header(refresh: _refresh), if (state.busy) const LinearProgressIndicator(minHeight: 2), Expanded(child: body)])
+            : body,
+      ),
+    );
+  }
+}
+
+/// The site's refresh for the header; knows when it is gone, for callbacks that run after the page.
+class _RefreshSlot extends ValueNotifier<VoidCallback?> {
+  _RefreshSlot() : super(null);
+
+  bool disposed = false;
+
+  @override
+  void dispose() {
+    disposed = true;
+    super.dispose();
   }
 }
 
 class _SiteBrowser extends StatefulWidget {
-  const _SiteBrowser({super.key, required this.site});
+  const _SiteBrowser({super.key, required this.site, required this.refresh});
 
   final SiteInfo site;
+
+  /// Set to this page's refresh while its home is loaded, so the header's button can ask the site again.
+  final _RefreshSlot refresh;
 
   @override
   State<_SiteBrowser> createState() => _SiteBrowserState();
@@ -75,53 +117,53 @@ class _SiteBrowserState extends State<_SiteBrowser> {
     _load(refresh: true);
   });
 
+  /// Offers [_refresh] to the header when the home has loaded, after this frame (not while building).
+  void _offerRefresh(bool loaded) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || widget.refresh.disposed) return;
+      final wanted = loaded ? _refresh : null;
+      if (widget.refresh.value != wanted) widget.refresh.value = wanted;
+    });
+  }
+
+  @override
+  void dispose() {
+    final refresh = widget.refresh;
+    final mine = _refresh;
+    // Only take it back if it is still this page's (the next page may have offered its own already).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!refresh.disposed && refresh.value == mine) refresh.value = null;
+    });
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<HomeResult>(
       future: _home,
       builder: (context, snap) {
-        final header = _Header(site: widget.site, onRefresh: snap.connectionState == ConnectionState.done ? _refresh : null);
+        _offerRefresh(snap.connectionState == ConnectionState.done);
         if (snap.connectionState != ConnectionState.done) {
-          return Column(
-            children: [
-              header,
-              const Expanded(child: LoadingView()),
-            ],
-          );
+          return const LoadingView();
         }
         if (snap.hasError) {
-          return Column(
-            children: [
-              header,
-              Expanded(
-                child: StatusView(
-                  icon: Icons.cloud_off,
-                  message: '${widget.site.name} 加载失败\n${errorText(snap.error)}',
-                  actionLabel: '重试',
-                  onAction: () => setState(_load),
-                ),
-              ),
-            ],
+          return StatusView(
+            icon: Icons.cloud_off,
+            message: '${widget.site.name} 加载失败\n${errorText(snap.error)}',
+            actionLabel: '重试',
+            onAction: () => setState(_load),
           );
         }
         final home = snap.data!;
         final hasRecommend = home.list.isNotEmpty;
         final tabs = [if (hasRecommend) '推荐', for (final c in home.classes) c.name];
         if (tabs.isEmpty) {
-          return Column(
-            children: [
-              header,
-              const Expanded(
-                child: StatusView(icon: Icons.inbox, message: '这个站点没有返回分类'),
-              ),
-            ],
-          );
+          return const StatusView(icon: Icons.inbox, message: '这个站点没有返回分类');
         }
         return DefaultTabController(
           length: tabs.length,
           child: Column(
             children: [
-              header,
               Align(
                 alignment: Alignment.centerLeft,
                 child: Builder(
@@ -152,16 +194,13 @@ class _SiteBrowserState extends State<_SiteBrowser> {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.site, this.onRefresh});
+  const _Header({required this.refresh});
 
-  final SiteInfo site;
-
-  /// Asks the site again instead of showing what the engine kept; null while a load is under way.
-  final VoidCallback? onRefresh;
+  /// The site's refresh, or null while its home is loading.
+  final ValueListenable<VoidCallback?> refresh;
 
   @override
   Widget build(BuildContext context) {
-    final state = AppScope.of(context);
     final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 14, 12, 4),
@@ -169,38 +208,17 @@ class _Header extends StatelessWidget {
         children: [
           Text('首页', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
           const SizedBox(width: 16),
-          MenuAnchor(
-            menuChildren: [
-              for (final s in state.browsableSites)
-                MenuItemButton(
-                  leadingIcon: Icon(s.key == site.key ? Icons.check : null, size: 18),
-                  onPressed: () => state.selectSite(s.key),
-                  child: Text(s.name),
-                ),
-            ],
-            builder: (context, controller, _) => ActionChip(
-              avatar: const Icon(Icons.dns_outlined, size: 18),
-              label: Row(mainAxisSize: MainAxisSize.min, children: [Text(site.name), const Icon(Icons.arrow_drop_down, size: 20)]),
-              onPressed: isTv(context) ? () => _pickSiteOnTv(context, state) : () => controller.isOpen ? controller.close() : controller.open(),
-            ),
-          ),
+          const Flexible(child: HomeSwitcher()),
           const SizedBox(width: 4),
-          IconButton(key: const Key('home-refresh'), tooltip: '刷新（重新向站点获取）', icon: const Icon(Icons.refresh), onPressed: onRefresh),
+          ValueListenableBuilder<VoidCallback?>(
+            valueListenable: refresh,
+            builder: (context, onRefresh, _) =>
+                IconButton(key: const Key('home-refresh'), tooltip: '刷新（重新向站点获取）', icon: const Icon(Icons.refresh), onPressed: onRefresh),
+          ),
         ],
       ),
     );
   }
-}
-
-/// The site list as a dialog for the remote (the menu above is for the mouse).
-Future<void> _pickSiteOnTv(BuildContext context, AppState state) async {
-  final key = await showTvChoiceDialog<String>(
-    context,
-    title: '选择站点',
-    items: [for (final s in state.browsableSites) (s.key, s.name)],
-    selected: state.currentSiteKey,
-  );
-  if (key != null) state.selectSite(key);
 }
 
 /// A category: filter bar + paged poster wall that loads more as you scroll.

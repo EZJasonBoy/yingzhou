@@ -14,6 +14,7 @@ Future<T?> showTvChoiceDialog<T>(
   T? selected,
   String? Function(T value)? subtitle,
   bool Function(T value)? enabled,
+  int Function(T value)? indent,
 }) {
   return showDialog<T>(
     context: context,
@@ -34,7 +35,8 @@ Future<T?> showTvChoiceDialog<T>(
               final on = enabled?.call(value) ?? true;
               final sub = subtitle?.call(value);
               return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 3),
+                // Entries of a list inside a list (a multi-repository subscription) are set in.
+                padding: EdgeInsets.only(top: 3, bottom: 3, left: 20.0 * (indent?.call(value) ?? 0)),
                 child: TvFocusable(
                   key: Key('tv-choice-$i'),
                   autofocus: i == (current < 0 ? 0 : current),
