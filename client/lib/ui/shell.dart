@@ -8,8 +8,11 @@ import '../pages/live_page.dart';
 import '../pages/search_page.dart';
 import '../pages/settings_page.dart';
 import '../pages/sources_page.dart';
+import 'brand.dart';
 import 'device_form.dart';
+import 'theme.dart' show debugLegacyTheme;
 import 'tv/tv_shell.dart';
+import 'yz_tokens.dart';
 
 /// Whether the main screen has its bottom bar: only on a phone held upright (or a narrow window). Tablets and phones
 /// on their side get the rail, a TV its own navigation. The bottom bar has no 设置 tab; 我的 offers it there.
@@ -107,10 +110,11 @@ class _AppShellState extends State<AppShell> {
           ? null
           : Padding(
               padding: const EdgeInsets.only(top: 12, bottom: 20),
-              child: Icon(Icons.live_tv_rounded, size: 30, color: Theme.of(context).colorScheme.primary),
+              child: const BrandMark(size: 36),
             ),
       destinations: [
-        for (final d in _destinations) NavigationRailDestination(icon: Icon(d.icon), selectedIcon: Icon(d.selected), label: Text(d.label)),
+        for (var i = 0; i < _destinations.length; i++)
+          NavigationRailDestination(icon: Icon(_destinations[i].icon), selectedIcon: Icon(_destinations[i].selected), label: _RailLabel(_destinations[i].label, selected: i == _index)),
       ],
     );
     return ColoredBox(
@@ -163,6 +167,29 @@ class _AppShellState extends State<AppShell> {
           for (final d in _destinations.take(_bottomBarCount)) NavigationDestination(icon: Icon(d.icon), selectedIcon: Icon(d.selected), label: d.label),
         ],
       ),
+    );
+  }
+}
+
+/// A rail entry's name, with the three-colour wave under it when it is the current page (docs/design: NavRail).
+class _RailLabel extends StatelessWidget {
+  const _RailLabel(this.text, {required this.selected});
+
+  final String text;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = YzTokens.of(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(text),
+        if (!debugLegacyTheme) ...[
+          const SizedBox(height: 3),
+          WaveMark(colors: [t.waveRose, t.waveGold, t.waveMint], width: 18, visible: selected),
+        ],
+      ],
     );
   }
 }

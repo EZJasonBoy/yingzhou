@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../brand.dart';
 import '../device_form.dart';
 import 'tv_focus.dart';
 
@@ -288,7 +289,6 @@ class TvShellState extends State<TvShell> {
   }
 
   Widget _buildRail(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return ClipRect(
       child: OverflowBox(
         alignment: Alignment.topLeft,
@@ -303,7 +303,7 @@ class TvShellState extends State<TvShell> {
                 padding: const EdgeInsets.fromLTRB(22, 8, 8, 22),
                 child: Row(
                   children: [
-                    Icon(Icons.live_tv_rounded, size: 30, color: scheme.primary),
+                    const BrandMark(size: 30),
                     if (_railOpen) ...[
                       const SizedBox(width: 10),
                       Text('映舟', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),

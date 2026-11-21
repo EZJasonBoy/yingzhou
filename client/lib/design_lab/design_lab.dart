@@ -7,6 +7,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../engine/engine_client.dart';
+import '../ui/theme.dart' show debugLegacyTheme;
 import 'frames.dart';
 
 const _engineDefault = String.fromEnvironment('ENGINE_URL', defaultValue: 'http://127.0.0.1:19978');
@@ -15,6 +16,7 @@ const _themeDefine = String.fromEnvironment('LAB_THEME');
 const _zoomDefine = String.fromEnvironment('LAB_ZOOM');
 const _shotDefine = String.fromEnvironment('LAB_SHOT');
 const _exitDefine = bool.fromEnvironment('LAB_EXIT');
+const _legacyDefine = bool.fromEnvironment('LAB_LEGACY');
 
 // The lab's own colours: the brand's dusk, so its chrome never looks like part of the app it frames.
 const _night = Color(0xFF17162E);
@@ -46,6 +48,7 @@ class _DesignLabState extends State<DesignLab> {
   @override
   void initState() {
     super.initState();
+    debugLegacyTheme = _legacyDefine;
     _probe();
     if (_shotDefine.isNotEmpty) {
       // Give the frames time to load their pages and posters, then save the canvas.
@@ -193,6 +196,18 @@ class _DesignLabState extends State<DesignLab> {
                   // Back to each form's own default needs fresh copies; light and dark switch in place.
                   if (mode == null && _theme != null) _generation++;
                   _theme = mode;
+                }),
+              ),
+            ]),
+            group('主题', [
+              SegmentedButton<bool>(
+                showSelectedIcon: false,
+                segments: const [ButtonSegment(value: false, label: Text('映舟')), ButtonSegment(value: true, label: Text('旧版'))],
+                selected: {debugLegacyTheme},
+                // The theme is built when a copy starts: switching makes fresh copies.
+                onSelectionChanged: (s) => setState(() {
+                  debugLegacyTheme = s.first;
+                  _generation++;
                 }),
               ),
             ]),

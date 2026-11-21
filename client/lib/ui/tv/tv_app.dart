@@ -188,12 +188,12 @@ ThemeData tvTheme(BuildContext context, ThemeData base) {
   final buttons = ButtonStyle(overlayColor: overlay(null));
   return base.copyWith(
     focusColor: focus,
-    filledButtonTheme: FilledButtonThemeData(style: buttons),
-    outlinedButtonTheme: OutlinedButtonThemeData(style: buttons),
-    textButtonTheme: TextButtonThemeData(style: buttons),
+    filledButtonTheme: FilledButtonThemeData(style: buttons.merge(base.filledButtonTheme.style)),
+    outlinedButtonTheme: OutlinedButtonThemeData(style: buttons.merge(base.outlinedButtonTheme.style)),
+    textButtonTheme: TextButtonThemeData(style: buttons.merge(base.textButtonTheme.style)),
     elevatedButtonTheme: ElevatedButtonThemeData(style: buttons),
     iconButtonTheme: IconButtonThemeData(style: buttons),
-    segmentedButtonTheme: SegmentedButtonThemeData(style: buttons),
+    segmentedButtonTheme: SegmentedButtonThemeData(style: buttons.merge(base.segmentedButtonTheme.style)),
     menuButtonTheme: MenuButtonThemeData(style: buttons),
     listTileTheme: base.listTileTheme.copyWith(selectedTileColor: base.colorScheme.primaryContainer.withValues(alpha: 0.45)),
     tooltipTheme: const TooltipThemeData(triggerMode: TooltipTriggerMode.manual),
