@@ -137,7 +137,7 @@ tvsig=<过期时间，秒，36 进制>.<设备 id 或 local>.<HMAC-SHA256 前 16
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/sites` | `[{key, name, type, searchable, quickSearch, filterable, runtime: cms|js|jar|py|remote}]` |
+| GET | `/sites` | `[{key, name, type, searchable, quickSearch, filterable, changeable, runtime: cms|js|jar|py|remote}]`；`changeable` 是配置里的 `changeable`（默认 1），客户端据此决定能不能自动换到 / 换离这个站点；旧引擎没有这个字段，客户端当作 true |
 | GET | `/sites/{key}/home` | `{classes: [Class], filters: {typeId: [Filter]}, list: [VodCard]}` |
 | GET | `/sites/{key}/category?tid=&pg=&f=` | `f` 为 URL 编码的 JSON 筛选值；返回 `Page<VodCard>` |
 | GET | `/sites/{key}/detail?id=` | `VodDetail` |
