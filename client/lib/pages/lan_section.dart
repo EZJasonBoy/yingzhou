@@ -8,8 +8,10 @@ import '../app_state.dart';
 import '../engine/discovery.dart';
 import '../engine/lan.dart';
 import '../engine/models.dart';
+import '../remote/remote_page.dart';
 import '../remote/remote_screen.dart';
 import '../remote/remote_settings.dart';
+import '../ui/device_form.dart';
 
 /// 「局域网」 on the Sources page: the LAN sharing switch of the engine on this machine (addresses, pairing code,
 /// paired devices), 「允许手机遥控」 ([RemoteControlSettings]), the engines found on the LAN, and the pairing with
@@ -149,6 +151,19 @@ class _LanSectionState extends State<LanSection> {
           children: [
             Text('局域网', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
             const SizedBox(height: 10),
+            // A phone or tablet as the remote of a 映舟 on a TV or computer.
+            if (isTouch(context)) ...[
+              ListTile(
+                key: const Key('lan-remote-other'),
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.settings_remote_outlined),
+                title: const Text('遥控另一台映舟'),
+                subtitle: Text('用这台设备当电视、电脑上映舟的遥控器（那边要打开「允许手机遥控」）', style: small),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => RemoteFinderPage(discovery: widget.discovery))),
+              ),
+              const Divider(height: 20),
+            ],
             // The engine in use is on another device: pairing.
             if (remote) ...[
               Row(

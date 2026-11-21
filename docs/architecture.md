@@ -345,8 +345,9 @@ tvbox-next/
   - **不依赖焦点的命令**（`remote_host.dart` 的 `RemotePlayerTarget`）：点播播放页（`pages/player_remote.dart`）和直播页（`pages/live_remote.dart`）各登记一个，报告自己的状态，命令直接调页面已有的方法（`_seekTo`、`_pickLine`、`_playEpisode`、`_toggleDanmaku`…），所以手机上点"第 5 集"和在电视上打开选集面板点第 5 集走的是同一段代码。页面的 `setState` 和播放器的几个流（播放 / 暂停、缓冲、倍速、音量、时长、位置的跳变）会通知"状态可能变了"。
   - **打字**（`remote_text.dart`）：跟着 `FocusManager` 找当前焦点所在的 `EditableText`，状态里报告它的内容和提示；`text` 命令用 `userUpdateTextEditingValue` 写进去（走输入格式化和 `onChanged`），`submit` 调它的 `performAction`。密码框的内容不外发。
 - **电脑上的电视模式**：`DeviceFormController` 以前在桌面平台上永远是 `desktop`，现在桌面也可以选 `tv`（「源 → 界面模式」）。选了之后 `TvAppFrame` 里的 `_DesktopTvWindow` 让 `DesktopWindow` 把窗口"钉"在全屏（`pinFullScreen`）：播放页、直播页关闭时照例会退出全屏，钉住时这些请求被忽略。桌面没有系统返回键，所以 `RemoteKeyProbe` 在这种情况下也把没人处理的 Esc / 返回键变成一次 `maybePop()`。运行中切换界面模式时，焦点高亮策略的改动推迟到这一帧之后（否则在构建过程中触发 `FocusableActionDetector` 的断言）。
+- **应用里的遥控器**（`remote_page.dart`、`remote_controller.dart`，手机和平板的「局域网」卡片里的「遥控另一台映舟」）：和网页遥控器做的事一样——选引擎（应用自己连着的远程引擎、mDNS 找到的、手填的）、配对（令牌按引擎地址存在 `remote.token|…`）、选屏幕、开控制 WebSocket（`dart:io` 能设请求头，令牌放在 `Authorization` 里）。按键按住时先发 `down`，0.38 秒后每 0.11 秒一个 `repeat`，松手 `up`，每次按下有 `HapticFeedback.selectionClick`。断线按 1、2、4、8 秒重连，屏幕不在时等它回来，回到前台立即重试。
 - **「允许手机遥控」**（`remote_settings.dart`，嵌在「局域网」卡片里）：默认关。打开时如果引擎在本机而局域网共享没开，先打开共享并写明；二维码是 `http://<局域网地址>:<端口>/remote/#code=<配对码>`，地址取引擎正在监听的那些，按 `PhoneInputServer.lanAddresses()` 的顺序排（家用网段优先）。关掉局域网共享时遥控一起关。
-- **测试**：引擎 `RemoteTest`（中枢本身；经 HTTP：没有令牌、错的令牌、共享关闭、别的来源的网页、没登记的屏幕、撤销后断开、静态文件）；客户端 `test/remote_test.dart`（连接与重试、电视界面里按键移动焦点、播放页的每个命令、打字、桌面的电视模式、开关与二维码），引擎的中枢用 `test/fake_remote_hub.dart` 代替；`integration_test/remote_test.dart` 在真实的 Windows 应用里（电视模式、全屏）经真实的引擎和 WebSocket 当一回遥控端。网页本身没有自动化测试，是用无头浏览器截图和在浏览器里手点验证的。
+- **测试**：引擎 `RemoteTest`（中枢本身；经 HTTP：没有令牌、错的令牌、共享关闭、别的来源的网页、没登记的屏幕、撤销后断开、静态文件）；客户端 `test/remote_test.dart`（连接与重试、电视界面里按键移动焦点、播放页的每个命令、打字、桌面的电视模式、开关与二维码）、`test/remote_page_test.dart`（应用里的遥控器：配对、选屏幕、按键与连发、命令、打字、重连），引擎的中枢用 `test/fake_remote_hub.dart` 代替；`integration_test/remote_test.dart` 在真实的 Windows 应用里（电视模式、全屏）经真实的引擎和 WebSocket 当一回遥控端。网页本身没有自动化测试，是用无头浏览器截图和在浏览器里手点验证的。
 
 ## 5. 安全
 
