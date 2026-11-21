@@ -90,7 +90,13 @@ class DesktopWindow {
     final window = _window;
     if (window == null) return;
     _guard(() {
-      window.minimumSize = const Size(800, 520).toNative();
+      // On Linux the minimum size waits until the window is on screen. The window plugin turns it into a hint for
+      // the window manager by measuring the frame, and before GTK has laid the frame out it measures 1 x 1: the hint
+      // then came out as the minimum plus the window's own size, and the window manager made the window that big
+      // (1100 x 700 came back as 1899 x 1219) whenever start-up was a little faster than usual.
+      const minimum = Size(800, 520);
+      if (!_frameDrawnLater) window.minimumSize = minimum.toNative();
+      Offset? moveWhenShown;
       final saved = settings.getString(_boundsKey)?.split(',');
       if (saved != null && saved.length == 5) {
         final v = saved.take(4).map(double.tryParse).toList();
@@ -100,12 +106,19 @@ class DesktopWindow {
             window.contentSize = r.size.toNative();
             window.position = r.topLeft.toNative();
             // GTK places a window that is not on screen yet where the window manager likes; move it once it is.
-            if (saved[4] != '1') _whenShown(window, () => window.position = r.topLeft.toNative());
+            if (saved[4] != '1') moveWhenShown = r.topLeft;
           } else {
             window.bounds = r.toNative();
           }
         }
         if (saved[4] == '1') window.maximize();
+      }
+      if (_frameDrawnLater) {
+        _whenShown(window, () {
+          window.minimumSize = minimum.toNative();
+          final to = moveWhenShown;
+          if (to != null) window.position = to.toNative();
+        });
       }
       WindowManager.instance.addListener((event) {
         if (event is WindowMovedEvent || event is WindowResizedEvent || event is WindowMaximizedEvent || event is WindowRestoredEvent) {

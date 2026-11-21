@@ -275,8 +275,9 @@ jobs:
           # Java takes user.home from the password database, not from $HOME.
           ls -la "$(getent passwd "$(id -un)" | cut -d: -f6)/.tvbox-next/engine"
 
-          # Twice: a window that comes back a little bigger each time would show on the second.
-          for run in 2 3; do
+          # Five more starts: a window that comes back a little bigger each time shows on the second, and a race at
+          # start-up (the window once came back at 1899 x 1219 on the third) gets several chances to show.
+          for run in 2 3 4 5 6; do
             echo "saved before start $run: $(grep -o '"flutter.window.bounds":"[^"]*"' "$prefs" || true)"
             start_app
             sleep 5
