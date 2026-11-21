@@ -3,7 +3,7 @@
 
 /// This build's version, the `version:` of pubspec.yaml without the build number. A test keeps the two the same
 /// (test/update_test.dart); `--dart-define=APP_VERSION=0.1.0` pretends to be another version (to try updating).
-const appVersion = String.fromEnvironment('APP_VERSION', defaultValue: '0.4.1421');
+const appVersion = String.fromEnvironment('APP_VERSION', defaultValue: '0.4.14213');
 
 /// The repository the releases are published in.
 const releaseRepository = 'Sa1koro/yingzhou';
