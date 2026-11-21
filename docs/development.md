@@ -8,6 +8,7 @@
 | Flutter | 3.50+ | 客户端 |
 | Visual Studio | "使用 C++ 的桌面开发"工作负载 | Windows 客户端；还需要打开系统的**开发者模式**（插件要建符号链接） |
 | Xcode | — | macOS 客户端 |
+| Linux 构建依赖 | Ubuntu 24.04 或更新：`clang cmake ninja-build pkg-config libgtk-3-dev libx11-dev libxi-dev liblzma-dev libmpv-dev`，打 deb 还要 `dpkg-dev` | Linux 客户端（见第 6 节"Linux"） |
 | Android SDK | platforms;android-36、build-tools;36.0.0 | 只在构建 Android 客户端或重建演示 jar 时需要 |
 | Python | 3.8+，可选 | Python 蜘蛛的引擎测试和演示站要用；找不到时这些测试跳过。用 `TVBOX_PYTHON` 指定 |
 
@@ -36,7 +37,7 @@ client/          Flutter
   lib/ui/        外壳（导航）、主题、通用组件
   lib/desktop/   窗口：全屏、记住大小位置
   android/       Android 宿主工程，复合构建引入 engine
-  macos/ windows/
+  macos/ windows/ linux/
 tools/           打包脚本
 docs/            文档
 ```
@@ -53,7 +54,7 @@ cd engine
 # 客户端
 cd client
 flutter test                                # 单元 / 组件测试（用 test/fake_engine.dart，不需要引擎）
-flutter run -d windows                      # 没有引擎在 9978 上时会自己拉起上面 installDist 的引擎
+flutter run -d windows                      # 没有引擎在 9978 上时会自己拉起上面 installDist 的引擎（macOS、Linux 换成 -d macos / -d linux）
 ```
 
 引擎参数：`--port`、`--lan`（监听 0.0.0.0，局域网共享始终开启，配对码打印在标准输出）、`--name <名字>`（局域网里显示的名字，默认"映舟 · 计算机名"）、`--data <目录>`（默认 `~/.tvbox-next/engine`）、`--subscribe <地址>`、`--drive-folder <目录>`（把这台机器上的文件夹加成网盘，可以写多次，已有的不重复加）、`--demo`、`--dev-cors`、`--exit-with-stdin`。
@@ -158,6 +159,14 @@ flutter test integration_test/drive_test.dart -d windows --dart-define=ENGINE_UR
 
 每一步会打印 `MARK:<步骤>`，给了 `SHOT_DIR` 就在那一步存一张截图（应用内截图，包含视频画面；从外部截测试窗口是黑的）。
 
+macOS、Linux 上把 `-d windows` 换成 `-d macos` / `-d linux`。没有桌面的 Linux（服务器、CI）在虚拟屏幕上跑，而且要有窗口管理器，全屏是它的事，没有它全屏那一步过不了：
+
+```bash
+sudo apt install xvfb openbox libgl1-mesa-dri fonts-noto-cjk
+Xvfb :99 -screen 0 1600x900x24 & export DISPLAY=:99; openbox &
+flutter test integration_test/desktop_play_test.dart -d linux --dart-define=SHOT_DIR=<截图目录>
+```
+
 `desktop_play_test.dart` 的"subtitles, audio tracks and danmaku"一步要用「演示JS站」的《字幕演示》《弹幕演示》（见第 4 节），开始前会删掉这两部片在引擎里的观看历史（否则会按上次选的字幕和进度继续）。弹幕部分把帧策略切到 `fullyLive`，按引擎实际出的每一帧统计构建 / 光栅化耗时，打印三行 `DANMAKU_FRAMES:{…}`（弹幕开、全屏、弹幕关），结果记在 [architecture.md](architecture.md) 第 4 节。按键偶尔没有送到播放页时，前面一行 `KEYS:` 会打印当时按住的键和焦点在哪。
 
 `integration_test/seek_test.dart` 量的是拖动进度条的耗时：在《慢速源演示》上播一分钟，然后点进度条——跳到预读的位置、看过的位置、两处没缓存的位置、回到其中一处、回到开头，中间还按住拖两秒。每次跳转打印一行 `SEEK:{…}`：从点击到出第一帧（`firstPictureMs`）、到重新播起来（`playingMs`）各多少毫秒，播放器收到几次跳转，片源收到哪些请求；另外打印应用和引擎的内存（`MEMORY:{…}`）。第二个用例播"直链"那一集，检查播放器自己的缓存文件。缓存命中的跳转要求一秒内恢复、不向片源请求落点所在的分片，拖动只算一次跳转。
@@ -206,7 +215,8 @@ tools/package-desktop.sh
 - Windows（Git Bash）：`dist/yingzhou-windows-x64.zip`，解压后运行 `yingzhou.exe`。未压缩的目录在 `client/build/windows/x64/runner/Release`。
 - Windows 安装程序：`dist/yingzhou-windows-x64-setup.exe`，机器上有 Inno Setup（6.3 以上，`scoop install inno-setup`）时在 zip 之后生成，没有就跳过。脚本是 `tools/installer/windows.iss`，说明见下面"Windows 安装程序"。
 - macOS：`dist/yingzhou-macos-<arm64|x86_64>.dmg`（应用是 `Yingzhou.app`，显示名"映舟"）。JRE 跟构建机的 CPU 走；默认临时签名，设 `SIGN_IDENTITY` 用开发者证书。
-- 没有 Mac：推到 GitHub 后手动触发或打 `v*` 标签，`.github/workflows/desktop.yml` 出三个包。
+- Linux：`dist/yingzhou-linux-x64.tar.gz` 和 `dist/yingzhou-linux-x64.deb`，见下面"Linux"。
+- 没有 Mac 或 Linux：推到 GitHub 后手动触发或打 `v*` 标签，`.github/workflows/desktop.yml` 出全部的包。
 
 包里有：Flutter 应用、`engine/lib`（引擎 jar）、`engine/jre`（jlink 裁出的运行时）。用户不用装 Java。
 
@@ -226,6 +236,20 @@ tools/package-desktop.sh
 - 没有签名。要签名的话用 Inno Setup 的 `SignTool` 配置，脚本里还没接。
 
 改了脚本之后至少手动过一遍：静默安装（`/VERYSILENT`）→ 启动 → 再装一次（升级）→ 卸载，确认目录、开始菜单和「应用和功能」里的条目都干净。
+
+### Linux
+
+在 Ubuntu 24.04 或更新的系统上装好第 1 节的构建依赖，运行 `tools/package-desktop.sh`。包跟着构建机走：CPU（x64 / arm64）、glibc 和 libmpv 的版本都是构建机的，所以在 24.04 上打的包只能装在 24.04、Debian 13 及更新的系统上。CI 用的就是 `ubuntu-24.04`。
+
+- **Flutter 部分**：`flutter build linux --release` 出 `client/build/linux/x64/release/bundle`。可执行文件 `yingzhou`，GTK 应用 ID `io.github.sa1koro.yingzhou`（`client/linux/CMakeLists.txt`），窗口标题"映舟"和窗口图标在 `client/linux/runner/my_application.cc`。CMake 安装步骤顺带把 `client/linux/icons/`（hicolor 图标，`render-icons.mjs` 生成）和 `client/linux/io.github.sa1koro.yingzhou.desktop` 放进 bundle 的 `share/`。
+- **mimalloc**：按 media_kit 的建议，可执行文件静态链接 mimalloc 代替 glibc 的 malloc（libmpv 下 glibc 的堆只涨不缩）。目标文件由 media_kit_libs_linux 构建时从 GitHub 下载 mimalloc 源码编出（校验 MD5）。
+- **tar.gz**：bundle 加上 `engine/lib`、`engine/jre`、许可证和 `install-desktop-entry.sh`（源文件 `tools/installer/linux-desktop-entry.sh`，给当前用户加菜单项，`Exec` 指向解压目录）。客户端在可执行文件旁边找 `engine/`（`local_engine_io.dart`，用的是解析过符号链接的真实路径）。
+- **deb**：整个 bundle 放在 `/opt/yingzhou`，`/usr/bin/yingzhou` 是指向它的链接，`.desktop` 和图标装到 `/usr/share`。图标缓存和菜单由 dpkg 的触发器刷新，包里没有维护脚本。`Depends` 由 `dpkg-shlibdeps` 从 bundle 里所有 ELF 文件（包括 JRE 的）算出来；`Recommends: fonts-noto-cjk`；浏览器和 `avahi-daemon` 只放在 `Suggests`（装不装由用户定）。版本号取 `client/pubspec.yaml` 的 `version`（去掉 `+` 后面的构建号）。
+- 打包前检查 `ldd yingzhou` 没有 "not found"；机器上没有 `dpkg-deb` / `dpkg-shlibdeps`（非 Debian 系）时只出 tar.gz。
+
+查看一个 deb：`dpkg-deb --info dist/yingzhou-linux-x64.deb`、`dpkg-deb --contents …`。
+
+CI 的 `linux` 作业打完包后：用 apt 装上 deb（检验依赖能解析），在 Xvfb + Openbox 的虚拟屏幕上以一个全新的 `HOME` 启动 `yingzhou`，检查窗口标题、应用拉起的是包里的 Java、`~/.local/share/io.github.sa1koro.yingzhou/shared_preferences.json` 里记下了挪动后的窗口、关掉应用后引擎也退出，再连着启动两次，窗口都回到原来的位置和大小（用 `xwininfo` 量，误差 3 像素以内）；然后用包里的 Java 跑演示引擎，跑 `integration_test/desktop_play_test.dart` 的三个用例。两步都过了才上传包。截图和日志作为 `linux-smoke` 工件上传（打标签时不传，否则会被发布出去）：`gh run download <run id> -n linux-smoke`。虚拟屏幕是软件渲染（Mesa llvmpipe），没有声卡。
 
 ## 7. 拿真实订阅体检
 
@@ -275,6 +299,9 @@ PLAY=1 MAX_SITES=20 tools/check-configs.sh          # 加上播放解析；每�
 - 用 shell 一行命令改 Kotlin / Dart 源码时，`\n`、`$` 容易被 shell 吃掉，改用编辑器或脚本文件。
 - `dart format` 的行宽在 `analysis_options.yaml` 里定为 160，别用默认值重排整个目录。
 
+- Linux 上窗口的边框和标题栏是窗口管理器画的，窗口上屏之前 GTK 不知道它们多厚。window_manager（nativeapi）在这时把"连边框的大小"当成内容大小，窗口每启动一次就高出一个标题栏。所以 Linux 上记住的是窗口左上角和**内容**的大小，上屏后再把位置设一次（`desktop_window.dart`）。在 Wayland 上应用本来就不能决定窗口位置。
+- Java 在 Linux 上的 `user.home` 取自系统的用户数据库，不看 `$HOME`：换了 `HOME` 跑应用，引擎的数据仍在真正的家目录下。
+- 虚拟屏幕（Xvfb）上要跑一个窗口管理器（CI 用 Openbox），全屏是窗口管理器做的，没有它 `isFullScreen` 一直是 false；Flutter 自带的 Linux 窗口默认 1280×720，比 Windows 的小，集成测试里有一步因此找不到首页第一行，现在 Linux 也默认 1360×860。
 - Flutter 在 Windows 上默认用 Impeller，会多占两百多 MB 提交内存；`windows/runner/main.cpp` 里已关闭。JVM 不带 `-Xms` 时按物理内存的比例预留堆，引擎的启动参数里已限定。实测数字见 [tech-choices.md](tech-choices.md) 第 4 节。
 - 安卓模拟器（`-gpu swiftshader_indirect`）上 libmpv 的 OpenGL 输出建不起上下文（logcat：`eglCreateContext: EGL_BAD_ATTRIBUTE`），media_kit 默认的 `vo=gpu` 只有声音、画面全黑。所以模拟器上换成 `vo=mediacodec_embed`（`player_backend.dart`）。模拟器解码 1080p 很慢，1080p 的网络片源（演示里的 mux 测试流）在模拟器上常常要等很久，换台时 libmpv 的 `stop` 也会跟着卡住；在模拟器上试播放用演示网盘的文件或低分辨率的频道。
 - 视频组件（media_kit 的 `Video`）换了父节点就会被重建，在安卓上新建的那个是黑的。播放页和直播页的画面因此挂在 `GlobalKey` 下面，竖屏 / 全屏 / 画中画之间切换时只是挪位置。
@@ -282,8 +309,8 @@ PLAY=1 MAX_SITES=20 tools/check-configs.sh          # 加上播放解析；每�
 
 ## 10. 名字与图标
 
-- 名字：映舟（Yingzhou）。用户看得到的地方用"映舟"；文件名、可执行文件、包名等用 `yingzhou`（Windows `yingzhou.exe`，macOS `Yingzhou.app`）。Dart 包名 `tvbox_client`、仓库目录 `tvbox-next`、引擎数据目录 `~/.tvbox-next` 暂不改。
-- 图标源文件在 `docs/brand/`：`yingzhou-logo.svg`（标准）、`yingzhou-logo-small.svg`（16–32 px 用，去掉水波、放大帆和船身）。改了之后运行 `node tools/brand/render-icons.mjs`，它用无头 Edge/Chrome 按每个尺寸矢量渲染，生成 Windows `.ico`、macOS AppIcon、安卓启动图标和网页图标。
+- 名字：映舟（Yingzhou）。用户看得到的地方用"映舟"；文件名、可执行文件、包名等用 `yingzhou`（Windows `yingzhou.exe`，macOS `Yingzhou.app`，Linux `yingzhou` 和 deb 包 `yingzhou`）。Linux 的应用 ID 和安卓包名一样是 `io.github.sa1koro.yingzhou`：`.desktop` 文件、图标、界面设置目录（`~/.local/share/<应用 ID>`）都用它，不能改。Dart 包名 `tvbox_client`、仓库目录 `tvbox-next`、引擎数据目录 `~/.tvbox-next` 暂不改。
+- 图标源文件在 `docs/brand/`：`yingzhou-logo.svg`（标准）、`yingzhou-logo-small.svg`（16–32 px 用，去掉水波、放大帆和船身）。改了之后运行 `node tools/brand/render-icons.mjs`，它用无头 Edge/Chrome 按每个尺寸矢量渲染，生成 Windows `.ico`、macOS AppIcon、Linux 的 hicolor 图标（`client/linux/icons/`）、安卓启动图标和网页图标。
 
 ## 11. 约定
 

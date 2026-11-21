@@ -1,6 +1,6 @@
 # 使用说明
 
-> 第 1–9 节以 Windows 版为例，macOS 版操作相同，Ctrl 换成 ⌘；安卓手机与平板见第 10 节，电视盒子见第 11 节。
+> 第 1–9 节以 Windows 版为例，macOS 版操作相同，Ctrl 换成 ⌘；Linux 版也相同，安装和不同之处见第 1 节末尾"Linux"；安卓手机与平板见第 10 节，电视盒子见第 11 节。
 
 ## 1. 安装与启动
 
@@ -18,6 +18,39 @@
 **绿色包**：解压 `yingzhou-windows-x64.zip` 到任意目录（路径里最好没有特殊字符），运行 `yingzhou.exe`。要"卸载"就删掉解压目录；想清掉订阅和观看记录，再删 `C:\Users\<你>\.tvbox-next` 和 `C:\Users\<你>\AppData\Roaming\Yingzhou`。
 
 不需要另装 Java 或播放器，引擎、Java 运行时、libmpv 都在包里。启动时界面会显示"正在启动内置引擎…"，几秒后进入首页。关闭窗口时引擎一起退出。订阅、历史和收藏由引擎保存在 `C:\Users\<你>\.tvbox-next\engine`。
+
+### Linux
+
+只有 x64 版，要 **Ubuntu 24.04 或更新**、**Debian 13 或更新**，或同样新的其他发行版（包是在 Ubuntu 24.04 上编出来的，用的是它的 glibc 和 libmpv；Ubuntu 22.04、Debian 12 装不上）。引擎和 Java 运行时在包里；播放器 libmpv 和 GTK 3 用系统的。
+
+**deb 包**（Ubuntu、Debian 及其衍生版，推荐）：
+
+```bash
+sudo apt install ./yingzhou-linux-x64.deb
+```
+
+apt 会顺带装上缺的依赖（libmpv2、GTK 3 等），以及中文字体 `fonts-noto-cjk`。装好后应用菜单里有「映舟」，终端里也可以运行 `yingzhou`。程序在 `/opt/yingzhou`。**升级**：同样装新版的 deb。**卸载**：`sudo apt remove yingzhou`，不会删你的订阅和记录（见下）。
+
+**tar.gz 包**（其他发行版，或不想用 apt）：解压到任意目录，运行里面的 `./yingzhou`。系统里要先有 GTK 3 和 libmpv（Ubuntu / Debian：`sudo apt install libgtk-3-0t64 libmpv2`；其他发行版一般是 `gtk3` 和 `mpv` 包），还要有中文字体（如 Noto Sans CJK），否则界面上的汉字是方块。想放进应用菜单就运行解压目录里的 `./install-desktop-entry.sh`（只给当前用户，不要 root；挪了目录要再运行一次；`./install-desktop-entry.sh --remove` 撤掉）。要"卸载"就撤掉菜单项、删掉解压目录。
+
+数据放在：
+
+| 内容 | 位置 |
+|---|---|
+| 订阅、历史、收藏（引擎） | `~/.tvbox-next/engine` |
+| 界面设置、窗口位置 | `~/.local/share/io.github.sa1koro.yingzhou` |
+| 海报缓存 | `~/.cache/io.github.sa1koro.yingzhou` |
+
+想清干净就删掉这三个文件夹。
+
+和 Windows 版不同的地方：
+
+- **网页嗅探**要有 Google Chrome、Microsoft Edge 或 Chromium（发行版自带的包，或 Ubuntu 的 snap 版）。装在别处时设环境变量 `TVBOX_BROWSER` 指向浏览器程序。Flatpak 版的浏览器用不了。
+- **局域网搜索**（「源 → 局域网 → 搜索」）要系统里的 `avahi-daemon` 在运行，大多数桌面发行版默认就有；没有时会提示无法搜索，手动填地址照样能连。把本机引擎共享给局域网不需要它。
+- **Python 站点**用系统的 `python3`（3.8 以上，大多数发行版自带）。「下载 Python 运行时」只有 Windows 版有。
+- **窗口位置**：在 Wayland 桌面上应用不能决定窗口放在哪，下次启动只恢复大小；X11 上大小和位置都恢复。
+
+**还没在真正的 Linux 桌面上用过。** 目前只在 GitHub 的 Ubuntu 24.04 虚拟屏幕上（Xvfb + Openbox，软件渲染）验证过：deb 能装、应用能启动并带起自己的引擎、窗口大小和位置能恢复、关窗时引擎一起退出；演示站能浏览、播放（有画面）、拖动、全屏、切字幕和音轨、显示弹幕，坏线路会自动换下一条。没验证过的：Wayland 桌面（GNOME、KDE）上的窗口和全屏、硬件解码、声音（虚拟屏幕没有声卡）、snap 版 Chromium 嗅探、真实显卡下的画面和性能、tar.gz 包在 Fedora、Arch 等其他发行版上的运行。遇到问题请到 GitHub 提 issue。
 
 ## 2. 界面
 
@@ -475,7 +508,7 @@ AList 和没有账号的 WebDAV 是由各设备的播放器自己去网盘地址
 蜘蛛把运行它的 Python 进程弄崩了（脚本有问题，或者用到的包和这个 Python 版本不兼容）。再点一次会自动重新启动 Python；一直这样就是这个站点在这台电脑上跑不了，换个站点。引擎日志里有 Python 的报错（行首是 `py:`）。
 
 **提示"这条线路需要网页嗅探，但引擎没有可用的浏览器内核"**
-嗅探要用系统里的 Edge 或 Chrome。Windows 10/11 自带 Edge；如果装在非标准位置，设环境变量 `TVBOX_BROWSER` 指向浏览器的 exe。还有别的线路时播放页会先自动换过去（提示"需要网页嗅探，已切到…"），都不行才显示这句话。
+嗅探要用系统里的 Edge 或 Chrome。Windows 10/11 自带 Edge；如果装在非标准位置，设环境变量 `TVBOX_BROWSER` 指向浏览器的 exe。Linux 上装 Chrome、Edge 或 Chromium，见第 1 节"Linux"。还有别的线路时播放页会先自动换过去（提示"需要网页嗅探，已切到…"），都不行才显示这句话。
 
 **播放卡在"正在解析播放地址…"很久**
 嗅探类线路要在后台打开网页抓地址，慢的要十几秒。解析失败后会自动换下一条线路；不想等可以点"选集"自己换。
