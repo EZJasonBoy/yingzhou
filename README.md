@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/Sa1koro/yingzhou/releases"><img src="https://img.shields.io/github/v/release/Sa1koro/yingzhou?include_prereleases&label=release&color=F4A08A" alt="release"></a>
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Android%20%7C%20Android%20TV-84CFAE" alt="platforms">
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android%20%7C%20Android%20TV-84CFAE" alt="platforms">
   <a href="https://github.com/Sa1koro/yingzhou/pkgs/container/yingzhou-engine"><img src="https://img.shields.io/badge/engine-Docker-F0C670" alt="Docker"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-2F2C55" alt="AGPL-3.0"></a>
 </p>
@@ -34,7 +34,7 @@ TVBox 的订阅生态很大，能好好用它的地方却几乎只有安卓。�
 
 ![电视](docs/screenshots/tv.jpg)
 
-**电视与盒子**：方向键走焦点，OK 即播，菜单键调出倍速、线路、字幕和选集；要打字时，用手机扫电视上的二维码。
+**电视与盒子**：方向键走焦点，OK 即播，菜单键调出倍速、线路、字幕和选集；要打字时，用手机扫电视上的二维码。没有遥控器、或者想在手机上细调时，扫码就把手机变成遥控器；接在电视上的电脑也能切到同样的电视模式。
 
 ![直播与搜索](docs/screenshots/live.jpg)
 
@@ -58,8 +58,14 @@ TVBox 的订阅生态很大，能好好用它的地方却几乎只有安卓。�
 
 **引擎**
 - 一个引擎服务全家的屏幕：局域网配对（配对码 + 令牌，mDNS 发现），也可以住进 NAS（Docker）
+- 手机当遥控器：扫码即用的网页遥控器（iPhone 也行），按键、播放、选集、字幕、直播换台、打字，引擎做中转
 - 连着远处的引擎时，引擎只负责解析和去广告，播放器直连片源
-- 会把数据交给第三方的功能（GitHub 加速、DoH、订阅自带的弹幕接口）都是开关，默认关闭
+- 会把数据交给第三方的功能（GitHub 加速、DoH、订阅自带的弹幕接口、自动检查更新）都是开关，默认关闭
+
+**应用**
+- 浅色 / 深色可选；「设置」和「源」分开
+- 检查更新，可走 GitHub 加速代理或自己的 HTTP 代理
+- 崩溃记录留在本机，一键复制诊断信息、打开预填好的问题反馈，不自动上传任何东西
 
 ## 下载
 
@@ -69,12 +75,13 @@ TVBox 的订阅生态很大，能好好用它的地方却几乎只有安卓。�
 |---|---|---|
 | Windows 10 / 11 | `yingzhou-windows-x64-setup.exe`（安装程序）或 `yingzhou-windows-x64.zip`（绿色包） | ✅ 可用 |
 | macOS（Apple Silicon） | `yingzhou-macos-arm64.dmg` | ✅ 真机验证 |
+| Linux（x64，Ubuntu 24.04 / Debian 13 起） | `yingzhou-linux-x64.deb` 或 `yingzhou-linux-x64.tar.gz` | 🧪 只在 CI 的虚拟屏幕上验证过 |
 | Android TV · 电视盒子 | `yingzhou-android-arm64-v8a.apk`；32 位的老盒子用 `armeabi-v7a` | ✅ 真机验证 |
 | Android 手机 · 平板（7.0 起） | 同上，一个安装包 | 🧪 只在模拟器上验证过 |
 | 引擎（NAS 等） | Docker 镜像 `ghcr.io/sa1koro/yingzhou-engine` | 🧪 CI 自检通过，未在 NAS 上验证 |
 | iOS | — | 计划中：纯客户端，连局域网或 NAS 上的引擎 |
 
-- Windows 和 macOS 的包里带着引擎和精简过的 Java 运行时，不用另装 Java。
+- Windows、macOS、Linux 的包里带着引擎和精简过的 Java 运行时，不用另装 Java（Linux 的播放器 libmpv 用系统的，装 deb 时 apt 会带上）。
 - Windows 版没有数字签名，第一次运行时 SmartScreen 可能拦一下，点「更多信息 → 仍要运行」。macOS 版是临时签名，第一次需右键 → 打开。
 - 安卓 APK 用正式密钥签名，可以覆盖升级。
 
@@ -128,11 +135,11 @@ cd client
 flutter test
 flutter run -d windows
 
-# 打包：Windows 出安装程序和绿色包，Mac 上出 DMG
+# 打包：Windows 出安装程序和绿色包，Mac 上出 DMG，Linux 上出 deb 和 tar.gz
 tools/package-desktop.sh
 ```
 
-打一个 `v*` 标签就会触发 `.github/workflows/desktop.yml`，出 Windows、macOS、安卓的包并发布 Release；推送到 main 会构建引擎的 Docker 镜像。演示引擎、集成测试和排错见 [开发指南](docs/development.md)；宣传片和作品集的源文件在 [tools/promo](tools/promo/README.md)。
+打一个 `v*` 标签就会触发 `.github/workflows/desktop.yml`，出 Windows、macOS、Linux、安卓的包并发布 Release，并更新检查更新用的 `latest.json`；推送到 main 会构建引擎的 Docker 镜像。演示引擎、集成测试和排错见 [开发指南](docs/development.md)；宣传片和作品集的源文件在 [tools/promo](tools/promo/README.md)。
 
 | 目录 | 内容 |
 |---|---|

@@ -131,11 +131,11 @@ curl -s "http://127.0.0.1:19987/api/v1/drives/<id>/list?path=%2F%E6%BC%94%E7%A4%
 
 - 《字幕演示》：`/demo/av/master.m3u8`，主列表里有两条 `#EXT-X-MEDIA` 音轨（国语单声道、English 立体声，MPEG-1 Layer II，手写的静音帧，没有编码器所以听不出区别，只能看音轨列表）；`subs` 给三条字幕：`/demo/subs/gbk.srt`（GBK 编码、CRLF、不声明编码）、`/demo/subs/styled.ass`（带样式、顶部提示、UTF-8 BOM）、`/demo/subs/private.srt`（没有 `Referer: …/demo/` 就 403，播放结果的 `header` 里给了）。
 - 《弹幕演示》：`/demo/av/video.m3u8`，蜘蛛给出 `danmaku: /demo/danmaku/dense.xml`：三分钟 3000 条 B 站 XML（固定随机种子，85% 滚动、8% 顶部、7% 底部），像 B 站一样用不带头的 deflate 压缩并声明 `Content-Encoding: deflate`。
-- 演示配置有顶层 `danmaku`：`/demo/danmaku/api?name={name}&episode={episode}`，对任何片名都回答 `{"url": …/demo/danmaku/comments.json?…}`，后者是 80 条弹幕接口常见的 JSON（`comments[].p` = 时间,模式,颜色,用户）。引擎只在「源 → 弹幕」里打开"订阅的弹幕接口"之后才会问它。
+- 演示配置有顶层 `danmaku`：`/demo/danmaku/api?name={name}&episode={episode}`，对任何片名都回答 `{"url": …/demo/danmaku/comments.json?…}`，后者是 80 条弹幕接口常见的 JSON（`comments[].p` = 时间,模式,颜色,用户）。引擎只在「设置 → 弹幕」里打开"订阅的弹幕接口"之后才会问它。
 
 ### 离线下载
 
-代码：`engine/core/.../download/`（`DownloadManager` 队列与下载、`DownloadExport` 导出），`engine/api/.../DownloadRoutes.kt`（`/api/v1/downloads`、`/dl/…`），`StreamStore` 的 `adopt` / `workFile` / `remove`。客户端：`client/lib/engine/downloads.dart`（接口、轮询的 `DownloadsWatcher`）、`download_files*.dart`（把导出存到本机、在文件管理器里显示），`lib/pages/download_sheet.dart`（详情页的下载按钮、选集、每集的状态）、`downloads_tab.dart`（「我的 → 下载」）、`download_settings.dart`（「源 → 离线下载」）。协议见 [protocol.md](protocol.md)"离线下载"，设计见 [architecture.md](architecture.md)"离线下载"。
+代码：`engine/core/.../download/`（`DownloadManager` 队列与下载、`DownloadExport` 导出），`engine/api/.../DownloadRoutes.kt`（`/api/v1/downloads`、`/dl/…`），`StreamStore` 的 `adopt` / `workFile` / `remove`。客户端：`client/lib/engine/downloads.dart`（接口、轮询的 `DownloadsWatcher`）、`download_files*.dart`（把导出存到本机、在文件管理器里显示），`lib/pages/download_sheet.dart`（详情页的下载按钮、选集、每集的状态）、`downloads_tab.dart`（「我的 → 下载」）、`download_settings.dart`（「设置 → 离线下载」）。协议见 [protocol.md](protocol.md)"离线下载"，设计见 [architecture.md](architecture.md)"离线下载"。
 
 - 测试：`DownloadManagerTest`（核心：并发上限、重启后继续、钉住与缓存上限、密钥和初始化段、直链断点续传、导出、地址过期、直播、空间不足）、`DownloadRoutesTest`（经 HTTP：片源关掉后离线播放、局域网签名、事件、设置）；客户端 `test/downloads_test.dart`。
 - 手动试：`--demo --port 19988 --data <临时目录>` 启动（带 `--data` 才能试"重启后接着下"），在详情页下载「短片」，或者 `curl -X POST -H 'Content-Type: application/json' -d '{"items":[{"site":"demo","line":"慢速线路","episodeId":"http://localhost:19988/demo/slow/short/index.m3u8"}]}' http://127.0.0.1:19988/api/v1/downloads`。Git Bash 里 curl 发出去的中文会变成问号，片名在列表里就是一串 `?`，从客户端发的不会。
@@ -145,7 +145,7 @@ curl -s "http://127.0.0.1:19987/api/v1/drives/<id>/list?path=%2F%E6%BC%94%E7%A4%
 
 设计见 [architecture.md](architecture.md) 2.11。代码在 `engine/runtime-py`：Kotlin 一侧 `PyRuntime`（`SpiderRuntime`）、`PySpider`、`PyWorker`（进程与协议）、`PythonManager`（找 Python、下载、装包）、`PythonLocator`、`PyScripts`；Python 一侧在 `src/main/resources/tvbox/py/`。路由 `engine/server/.../PythonRoutes.kt`；客户端 `client/lib/engine/python.dart`、`lib/pages/python_settings.dart`。
 
-- **用哪个 Python**：引擎启动时在后台找（顺序见 compatibility.md "Python 蜘蛛"），日志里打印一行 `python: using …`。开发时想换一个，设 `TVBOX_PYTHON=<python 路径>` 再启动引擎；或者在应用「源 → Python 蜘蛛」里填。`--demo` 不带 `--data` 时，下载的运行时和装的包都在系统临时目录的 `tvbox-next-engine-<端口>/python` 里。
+- **用哪个 Python**：引擎启动时在后台找（顺序见 compatibility.md "Python 蜘蛛"），日志里打印一行 `python: using …`。开发时想换一个，设 `TVBOX_PYTHON=<python 路径>` 再启动引擎；或者在应用「设置 → Python 蜘蛛」里填。`--demo` 不带 `--data` 时，下载的运行时和装的包都在系统临时目录的 `tvbox-next-engine-<端口>/python` 里。
 - **演示站**：「演示Python站」只用标准库，有 Python 就能跑；「演示Python依赖站」要 lxml，可以在设置里点安装，也可以拿它看缺包时的样子。改了 `demo/py/*.py` 要重新 `installDist`。
 - **测试**：`./gradlew :runtime-py:test`。`PyRuntimeTest` 用真的 Python 跑 `src/test/resources/py/` 里的测试蜘蛛（浏览、搜索、播放、代理、直播、依赖、崩溃、卡死、缺包、网络规则），`PyLanTest` 测配对设备打开 Python 蜘蛛的代理地址，`PythonManagerTest` 用本地的假服务器测下载 CPython（含校验失败）和 pip 装包（含没有 pip 时先取 pip 的 wheel）。全部只连本机。没有 Python 时这些测试跳过（`Assumptions`）；用到 `requests` 的那一个在 Python 没装 requests 时跳过——要跑它，建一个装了 requests 的虚拟环境并设 `TVBOX_PYTHON`：
 

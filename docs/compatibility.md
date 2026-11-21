@@ -46,11 +46,11 @@
 | `lives` | 🟡 | 见第 6 节 |
 | `wallpaper` | ⬜ | 引擎会返回地址，客户端还没用 |
 | `hosts` | 🟡 | 域名重定向，对引擎发出的请求生效；播放器自己取的媒体流不生效，见下面"网络项" |
-| `doh` | ✅ | 列出的服务器出现在「源 → 网络 → 安全 DNS」里供选择；用不用由使用者决定，默认关闭 |
+| `doh` | ✅ | 列出的服务器出现在「设置 → 网络 → 安全 DNS」里供选择；用不用由使用者决定，默认关闭 |
 | `headers` | ✅ | `[{host, header}]`：按域名加请求头，引擎的请求和交给播放器的请求头都带上 |
 | `ads` | 🟡 | 嗅探时屏蔽这些域名（桌面引擎）；TVBox 内置的那份默认广告域名表没有搬过来 |
 | `proxy` | ⬜ | 部分分支用来指定哪些域名走代理，未读取 |
-| `danmaku` | ✅ | 弹幕接口，按片名和集数找弹幕（写法见第 7 节"弹幕"）。**默认不用**：它会收到每一集的片名，由使用者在「源 → 弹幕」里打开；TVBoxOS 是默认就用，没有时还会去问它内置的第三方服务，这里两样都不做 |
+| `danmaku` | ✅ | 弹幕接口，按片名和集数找弹幕（写法见第 7 节"弹幕"）。**默认不用**：它会收到每一集的片名，由使用者在「设置 → 弹幕」里打开；TVBoxOS 是默认就用，没有时还会去问它内置的第三方服务，这里两样都不做 |
 | `ijk`、`logo`、`notice`、`warningText` 等 | ⬜ | 与安卓播放器内核或界面相关，忽略 |
 
 ### 网络项：`hosts`、`headers`、`doh`、`ads`
@@ -59,7 +59,7 @@
   - 生效范围：引擎发出的所有请求——配置和它引用的文件、采集站、JS 蜘蛛的 `req`、jar 蜘蛛通过宿主 `com.github.catvod.net.OkHttp` 发的请求、解析接口、直播列表、节目单、`/m3u8` 取播放列表；桌面引擎嗅探用的浏览器也按同样的规则解析（`--host-resolver-rules`）。
   - **不生效的地方**：播放器（libmpv）直接去取的媒体流和分片，用的是系统 DNS。真实配置里 `hosts` 多半正是给直播流的域名换 CDN 用的，这类频道目前仍可能打不开。jar 蜘蛛自带 HTTP 客户端（不走宿主类）时也不生效。Android 上 WebView 嗅探不生效。
 - **`headers`**（`[{"host": 域名, "header": {…}}]`）：访问该域名的请求都带上这些请求头，同名的会被覆盖，重定向之后到达该域名的请求也算。播放地址或直播线路的域名命中时，这些请求头会并进交给播放器的 `headers`。
-- **`doh`**（`[{"name", "url", "ips"}]`）：只是"可选项"。引擎内置腾讯、阿里、360、Google、AdGuard、Quad9 六个，配置里列的排在后面。选哪个是使用者在「源 → 网络 → 安全 DNS」里的设置，**默认关闭（系统 DNS），订阅不能替你打开**——打开意味着引擎要访问的每个域名都会发给那个服务商。`ips` 用来直接连服务器本身，不必先用系统 DNS 查它。所选服务器查不到或连不上时退回系统 DNS（与 TVBox 一致），连不上时 30 秒内不再问它；局域网名字（没有点的名字、`.lan`、`.local` 等）和 IP 不会发出去。DoH 请求校验证书（引擎的其他请求不校验）。对播放器和嗅探浏览器不生效。
+- **`doh`**（`[{"name", "url", "ips"}]`）：只是"可选项"。引擎内置腾讯、阿里、360、Google、AdGuard、Quad9 六个，配置里列的排在后面。选哪个是使用者在「设置 → 网络 → 安全 DNS」里的设置，**默认关闭（系统 DNS），订阅不能替你打开**——打开意味着引擎要访问的每个域名都会发给那个服务商。`ips` 用来直接连服务器本身，不必先用系统 DNS 查它。所选服务器查不到或连不上时退回系统 DNS（与 TVBox 一致），连不上时 30 秒内不再问它；局域网名字（没有点的名字、`.lan`、`.local` 等）和 IP 不会发出去。DoH 请求校验证书（引擎的其他请求不校验）。对播放器和嗅探浏览器不生效。
 - **`ads`**：嗅探时，地址里含这些域名的请求不加载，也不会被当成视频地址。
 
 切换订阅或改设置立即生效，不用重启；之前按旧规则建立的连接会被丢弃。
@@ -104,7 +104,7 @@ jar 蜘蛛在桌面上依赖的安卓类是桩类，覆盖了常见用法（`Con
 
 TVBox 的安卓分支用 Chaquopy 在 App 里跑 Python；这里由引擎在本机另起一个 Python 进程（每个引擎一个，所有 Python 站点和直播共用，和 TVBox 一样）。
 
-- **用哪个 Python**：依次是「源 → Python 蜘蛛」里填的位置、环境变量 `TVBOX_PYTHON`、本机已装的 Python（Windows：`py -3`、`PATH` 上的 `python3` / `python`、python.org 默认的安装目录；macOS：`PATH` 和 Homebrew、python.org 的目录，苹果自带的 `/usr/bin/python3` 只在装了开发者工具时才用），最后是用户在那里点「下载 Python 运行时」下载的 CPython 3.14.10 免安装版（只有 Windows，约 12 MB，按 python.org 公布的 SHA-256 校验，放在引擎数据目录的 `python/runtime`）。版本要 3.8 或更新。应用不自带 Python，没有用户点击就不下载任何东西。
+- **用哪个 Python**：依次是「设置 → Python 蜘蛛」里填的位置、环境变量 `TVBOX_PYTHON`、本机已装的 Python（Windows：`py -3`、`PATH` 上的 `python3` / `python`、python.org 默认的安装目录；macOS：`PATH` 和 Homebrew、python.org 的目录，苹果自带的 `/usr/bin/python3` 只在装了开发者工具时才用），最后是用户在那里点「下载 Python 运行时」下载的 CPython 3.14.10 免安装版（只有 Windows，约 12 MB，按 python.org 公布的 SHA-256 校验，放在引擎数据目录的 `python/runtime`）。版本要 3.8 或更新。应用不自带 Python，没有用户点击就不下载任何东西。
 - **基类**：`from base.spider import Spider`，方法与 TVBox 的 pyramid 基类相同：`init(extend)`、`homeContent(filter)`、`homeVideoContent()`、`categoryContent(tid, pg, filter, extend)`、`detailContent(ids)`、`searchContent(key, quick, pg)`（只有 `key, quick` 两个参数的旧写法也行）、`playerContent(flag, id, vipFlags)`、`liveContent(url)`、`localProxy(param)`、`getDependence()`；工具函数 `fetch` / `post` / `postJson`（`requests` 没装时退回标准库）、`html` / `xpText`（lxml）、`regStr`（两种参数顺序都认）、`removeHtmlTags`、`cleanText`、`str2json` / `json2str`、`getProxyUrl`、`log`、`getCache` / `setCache` / `delCache`（存在引擎数据目录的文件里）、`loadSpider` / `loadModule`。`base.htmlParser` 的 `jsoup` 和 `base.localProxy` 的 `Proxy` 也有。`ext` 原样交给 `init`（不像 jar 蜘蛛那样把 http 的 `ext` 换成它的内容，同 TVBox）；没写 `ext` 时用地址里的 `?extend=`。
 - **依赖**（`getDependence()`）：先找配置里 `api` 等于这个名字的站点，用它的 `ext` 作为脚本地址；否则在蜘蛛旁边找 `<名字>.py`。加载好的依赖蜘蛛代替 `ext` 传给 `init`（同 TVBox）。
 - **第三方包**：TVBox 的 Python 版自带 `requests`、`lxml`、`pycryptodome`、`beautifulsoup4`、`pyquery`、`ujson`、`jsonpath`、`cachetools`。这里一个也不自带：用户在设置里点「安装常用依赖」后，引擎用 pip（Python 没有 pip 时先从同一个源下载 pip 的 wheel）装到引擎自己的目录 `python/packages/<解释器>`，每种 Python 各一份，从不装进 Python 自己的环境；只装 wheel，不在安装时运行包里的代码。蜘蛛缺包时报 `PY_MODULE_MISSING`，提示里写着包名，设置里列出"哪个站点缺什么"，可以一键安装（包名和模块名不同的，如 `Crypto` → `pycryptodome`、`bs4` → `beautifulsoup4`，按对照表换算）。PyPI 和 Python 下载都可以换成镜像。

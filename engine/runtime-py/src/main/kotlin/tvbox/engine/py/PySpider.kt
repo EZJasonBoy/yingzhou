@@ -117,7 +117,7 @@ class PySpider internal constructor(
             runtime.noteMissing(e.module, site.name)
             val pkg = PythonPackages.forModule(e.module)
             val named = if (pkg == e.module) "「$pkg」" else "「$pkg」（模块 ${e.module}）"
-            throw SpiderLoadException("${site.name}：缺少 Python 包$named。在「源」页的「Python 蜘蛛」里安装后再试", e, "PY_MODULE_MISSING")
+            throw SpiderLoadException("${site.name}：缺少 Python 包$named。在「设置」页的「Python 蜘蛛」里安装后再试", e, "PY_MODULE_MISSING")
         }
         if (loading) throw SpiderLoadException("${site.name}: ${e.type}: ${e.message}", e)
         throw PySpiderException("${site.name}: ${e.type}: ${e.message}", e)

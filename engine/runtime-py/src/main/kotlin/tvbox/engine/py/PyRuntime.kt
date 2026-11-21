@@ -207,6 +207,6 @@ class PyRuntime(
         /** Calls left hanging in Python before the worker is replaced. */
         private const val MAX_STUCK = 8
 
-        const val NO_PYTHON = "需要 Python 3.8 或更新的版本才能打开这个站点：在「源」页的「Python 蜘蛛」里下载 Python 运行时，或指定 python 的位置"
+        const val NO_PYTHON = "需要 Python 3.8 或更新的版本才能打开这个站点：在「设置」页的「Python 蜘蛛」里下载 Python 运行时，或指定 python 的位置"
     }
 }
