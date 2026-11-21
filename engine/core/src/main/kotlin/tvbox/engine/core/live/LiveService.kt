@@ -68,7 +68,7 @@ class LiveService(
 
     suspend fun list(index: Int, refresh: Boolean = false): LiveList {
         val spec = spec(index)
-        if (!supported(spec)) throw LiveException("UNSUPPORTED", "${spec.name}: this kind of live source is not supported yet")
+        if (!supported(spec)) throw LiveException("UNSUPPORTED", "${spec.name}：暂不支持这种直播源")
         fresh(index, refresh)?.let { return it.list }
         return listLocks.getOrPut(index) { Mutex() }.withLock {
             fresh(index, refresh)?.list ?: load(index, spec).list

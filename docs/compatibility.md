@@ -76,7 +76,7 @@
 | `type: 3` | 🟡 | 蜘蛛，按 `api` 后缀分运行时，见下表 |
 | `type: 4` | ✅ | HTTP 远程蜘蛛 |
 | `api` | ✅ | |
-| `ext` | ✅ | 字符串、对象、数组都接受；指向文件的会先取回 |
+| `ext` | ✅ | 字符串、对象、数组都接受。采集站（`type: 0`、`1`）和 `type: 4` 的 `ext` 是网址时，先取回它指向的内容再发给站点（TVBox 的 `getFixUrl`）；蜘蛛（`type: 3`）原样拿到 `ext`，站点域名、`地址|密钥`、规则文件地址都由蜘蛛自己用（同 TVBox） |
 | `jar` | ✅ | 站点自己的 jar，写法同 `spider` |
 | `searchable` | ✅ | 为 0 时不参与聚合搜索 |
 | `quickSearch` | 🟡 | 会返回给客户端，客户端暂未区分 |
@@ -90,6 +90,8 @@
 | `playerType` | ⬜ | 桌面只有 libmpv 一个内核 |
 
 站点返回的卡片 `vod_id` 以 `msearch:` 开头或为空时（豆瓣推荐站等），和 TVBox、FongMi 一样当作"只有片名"：不打开它的详情，按片名到其他可搜索的站点找同名的片，自动打开第一个能播的。详情没有播放线路、打不开、或者所有线路都放不了时，也按片名换到别的站点（只换到 `changeable` 不为 0 的站点，片名规整后必须完全相同，年份相差一年以上的不算）。
+
+卡片的 `vod_tag` 为 `folder`（TVBox 还认 `cover`）时是**文件夹**：和 TVBox、FongMi 一样，点它不打开详情，而是用卡片的 id 请求分类，进入下一层（直播站的"平台 → 分区 → 房间"、网盘站的目录），返回回到上一层；海报左上角有文件夹标记。体检工具也会进文件夹（最多四层）找能打开的片。卡片上的 `action`（点了调用蜘蛛的 `action` 方法，配置中心、推送一类站点用）还不支持，这种卡片照常打开详情。
 
 ### 海报地址
 
@@ -123,7 +125,7 @@ jar 蜘蛛在桌面上依赖的安卓类是桩类，覆盖了常见用法（`Con
 TVBox 的安卓分支用 Chaquopy 在 App 里跑 Python；这里由引擎在本机另起一个 Python 进程（每个引擎一个，所有 Python 站点和直播共用，和 TVBox 一样）。
 
 - **用哪个 Python**：依次是「设置 → Python 蜘蛛」里填的位置、环境变量 `TVBOX_PYTHON`、本机已装的 Python（Windows：`py -3`、`PATH` 上的 `python3` / `python`、python.org 默认的安装目录；macOS：`PATH` 和 Homebrew、python.org 的目录，苹果自带的 `/usr/bin/python3` 只在装了开发者工具时才用），最后是用户在那里点「下载 Python 运行时」下载的 CPython 3.14.10 免安装版（只有 Windows，约 12 MB，按 python.org 公布的 SHA-256 校验，放在引擎数据目录的 `python/runtime`）。版本要 3.8 或更新。应用不自带 Python，没有用户点击就不下载任何东西。
-- **基类**：`from base.spider import Spider`，方法与 TVBox 的 pyramid 基类相同：`init(extend)`、`homeContent(filter)`、`homeVideoContent()`、`categoryContent(tid, pg, filter, extend)`、`detailContent(ids)`、`searchContent(key, quick, pg)`（只有 `key, quick` 两个参数的旧写法也行）、`playerContent(flag, id, vipFlags)`、`liveContent(url)`、`localProxy(param)`、`getDependence()`；工具函数 `fetch` / `post` / `postJson`（`requests` 没装时退回标准库）、`html` / `xpText`（lxml）、`regStr`（两种参数顺序都认）、`removeHtmlTags`、`cleanText`、`str2json` / `json2str`、`getProxyUrl`、`log`、`getCache` / `setCache` / `delCache`（存在引擎数据目录的文件里）、`loadSpider` / `loadModule`。`base.htmlParser` 的 `jsoup` 和 `base.localProxy` 的 `Proxy` 也有。`ext` 原样交给 `init`（不像 jar 蜘蛛那样把 http 的 `ext` 换成它的内容，同 TVBox）；没写 `ext` 时用地址里的 `?extend=`。
+- **基类**：`from base.spider import Spider`，方法与 TVBox 的 pyramid 基类相同：`init(extend)`、`homeContent(filter)`、`homeVideoContent()`、`categoryContent(tid, pg, filter, extend)`、`detailContent(ids)`、`searchContent(key, quick, pg)`（只有 `key, quick` 两个参数的旧写法也行）、`playerContent(flag, id, vipFlags)`、`liveContent(url)`、`localProxy(param)`、`getDependence()`；工具函数 `fetch` / `post` / `postJson`（`requests` 没装时退回标准库）、`html` / `xpText`（lxml）、`regStr`（两种参数顺序都认）、`removeHtmlTags`、`cleanText`、`str2json` / `json2str`、`getProxyUrl`、`log`、`getCache` / `setCache` / `delCache`（存在引擎数据目录的文件里）、`loadSpider` / `loadModule`。`base.htmlParser` 的 `jsoup` 和 `base.localProxy` 的 `Proxy` 也有。`ext` 原样交给 `init`（和 jar、JS 蜘蛛一样，同 TVBox）；没写 `ext` 时用地址里的 `?extend=`。
 - **依赖**（`getDependence()`）：先找配置里 `api` 等于这个名字的站点，用它的 `ext` 作为脚本地址；否则在蜘蛛旁边找 `<名字>.py`。加载好的依赖蜘蛛代替 `ext` 传给 `init`（同 TVBox）。
 - **第三方包**：TVBox 的 Python 版自带 `requests`、`lxml`、`pycryptodome`、`beautifulsoup4`、`pyquery`、`ujson`、`jsonpath`、`cachetools`。这里一个也不自带：用户在设置里点「安装常用依赖」后，引擎用 pip（Python 没有 pip 时先从同一个源下载 pip 的 wheel）装到引擎自己的目录 `python/packages/<解释器>`，每种 Python 各一份，从不装进 Python 自己的环境；只装 wheel，不在安装时运行包里的代码。蜘蛛缺包时报 `PY_MODULE_MISSING`，提示里写着包名，设置里列出"哪个站点缺什么"，可以一键安装（包名和模块名不同的，如 `Crypto` → `pycryptodome`、`bs4` → `beautifulsoup4`，按对照表换算）。PyPI 和 Python 下载都可以换成镜像。
 - **网络**：蜘蛛用 `requests`（以及 `fetch` / `post`）发的请求会经过配置的 `hosts`（在名字解析处替换，`socket.getaddrinfo`）、`headers`（按域名加请求头）和「GitHub 加速代理」开关；证书默认不检查（同引擎，`--strict-tls` 时检查，蜘蛛明确写了 `verify=True` 的照办）。不经过的：DoH（Python 用系统 DNS）；`urllib`、`http.client`、`aiohttp` 等其他库发的请求只有 `hosts` 生效。
@@ -184,7 +186,7 @@ TVBox 的配置格式本身没有"网盘"字段。真实配置里出现的 `driv
 | `ua`、`referer`、`header` | ✅ | 随线路下发给播放器 |
 | `{type: 3, api, ext, jar, url}` 蜘蛛直播 | ✅ | 列表由蜘蛛给出：jar 和 Python 蜘蛛问 `liveContent(url)`，JS 蜘蛛问 `live(url)`（没写 `url` 时传脚本自己的地址，同 TVBox）。返回 TXT / M3U / JSON 文本都行，JS 也可以直接返回分组数组，Python 返回的字典 / 列表按 JSON 处理。蜘蛛没有返回、而 `url` 是个地址时，按普通列表下载它（TVBox 对这种写法也只是下载列表，蜘蛛只管频道的代理地址）。Python 蜘蛛直播要本机有 Python，没有时「直播」页标"需要 Python" |
 | 蜘蛛列表里的 `proxy://…`、`http://127.0.0.1:9978/proxy?do=js&…`、`…?do=py&…` | ✅ | 指向本引擎的 `/proxy`，并补上这个直播源的蜘蛛的 `siteKey`，请求一定回到给出列表的那个蜘蛛。TVBox 是交给"最近用过的蜘蛛"；这里看直播的中途可以去点播别的站点，不带 `siteKey` 会串到别的脚本上 |
-| `{type: 3}` 但没有 `api` | ⬜ | 「直播」页标"暂不支持" |
+| `{type: 3}` 但没有 `api` | ✅ | 和 TVBox 一样当普通列表：下载 `url`，带上这一条的 `ua`、`header` 等请求头；列表里 `proxy://` 的频道交给配置的 `spider` jar 处理 |
 | `catchup` 回看 | ✅ | 见下面"回看" |
 | `playerType`、`timeout`、`boot`、`pass` | ⬜ | 忽略 |
 

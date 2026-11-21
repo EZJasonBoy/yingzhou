@@ -127,6 +127,19 @@ class _PosterCardState extends State<PosterCard> {
                       fit: StackFit.expand,
                       children: [
                         NetImage(vod.pic),
+                        if (vod.isFolder)
+                          Positioned(
+                            key: const Key('poster-folder'),
+                            left: 6,
+                            top: 6,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.6), borderRadius: BorderRadius.circular(6)),
+                              child: const Padding(
+                                padding: EdgeInsets.all(4),
+                                child: Icon(Icons.folder_rounded, size: 16, color: Colors.white),
+                              ),
+                            ),
+                          ),
                         if (vod.remarks.isNotEmpty)
                           Positioned(
                             left: 0,

@@ -118,6 +118,28 @@ void main() {
     await mark(tester, 'douban-playing');
   });
 
+  testWidgets('folder cards open the list inside them, level by level, down to a room that plays', (tester) async {
+    await start(tester, 'demo_folder');
+    await until(tester, find.text('平台甲'));
+    expect(find.byKey(const Key('poster-folder')), findsWidgets, reason: 'the platforms are folders');
+    await mark(tester, 'folder-home');
+
+    await tester.tap(find.text('平台甲').first);
+    await until(tester, find.text('分区一'));
+    expect(find.byKey(const Key('folder-title')), findsOneWidget);
+    await mark(tester, 'folder-platform');
+
+    await tester.tap(find.text('分区一').first);
+    await until(tester, find.text('一号房间'));
+    await mark(tester, 'folder-area');
+
+    await tester.tap(find.text('一号房间').first);
+    await until(tester, playButton);
+    await tester.tap(playButton.first);
+    await playing(tester);
+    await mark(tester, 'folder-playing');
+  });
+
   testWidgets('a site whose lines are all dead: the player moves to another site and plays on', (tester) async {
     await start(tester, 'demo_dead');
     await until(tester, find.text('白昼迷踪 第二季'));

@@ -198,7 +198,16 @@ class Checker(private val engine: Engine, private val options: Options, private 
             if (home.classes.isEmpty() && items.isEmpty()) return done().copy(verdict = "empty", step = "home", message = "首页没有分类也没有影片")
             if (items.isEmpty()) return done().copy(verdict = "empty", step = step, message = "第一个分类下没有影片")
             // A recommendation site (Douban) lists videos that are found by their title on the other sites.
-            val item = firstToOpen(items.map { it.id })?.let { i -> items[i] } ?: return done().copy(message = RECOMMENDATION)
+            var item = firstToOpen(items.map { it.id })?.let { i -> items[i] } ?: return done().copy(message = RECOMMENDATION)
+            // A folder card (`vod_tag: folder`) opens the category with its id, as in TVBox: go in, a few levels at most.
+            var levels = 0
+            while (item.isFolder && levels < MAX_FOLDER_LEVELS) {
+                step = "folder"
+                val inner = withTimeout(options.stepTimeoutMs) { engine.category(site.key, item.id, 1, emptyMap()) }.list
+                if (inner.isEmpty()) return done().copy(verdict = "empty", step = step, message = "文件夹《${item.name}》里没有影片")
+                item = firstToOpen(inner.map { it.id })?.let { i -> inner[i] } ?: return done().copy(message = RECOMMENDATION)
+                levels++
+            }
             step = "detail"
             val detail = withTimeout(options.stepTimeoutMs) { engine.detail(site.key, item.id) }
             val episodes = detail.lines.sumOf { it.episodes.size }
@@ -242,7 +251,7 @@ class Checker(private val engine: Engine, private val options: Options, private 
                 return@map LiveCheck(source.name, "skipped", message = "本机没有可用的 Python").also { log("  [直播 跳过] ${it.name}: ${it.message}") }
             }
             if (!source.supported) {
-                val why = if (source.spider.isEmpty()) "type 3 但没有指定蜘蛛" else "${source.spider} 蜘蛛直播暂不支持"
+                val why = if (source.spider.isEmpty()) "暂不支持这种直播源" else "${source.spider} 蜘蛛直播暂不支持"
                 return@map LiveCheck(source.name, "fail", "unsupported", why).also { log("  [直播 不支持] ${it.name}: ${it.message}") }
             }
             val check = try {
@@ -285,6 +294,9 @@ class Checker(private val engine: Engine, private val options: Options, private 
     companion object {
         /** Errors that say this machine lacks something a Python spider needs; such sites count as skipped. */
         private val MACHINE_GAPS = setOf("PY_UNAVAILABLE", "PY_MODULE_MISSING")
+
+        /** How many folders deep the check goes to find a video to open. */
+        private const val MAX_FOLDER_LEVELS = 4
 
         /** The message of a site that passes as a recommendation site: none of its videos opens there. */
         const val RECOMMENDATION = "推荐站：影片按片名到其他站点找"

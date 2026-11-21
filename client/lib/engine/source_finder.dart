@@ -214,7 +214,7 @@ class SourceFinder extends ChangeNotifier {
   }
 
   void _add(VodCard card) {
-    if (needsTitleSearch(card)) return;
+    if (needsTitleSearch(card) || card.isFolder) return;
     if (!_seen.add(sourceKey(card.site, card.id))) return;
     if (sameTitle(card.name, title)) {
       exact.add(card);

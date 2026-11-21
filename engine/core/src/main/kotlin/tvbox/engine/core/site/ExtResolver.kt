@@ -6,8 +6,9 @@ import tvbox.engine.core.net.SiteHttp
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * TVBox `SourceViewModel.getFixUrl`: a site `ext` that is an http(s) url is replaced by the text it points to
- * (cached for the session). Anything else is passed through.
+ * TVBox `SourceViewModel.getFixUrl`: the `ext` of a CMS or `type: 4` site that is an http(s) url is replaced by the
+ * text it points to (cached for the session). Anything else is passed through. Spiders (`type: 3`) are not given
+ * this: TVBox hands them the `ext` as written.
  */
 class ExtResolver(private val http: SiteHttp, private val disk: tvbox.engine.core.cache.DataCache? = null) {
     private val cache = ConcurrentHashMap<String, String>()

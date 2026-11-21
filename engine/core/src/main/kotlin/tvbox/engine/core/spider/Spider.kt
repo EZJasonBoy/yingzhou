@@ -47,7 +47,7 @@ interface SpiderRuntime {
 
     fun supports(site: SiteBean): Boolean
 
-    /** Creates and initialises the spider for [site] with its resolved [ext]. May be slow (downloads, compilation). */
+    /** Creates and initialises the spider for [site] with its [ext] as the config wrote it. May be slow (downloads, compilation). */
     suspend fun create(site: SiteBean, ext: String): Spider
 
     /** Called when a config becomes active (and before its spiders are created), e.g. to pick up the global `spider` jar. */

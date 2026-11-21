@@ -9,6 +9,7 @@ import '../engine/vod_models.dart';
 import '../ui/common.dart';
 import '../ui/device_form.dart';
 import '../ui/poster.dart';
+import '../ui/tv/tv_focus.dart';
 import '../ui/tv/tv_widgets.dart';
 import 'detail_page.dart';
 import 'home_switcher.dart';
@@ -222,12 +223,29 @@ class _Header extends StatelessWidget {
 }
 
 /// A category: filter bar + paged poster wall that loads more as you scroll.
+/// What a folder card (`vod_tag: folder`) holds: the site's category whose id is the card's id, as TVBox and FongMi
+/// open it. Folders inside open the next level; back goes up one.
+class FolderPage extends StatelessWidget {
+  const FolderPage({super.key, required this.folder});
+
+  final VodCard folder;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: Text(folder.name, key: const Key('folder-title'), overflow: TextOverflow.ellipsis)),
+        body: _CategoryView(site: folder.site, classId: folder.id, filters: const [], autofocusFirst: isTv(context)),
+      );
+}
+
 class _CategoryView extends StatefulWidget {
-  const _CategoryView({super.key, required this.site, required this.classId, required this.filters, this.refresh = false});
+  const _CategoryView({super.key, required this.site, required this.classId, required this.filters, this.refresh = false, this.autofocusFirst = false});
 
   final String site;
   final String classId;
   final List<VodFilter> filters;
+
+  /// The first poster takes the focus once it is there (a page of its own on a TV).
+  final bool autofocusFirst;
 
   /// The user asked for fresh data: pages come from the site, not from what the engine kept.
   final bool refresh;
@@ -349,7 +367,7 @@ class _CategoryViewState extends State<_CategoryView> with AutomaticKeepAliveCli
               onFocusChange: (inPosters) {
                 if (inPosters && _showFilters && isTv(context)) setState(() => _showFilters = false);
               },
-              child: _VodGrid(items: _items, loading: _loading, error: _error, hasMore: _hasMore, onLoadMore: _loadMore),
+              child: _VodGrid(items: _items, loading: _loading, error: _error, hasMore: _hasMore, onLoadMore: _loadMore, autofocusFirst: widget.autofocusFirst),
             ),
           ),
         ],
@@ -429,7 +447,7 @@ class _FilterBar extends StatelessWidget {
 
 /// Poster wall. With [onLoadMore] it pages as the user nears the end.
 class _VodGrid extends StatefulWidget {
-  const _VodGrid({required this.items, this.loading = false, this.error, this.hasMore = false, this.onLoadMore});
+  const _VodGrid({required this.items, this.loading = false, this.error, this.hasMore = false, this.onLoadMore, this.autofocusFirst = false});
 
   const _VodGrid.fixed({required List<VodCard> items}) : this(items: items);
 
@@ -438,6 +456,7 @@ class _VodGrid extends StatefulWidget {
   final Object? error;
   final bool hasMore;
   final VoidCallback? onLoadMore;
+  final bool autofocusFirst;
 
   @override
   State<_VodGrid> createState() => _VodGridState();
@@ -490,7 +509,9 @@ class _VodGridState extends State<_VodGrid> {
             itemCount: widget.items.length,
             itemBuilder: (context, i) {
               final vod = widget.items[i];
-              return PosterCard(vod: vod, onTap: () => openDetail(context, vod));
+              final poster = PosterCard(vod: vod, onTap: () => openDetail(context, vod));
+              // The page's back button has the focus by the time the posters arrive; the first poster takes it.
+              return widget.autofocusFirst && i == 0 ? TvAutofocus(child: poster) : poster;
             },
           ),
         ),

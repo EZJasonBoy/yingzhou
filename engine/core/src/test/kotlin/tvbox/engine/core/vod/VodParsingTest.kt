@@ -53,6 +53,17 @@ class VodParsingTest {
     }
 
     @Test
+    fun `vod_tag is kept, folder and cover cards are folders`() {
+        val page = TvboxResult.parseList(
+            "s",
+            """{"list":[{"vod_id":"p1","vod_name":"平台","vod_tag":"folder"},{"vod_id":"c1","vod_name":"封面","vod_tag":" cover "},""" +
+                """{"vod_id":"f1","vod_name":"文件","vod_tag":"file"},{"vod_id":"9","vod_name":"片"}]}""",
+        )
+        assertEquals(listOf("folder", "cover", "file", ""), page.list.map { it.tag })
+        assertEquals(listOf(true, true, false, false), page.list.map { it.isFolder })
+    }
+
+    @Test
     fun `xml site parses classes, paging and detail lines`() {
         val xml = """<?xml version="1.0" encoding="utf-8"?>
             <rss version="5.1">

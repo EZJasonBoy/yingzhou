@@ -11,11 +11,16 @@ import '../engine/vod_models.dart';
 import '../ui/common.dart';
 import '../ui/device_form.dart';
 import '../ui/tv/tv_focus.dart';
-import 'browse_page.dart' show errorText;
+import 'browse_page.dart' show FolderPage, errorText;
 import 'download_sheet.dart';
 import 'player_page.dart';
 
 void openDetail(BuildContext context, VodCard vod) {
+  // A folder lists what is inside it, one level further down; back goes up again.
+  if (vod.isFolder) {
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => FolderPage(folder: vod)));
+    return;
+  }
   Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DetailPage(preview: vod)));
 }
 

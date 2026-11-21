@@ -94,7 +94,7 @@ class DemoSourcesTest {
     fun `演示豆瓣's cards are found by their title on 演示站, and their posters name the referer`() = runBlocking {
         val engine = demoEngine()
         val sites = engine.sites()
-        assertEquals(listOf("demo_douban", "demo_dead"), sites.takeLast(2).map { it.key })
+        assertEquals(listOf("demo_douban", "demo_dead", "demo_folder"), sites.takeLast(3).map { it.key })
         val douban = sites.first { it.key == "demo_douban" }
         assertFalse(douban.searchable)
         assertFalse(douban.changeable)
@@ -138,6 +138,23 @@ class DemoSourcesTest {
     }
 
     @Test
+    fun `演示文件夹's cards are folders, platform then area then room`() = runBlocking<Unit> {
+        val engine = demoEngine()
+        val home = engine.home("demo_folder")
+        assertEquals(listOf("平台甲", "平台乙"), home.list.map { it.name })
+        assertTrue(home.list.all { it.isFolder && it.tag == "folder" }, home.list.toString())
+        val areas = engine.category("demo_folder", home.list.first().id, 1, emptyMap()).list
+        assertEquals(listOf("分区一", "分区二"), areas.map { it.name })
+        assertTrue(areas.all { it.isFolder })
+        val rooms = engine.category("demo_folder", areas.first().id, 1, emptyMap()).list
+        assertEquals(listOf("一号房间", "二号房间"), rooms.map { it.name })
+        assertTrue(rooms.none { it.isFolder })
+        assertEquals(1, engine.detail("demo_folder", rooms.first().id).lines.single().episodes.size)
+        // The detail of a folder is empty, as on the live sites that list folders.
+        assertThrows(EngineException::class.java) { runBlocking { engine.detail("demo_folder", home.list.first().id) } }
+    }
+
+    @Test
     fun `the checker passes 演示豆瓣 as a recommendation site and leaves out what it is told to`() = runBlocking {
         val options = Checker.Options(only = setOf("cms"), skip = DemoSite.SELF_CHECK_SKIP)
         val results = Checker(engine(), options) {}.run(listOf("$base/demo/config.json"))
@@ -151,6 +168,9 @@ class DemoSourcesTest {
         assertEquals("skipped", dead.verdict)
         assertEquals(DemoSite.SELF_CHECK_SKIP.getValue("demo_dead"), dead.message)
         assertEquals("pass", sites.getValue("demo").verdict)
+        val folder = sites.getValue("demo_folder")
+        assertEquals("pass", folder.verdict, "the checker goes into the folders and opens a room: $folder")
+        assertEquals(1, folder.episodes)
         assertTrue(Checker.ok(results, strict = true), results.toString())
     }
 

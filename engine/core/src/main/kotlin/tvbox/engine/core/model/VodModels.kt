@@ -11,7 +11,14 @@ data class VodCard(
     val name: String,
     val pic: String = "",
     val remarks: String = "",
-)
+    /**
+     * The site's `vod_tag`, as written. `folder` (and TVBox's `cover`) marks a folder: opening it lists the
+     * category whose id is the card's [id] instead of a detail (platform → area → room on live sites).
+     */
+    val tag: String = "",
+) {
+    val isFolder: Boolean get() = tag == "folder" || tag == "cover"
+}
 
 @Serializable
 data class VodClass(

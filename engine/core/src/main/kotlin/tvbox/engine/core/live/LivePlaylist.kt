@@ -81,7 +81,9 @@ data class LiveSourceSpec(
                     )
                     continue
                 }
-                if (type != 0) {
+                // TVBox (`ApiConfig.loadLiveApi`) reads `type: 3` without an `api` like `type: 0`: the `url` is a playlist.
+                // `proxy://` channels in it go to the config's spider jar, which the jar runtime loads for them.
+                if (type != 0 && type != 3) {
                     specs += LiveSourceSpec(name = name, supported = false)
                     continue
                 }

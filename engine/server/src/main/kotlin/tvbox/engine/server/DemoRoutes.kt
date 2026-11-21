@@ -111,6 +111,8 @@ class DemoSite {
                 put("searchable", 1)
                 put("changeable", 1)
             })
+            // Cards that are folders: platform → area → room.
+            add(DemoFolder.siteJson(base))
         })
         put("parses", buildJsonArray {
             // First = default parser, as in TVBox; engines without jar spiders skip it.
@@ -407,6 +409,7 @@ fun Route.demoRoutes(site: DemoSite) {
         call.respondText(site.api(params, call.base(), dead = true), ContentType.Application.Json)
     }
     demoDoubanRoutes(site.douban)
+    demoFolderRoutes()
     get("/demo/jx") { call.respondText(site.parse(call.request.queryParameters["url"].orEmpty()), ContentType.Application.Json) }
     // A "parser page" whose player requests the stream from script, like hls.js does: only a browser finds it.
     get("/demo/sniff") {

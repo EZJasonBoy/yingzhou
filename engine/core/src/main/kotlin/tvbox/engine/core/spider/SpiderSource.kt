@@ -6,7 +6,6 @@ import tvbox.engine.core.config.SiteBean
 import tvbox.engine.core.model.HomeResult
 import tvbox.engine.core.model.VodDetail
 import tvbox.engine.core.model.VodPage
-import tvbox.engine.core.site.ExtResolver
 import tvbox.engine.core.site.PlayerResult
 import tvbox.engine.core.site.RawPlay
 import tvbox.engine.core.site.SiteSource
@@ -16,11 +15,14 @@ import tvbox.engine.core.vod.TvboxResult
 /**
  * A type-3 site backed by a [Spider]. The spider is created on first use (loading can take a while) and reused.
  * Mirrors the type-3 branches of TVBox `SourceViewModel`.
+ *
+ * The spider gets the site's `ext` as written, like TVBox (`JarLoader.getSpider` → `spider.init(context, ext)`):
+ * an `ext` that is a url (a site's domain, `address|key`, a rule file) is the spider's to use. Only CMS and
+ * `type: 4` sites have an url `ext` replaced by what it points at (`getFixUrl`), see [tvbox.engine.core.site.ExtResolver].
  */
 class SpiderSource(
     override val bean: SiteBean,
     private val runtime: SpiderRuntime,
-    private val ext: ExtResolver,
     private val vipFlags: () -> List<String>,
 ) : SiteSource {
     private val lock = Mutex()
@@ -31,7 +33,7 @@ class SpiderSource(
         get() = if (spider == null) maxOf(super.timeoutMs, 30_000L) else super.timeoutMs
 
     private suspend fun spider(): Spider = spider ?: lock.withLock {
-        spider ?: runtime.create(bean, ext.resolve(bean.ext)).also { spider = it }
+        spider ?: runtime.create(bean, bean.ext).also { spider = it }
     }
 
     override suspend fun home(): HomeResult {

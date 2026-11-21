@@ -542,12 +542,14 @@ Python 站点调用失败时的错误码：`PY_UNAVAILABLE`（没有可用的 Py
 ## 数据模型
 
 ```
-VodCard   {site, id, name, pic, remarks}
+VodCard   {site, id, name, pic, remarks, tag}
 Class     {id, name}
 Filter    {key, name, values: [{name, value}]}
 Page<T>   {page, pageCount, total, list: [T]}
 VodDetail {site, id, name, pic, year, area, type, actor, director, content, remarks,
            lines: [{name, episodes: [{id, name}]}]}
 ```
+
+`tag` 是站点的 `vod_tag`（原样，没有时为空）：`folder` 和 `cover` 表示文件夹，客户端用 `/sites/{key}/category?tid=<卡片 id>` 打开它的下一层，而不是请求详情。
 
 `lines` 由 TVBox 的 `vod_play_from`（`$$$` 分隔）与 `vod_play_url`（线路 `$$$`、剧集 `#`、名称与地址 `$`）规整而来。`episodeId` 对客户端是不透明字符串，原样传回 `/play/resolve`。

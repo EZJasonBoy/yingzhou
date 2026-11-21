@@ -1,7 +1,7 @@
 // Normalised video data from engine protocol v1 (docs/protocol.md).
 
 class VodCard {
-  const VodCard({required this.site, required this.id, required this.name, this.pic = '', this.remarks = ''});
+  const VodCard({required this.site, required this.id, required this.name, this.pic = '', this.remarks = '', this.tag = ''});
 
   final String site;
   final String id;
@@ -9,12 +9,20 @@ class VodCard {
   final String pic;
   final String remarks;
 
+  /// The site's `vod_tag`. `folder` (and TVBox's `cover`) marks a folder, see [isFolder].
+  final String tag;
+
+  /// Opening it lists what is inside (the site's category whose id is [id]) instead of a detail, as in TVBox:
+  /// platform → area → room on live sites, folders on drive sites.
+  bool get isFolder => tag == 'folder' || tag == 'cover';
+
   factory VodCard.fromJson(Map<String, dynamic> j) => VodCard(
         site: j['site'] as String,
         id: j['id'] as String,
         name: j['name'] as String,
         pic: j['pic'] as String? ?? '',
         remarks: j['remarks'] as String? ?? '',
+        tag: j['tag'] as String? ?? '',
       );
 }
 

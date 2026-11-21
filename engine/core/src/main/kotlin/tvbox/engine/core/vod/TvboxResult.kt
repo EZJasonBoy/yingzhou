@@ -109,7 +109,7 @@ object TvboxResult {
             val id = v.string("vod_id") ?: ""
             val name = v.string("vod_name") ?: ""
             if (id.isBlank() && name.isBlank()) return@mapNotNull null
-            VodCard(site, id, name, v.string("vod_pic") ?: "", v.string("vod_remarks") ?: "")
+            VodCard(site, id, name, v.string("vod_pic") ?: "", v.string("vod_remarks") ?: "", tag = v.string("vod_tag")?.trim().orEmpty())
         }
 
     private fun parseFilter(el: JsonElement): VodFilter? {

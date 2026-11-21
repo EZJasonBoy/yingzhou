@@ -88,7 +88,8 @@ class LiveTest {
         assertEquals("http://h.test/live.txt", specs[2].url, "the playlist hidden in proxy://do=live")
         assertEquals(listOf("csp_Live", "yqk", """{"sp":"Huya"}""", "http://j.test/live.jar"), specs[3].let { listOf(it.api, it.url, it.ext, it.jar) })
         assertTrue(specs[3].supported, "a spider serves the list")
-        assertFalse(specs[4].supported, "type 3 without a spider")
+        assertTrue(specs[4].supported, "type 3 without a spider is a playlist, as in TVBox")
+        assertEquals(listOf("https://x.test/list", ""), specs[4].let { listOf(it.url, it.api) })
         assertEquals("http://h.test/live.txt", specs[5].url, "TVBox's playlist proxy written as a url")
         assertEquals("http://127.0.0.1:9978/proxy?do=live&url=https://x.test/huya.m3u", specs[6].url, "a spider's proxy is asked as it is")
     }
@@ -152,6 +153,38 @@ class LiveTest {
             val without = LiveService(SiteHttp(OkHttpClient()), proxyBase)
             without.onConfig("""[{"name":"蜘蛛","type":3,"api":"csp_Live","url":"yqk"}]""")
             assertFalse(without.sources().single().supported, "no runtime to ask")
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `type 3 without an api is a playlist at its url, fetched with its user agent`() = runBlocking {
+        val server = MockWebServer()
+        val agents = ArrayList<String>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.requestUrl!!.encodedPath) {
+                "/gather" -> {
+                    agents += request.getHeader("User-Agent").orEmpty()
+                    MockResponse().setBody("央视,#genre#\nCCTV1,http://a.test/1.m3u8\n代理台,proxy://do=live&id=7\n")
+                }
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        server.start()
+        try {
+            val proxyBase = "http://127.0.0.1:19978/proxy?"
+            // No spider runtime at all: a list like this does not need one to load.
+            val service = LiveService(SiteHttp(OkHttpClient()), proxyBase)
+            service.onConfig("""[{"name":"Gather「果」","type":3,"url":"${server.url("/gather")}","ua":"okhttp/3.8.1","epg":"https://e.test/epg.xml.gz"}]""")
+            val source = service.sources().single()
+            assertTrue(source.supported, "TVBox reads it like type 0")
+            assertEquals("", source.spider)
+            assertTrue(source.hasEpg)
+            val channels = service.list(0).groups.single().channels
+            assertEquals(listOf("CCTV1", "代理台"), channels.map { it.name })
+            assertEquals(proxyBase + "do=live&id=7", channels[1].urls.single().url, "proxy:// is this engine's proxy, where the config's jar answers")
+            assertEquals(listOf("okhttp/3.8.1"), agents)
         } finally {
             server.shutdown()
         }

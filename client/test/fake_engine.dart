@@ -38,6 +38,9 @@ Map<String, Object> fakeLine(String name, String tag, {int count = 3}) => {
 ///
 /// A multi-repository config: [repos] are the summary's entries; `activate` with `{"repo": url}` makes that entry
 /// the summary's url (502 for one in [failRepos]). [homeByConfig] gives `cms`'s home cards by the summary's url.
+///
+/// [categories] are `cms`'s category cards by `tid` (folders open the category whose id is theirs); each category
+/// request is noted in [categoryAsked] by its `tid`.
 MockClient fakeEngine({
   bool hasConfig = false,
   List<Map<String, Object>> history = const [],
@@ -67,6 +70,8 @@ MockClient fakeEngine({
   List<Map<String, Object>>? repos,
   Set<String> failRepos = const {},
   Map<String, List<Map<String, Object>>> homeByConfig = const {},
+  Map<String, List<Map<String, Object>>> categories = const {},
+  List<String>? categoryAsked,
 }) {
   var configured = hasConfig;
   // With [savedSubscriptions] the engine keeps a list like the real one: `GET`, rename (`PUT`), `DELETE`, and
@@ -258,7 +263,9 @@ MockClient fakeEngine({
           'list': homeByConfig[summary['url']] ?? homeList ?? [card('7', '推荐片')],
         });
       case ('GET', '/api/v1/sites/cms/category'):
-        return json({'page': 1, 'pageCount': 1, 'total': 1, 'list': [card('8', '分类片')]});
+        final tid = request.url.queryParameters['tid'] ?? '';
+        categoryAsked?.add(tid);
+        return json({'page': 1, 'pageCount': 1, 'total': 1, 'list': categories[tid] ?? [card('8', '分类片')]});
       case ('GET', '/api/v1/sites/cms/detail') when details.containsKey('cms/${request.url.queryParameters['id']}'):
         detailAsked?.add('cms/${request.url.queryParameters['id']}');
         return json(details['cms/${request.url.queryParameters['id']}']!);

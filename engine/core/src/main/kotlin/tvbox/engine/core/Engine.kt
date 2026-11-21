@@ -147,13 +147,13 @@ class Engine(
     private val liveSpiders = java.util.concurrent.ConcurrentHashMap<String, tvbox.engine.core.spider.Spider>()
     private val liveSpiderLock = Mutex()
 
-    /** The playlist text of a `type: 3` live source: its spider's `liveContent(url)`. */
+    /** The playlist text of a `type: 3` live source: its spider's `liveContent(url)`. Its `ext` goes in as written, as for sites. */
     private suspend fun spiderLive(spec: tvbox.engine.core.live.LiveSourceSpec): String {
         val bean = tvbox.engine.core.config.SiteBean(key = spec.spiderKey, name = spec.name, type = 3, api = spec.api, ext = spec.ext, jar = spec.jar)
         val runtime = runtimes.firstOrNull { it.supports(bean) }
             ?: throw tvbox.engine.core.live.LiveException("UNSUPPORTED", "${spec.name}: no runtime for the live spider ${spec.api}")
         val spider = liveSpiders[bean.key] ?: liveSpiderLock.withLock {
-            liveSpiders[bean.key] ?: withTimeout(40_000) { runtime.create(bean, ext.resolve(bean.ext)) }.also { liveSpiders[bean.key] = it }
+            liveSpiders[bean.key] ?: withTimeout(40_000) { runtime.create(bean, bean.ext) }.also { liveSpiders[bean.key] = it }
         }
         return withTimeout(30_000) { spider.live(spec.url) }.orEmpty()
     }
@@ -714,7 +714,7 @@ class Engine(
         SiteRuntime.CMS -> CmsSource(bean, http, ext)
         SiteRuntime.REMOTE -> RemoteSource(bean, http, ext)
         else -> runtimes.firstOrNull { it.supports(bean) }
-            ?.let { SpiderSource(bean, it, ext, vipFlags = { config.flags }) }
+            ?.let { SpiderSource(bean, it, vipFlags = { config.flags }) }
             ?: UnsupportedSource(bean)
     }
 
