@@ -50,6 +50,7 @@ object EmbeddedEngine {
                 run(app, sniffer)
             } catch (e: Throwable) {
                 Log.e(TAG, "engine failed to start", e)
+                tvbox.next.tvbox_client.CrashRecorder.record(app, "内置引擎没能启动", e)
             }
         }
     }

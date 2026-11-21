@@ -57,6 +57,8 @@ flutter test                                # 单元 / 组件测试（用 test/f
 flutter run -d windows                      # 没有引擎在 9978 上时会自己拉起上面 installDist 的引擎（macOS、Linux 换成 -d macos / -d linux）
 ```
 
+`flutter test` 里唯一要真引擎的是 `test/engine_crash_test.dart`：用应用自己的启动代码（`engine/local_engine_io.dart`）在空闲端口上起演示引擎（`--demo`，数据在内存里），从外面结束进程、占住它的端口让它起不来，检查 `engine.log` 和崩溃记录留下了原因。没有 `installDist` 的产物或找不到 Java（`JAVA_HOME`，或 PATH 上的 `java`）时这几个用例跳过。诊断的其他测试：`diagnostics_redact_test.dart`（遮掉什么）、`diagnostics_store_test.dart`（轮换和上限）、`diagnostics_hooks_test.dart`（组件里抛的错、没人接的异步错误都留下记录）、`diagnostics_page_test.dart`（桌面和电视上的卡片与页面）、`diagnostics_feedback_test.dart`（新问题页面的网址与 `.github/ISSUE_TEMPLATE/bug_report.yml` 的字段对得上）。
+
 引擎参数：`--port`、`--lan`（监听 0.0.0.0，局域网共享始终开启，配对码打印在标准输出）、`--name <名字>`（局域网里显示的名字，默认"映舟 · 计算机名"）、`--data <目录>`（默认 `~/.tvbox-next/engine`）、`--subscribe <地址>`、`--drive-folder <目录>`（把这台机器上的文件夹加成网盘，可以写多次，已有的不重复加）、`--demo`、`--dev-cors`、`--exit-with-stdin`。
 
 ### 局域网共享与鉴权
@@ -200,7 +202,7 @@ cd client && flutter build apk --debug && adb -s emulator-5560 install -r build/
 - **演示引擎在电脑上**：`--demo --port 19992`（别用 9978，模拟器里的 App 自己占着 9978），模拟器里用 `http://10.0.2.2:19992/demo/config.json` 订阅。演示站的地址按请求的 Host 生成，所以都是 `10.0.2.2`。`adb shell input text` 打英文网址时会被输入法自动纠正，订阅更省事的办法是走接口（见下）。
 - **从电脑访问模拟器里的引擎**：`adb -s emulator-5560 forward tcp:29978 tcp:9978`（先确认电脑上这个端口空着：别的会话、别的引擎可能占着相邻的端口），然后 `curl http://127.0.0.1:29978/api/v1/info`。经 `adb forward` 进来的请求来自模拟器的回环地址，引擎当它是"本机"，不用配对；要模拟局域网里的另一台设备，加一个不是回环的 `Host` 头（`-H "Host: 10.0.2.18:9978"`），这时 `/api/v1/sites` 得 401，`POST /api/v1/pair` 带上配对码换到令牌后得 200。Git Bash 里 curl 的 `-d '{"line":"慢…"}'` 会被改坏，JSON 写进文件用 `--data-binary @文件`。
 - **局域网监听本身**：模拟器的 `wlan0`（如 `10.0.2.18`）是 Wi-Fi，`eth0`（`10.0.2.15`）是模拟的移动网络。打开共享后引擎只在 `wlan0` 上监听；电脑连不到 `wlan0`（模拟器的 `redir` 只通 `eth0`），要从非回环地址访问就在模拟器里用 `nc`：把一段 `printf 'GET /api/v1/sites HTTP/1.1\r\nHost: …\r\n…' | nc -w 5 10.0.2.18 9978` 写成脚本 `adb push` 进去再 `adb shell sh` 运行（直接写在 `adb shell` 命令行里转义会乱）。
-- **mDNS**：两个模拟器各有各的虚拟网络，互相发现不了，也连不上。能做的是在同一个模拟器的 App 里「源 → 局域网 → 搜索」，应该能找到自己（"映舟 · sdk_gphone64_x86_64"），说明 `NsdManager` 的注册、类型和 TXT 都对。
+- **mDNS**：两个模拟器各有各的虚拟网络，互相发现不了，也连不上。能做的是在同一个模拟器的 App 里「源 → 局域网里的引擎 → 搜索」，应该能找到自己（"映舟 · sdk_gphone64_x86_64"），说明 `NsdManager` 的注册、类型和 TXT 都对。
 - **前台服务和通知**：`adb shell dumpsys activity services io.github.sa1koro.yingzhou` 看 `isForeground=true` 和 `types=`（`1` = dataSync 下载，`10` = connectedDevice 共享，`11` = 两者）；`adb shell cmd statusbar expand-notifications` 拉下通知栏再截图（`adb exec-out screencap -p > x.png`），`cmd statusbar collapse` 收起；`adb shell uiautomator dump /sdcard/ui.xml` 后读出来能拿到通知按钮的坐标（Git Bash 里先 `export MSYS_NO_PATHCONV=1`，否则 `/sdcard/…` 会被改成 Windows 路径）。后台时进程的状态：`dumpsys activity processes <包名>` 里 `curProcState=4` 就是前台服务。
 - **日志**：`adb logcat -s EmbeddedEngine EngineLan EngineKeeper EngineStorage EngineService`。
 - **数据在哪**：引擎数据 `/data/user/0/io.github.sa1koro.yingzhou/files/engine`，播放缓存 `…/cache/stream`，下载 `/storage/emulated/0/Android/data/io.github.sa1koro.yingzhou/files/downloads`，导出到 `Download/映舟/`。
@@ -278,7 +280,8 @@ PLAY=1 MAX_SITES=20 tools/check-configs.sh          # 加上播放解析；每�
 
 ## 8. 排查问题
 
-- **内置引擎没起来**：启动失败时界面上的错误提示带着引擎最后几行输出。也可以手动跑 `engine/jre/bin/java -cp "engine/lib/*" tvbox.engine.server.MainKt` 看报错。
+- **崩溃记录与引擎日志**（`client/lib/diagnostics/`，界面在「源 → 诊断与反馈」）：`main.dart` 经 `Diagnostics.runGuarded` 启动应用，挂上 `FlutterError.onError`、`PlatformDispatcher.instance.onError` 和一个包住整个 `main` 的 guarded zone（`ensureInitialized` 和 `runApp` 在同一个 zone 里），出错写成 `<支持目录>/diagnostics/crash-<时间>-dart.txt`；桌面内置引擎的标准输出和标准错误写进同一目录的 `engine.log`（每次启动轮换，保留 3 个），引擎不是被 `stop()` 停掉而退出时再记一条 `-engine.txt`；安卓上 `CrashRecorder.kt`（`TvboxApplication` 里装上）在进程死之前写 `-android.txt`，格式和 Dart 的一样，下次启动列出来。安卓的系统日志经 `yingzhou/diagnostics` 通道（`DiagnosticsChannel.kt`：`info`、`logcat`、`openUrl`）读。要显示、复制的东西都先过 `diagnostics/redact.dart`。测试里不要碰真实目录：`Diagnostics(store: MemoryDiagnosticsStore())` 或 `DiagnosticsStore.files(() async => <临时目录>)`，打开网址换掉 `Diagnostics.openUrl`（`flutter test` 下桌面的打开命令本身也不会运行）。
+- **内置引擎没起来**：启动失败时界面上的错误提示带着引擎最后几行输出，完整的在 `engine.log`（上一条）。也可以手动跑 `engine/jre/bin/java -cp "engine/lib/*" tvbox.engine.server.MainKt` 看报错。
 - **9978 被占**：已有引擎在跑时客户端直接用它，不会再启动一个。
 - **嗅探不可用**：引擎启动时会打印找到的浏览器；装在非标准位置时设环境变量 `TVBOX_BROWSER`。
 - **jar 蜘蛛报缺类**：转换时会列出 jar 用到但桩类里没有的安卓类，在 `engine/runtime-jar/src/main/java/android/**` 补。

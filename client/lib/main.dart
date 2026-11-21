@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart';
 
 import 'app_state.dart';
 import 'desktop/desktop_window.dart';
+import 'diagnostics/diagnostics.dart';
 import 'engine/engine_client.dart';
 import 'engine/local_engine.dart';
 import 'mobile/playback_host.dart';
@@ -17,7 +18,10 @@ import 'ui/theme.dart';
 import 'ui/tv/tv_app.dart';
 import 'update/update_watcher.dart';
 
-Future<void> main() async {
+// Crash records (diagnostics/diagnostics.dart): the error hooks, and a guarded zone around all of it.
+Future<void> main() => Diagnostics.runGuarded(_main);
+
+Future<void> _main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   // During development, point the client at another engine with --dart-define=ENGINE_URL=http://127.0.0.1:19978
@@ -30,6 +34,7 @@ Future<void> main() async {
   PosterCache.instance = await PosterCache.open();
   // Phone, tablet, TV or desktop (ui/device_form.dart): the system's answer and the user's override.
   final deviceForm = DeviceFormController(info: await DeviceInfo.load(), settings: settings);
+  Diagnostics.instance.deviceForm = deviceForm;
   runApp(
     DeviceFormScope(
       controller: deviceForm,

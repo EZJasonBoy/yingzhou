@@ -7,6 +7,8 @@ import tvbox.next.tvbox_client.engine.EmbeddedEngine
 class TvboxApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        // Crash records of the app and its embedded engine, for the diagnostics page (see CrashRecorder).
+        CrashRecorder.install(this)
         EmbeddedEngine.start(this)
     }
 }

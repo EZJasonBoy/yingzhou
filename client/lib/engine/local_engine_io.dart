@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../diagnostics/diagnostics.dart';
 import 'local_engine.dart';
 
-LocalEngine? createLocalEngine() =>
-    Platform.isWindows || Platform.isMacOS || Platform.isLinux ? DesktopEngine() : null;
+LocalEngine? createLocalEngine() => Platform.isWindows || Platform.isMacOS || Platform.isLinux ? DesktopEngine() : null;
 
 /// Runs `tvbox.engine.server.MainKt` from the engine bundled next to the app:
 ///
@@ -14,61 +14,98 @@ LocalEngine? createLocalEngine() =>
 ///   with `JAVA_HOME` or `java` on PATH.
 ///
 /// The engine gets a pipe on stdin and `--exit-with-stdin`, so it ends with the app, even after a crash.
+///
+/// Everything it prints goes to the diagnostics folder (`engine.log`, see `diagnostics/diagnostics_store_io.dart`),
+/// and when it ends without being asked to, a crash record with its last lines is kept, so an engine that dies on
+/// start or later leaves a trace.
 class DesktopEngine implements LocalEngine {
+  /// [diagnostics] is [Diagnostics.instance] when null. Tests point [engineDir] at an engine and add [extraArgs].
+  DesktopEngine({this.diagnostics, this.engineDir, this.extraArgs = const []});
+
+  final Diagnostics? diagnostics;
+  final Directory? engineDir;
+  final List<String> extraArgs;
   Process? _process;
+  bool _stopping = false;
   final _output = <String>[];
+
+  Diagnostics get _diag => diagnostics ?? Diagnostics.instance;
 
   @override
   List<String> get recentOutput => List.unmodifiable(_output);
 
+  /// The process while it runs (tests).
+  Process? get process => _process;
+
   @override
   Future<bool> start(int port) async {
     if (_process != null) return true;
-    final engineDir = _findEngineDir();
+    final engineDir = this.engineDir ?? _findEngineDir();
     if (engineDir == null) {
       _remember('找不到内置引擎（engine/lib）');
+      _diag.store.engineOutput('找不到内置引擎（engine/lib），应用在 ${Platform.resolvedExecutable}');
       return false;
     }
     final java = _findJava(engineDir);
+    final args = [
+      '-Xss1m',
+      '-XX:+UseSerialGC',
+      // Without these the JVM commits a heap sized from the machine's RAM before doing anything (598 MB on a
+      // 32 GB PC); with them the idle engine commits about 93 MB and gives memory back after a burst.
+      '-Xms16m',
+      '-Xmx1g',
+      '-XX:MinHeapFreeRatio=10',
+      '-XX:MaxHeapFreeRatio=30',
+      // Spider classes converted from dex do not always pass the JVM verifier; Android does not verify them either.
+      '-XX:+UnlockDiagnosticVMOptions',
+      '-XX:-BytecodeVerificationRemote',
+      // Into a pipe Java writes in the system's code page (GBK on Chinese Windows); the app reads UTF-8.
+      '-Dstdout.encoding=UTF-8',
+      '-Dstderr.encoding=UTF-8',
+      '-cp',
+      '${engineDir.path}${Platform.pathSeparator}lib${Platform.pathSeparator}*',
+      'tvbox.engine.server.MainKt',
+      '--port',
+      '$port',
+      '--exit-with-stdin',
+      ...extraArgs,
+    ];
+    _diag.store.engineStarted('$java ${args.join(' ')}');
     try {
-      final process = await Process.start(java, [
-        '-Xss1m',
-        '-XX:+UseSerialGC',
-        // Without these the JVM commits a heap sized from the machine's RAM before doing anything (598 MB on a
-        // 32 GB PC); with them the idle engine commits about 93 MB and gives memory back after a burst.
-        '-Xms16m',
-        '-Xmx1g',
-        '-XX:MinHeapFreeRatio=10',
-        '-XX:MaxHeapFreeRatio=30',
-        // Spider classes converted from dex do not always pass the JVM verifier; Android does not verify them either.
-        '-XX:+UnlockDiagnosticVMOptions',
-        '-XX:-BytecodeVerificationRemote',
-        '-cp',
-        '${engineDir.path}${Platform.pathSeparator}lib${Platform.pathSeparator}*',
-        'tvbox.engine.server.MainKt',
-        '--port',
-        '$port',
-        '--exit-with-stdin',
-      ]);
+      final process = await Process.start(java, args);
       _process = process;
-      process.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen(_remember);
-      process.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen(_remember);
-      unawaited(process.exitCode.then((code) {
-        _remember('引擎已退出（$code）');
-        _process = null;
-      }));
+      _stopping = false;
+      const decoder = Utf8Decoder(allowMalformed: true);
+      process.stdout.transform(decoder).transform(const LineSplitter()).listen(_print, onError: (_) {});
+      process.stderr.transform(decoder).transform(const LineSplitter()).listen(_print, onError: (_) {});
+      unawaited(
+        process.exitCode.then((code) {
+          _remember('引擎已退出（$code）');
+          _diag.store.engineExited(code);
+          // Asked to stop (or the app is closing): not a crash.
+          if (!_stopping && identical(_process, process)) _diag.recordEngineExit(code, _output);
+          if (identical(_process, process)) _process = null;
+        }),
+      );
       // process.stdin stays open for the life of the app; the engine exits when it closes.
       return true;
     } on ProcessException catch (e) {
       _remember('无法启动 Java：${e.message}');
+      _diag.store.engineOutput('无法启动 Java（$java）：${e.message}');
       return false;
     }
   }
 
   @override
   void stop() {
+    _stopping = true;
     _process?.kill();
     _process = null;
+  }
+
+  void _print(String line) {
+    _remember(line);
+    _diag.store.engineOutput(line);
   }
 
   void _remember(String line) {

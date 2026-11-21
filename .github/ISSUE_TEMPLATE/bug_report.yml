@@ -1,0 +1,61 @@
+# The app's 「反馈问题」 (client/lib/diagnostics/feedback.dart) opens this form and fills in the fields whose ids it
+# names as query parameters: version, platform, engine, logs (and template=bug_report.yml). Keep the ids in step.
+name: 问题反馈
+description: 映舟出错、崩溃，或者和预期的不一样
+title: "[问题] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        谢谢反馈！在映舟里打开「设置 → 关于 → 诊断与反馈 → 反馈问题」，下面的版本、系统、引擎和诊断信息会自动填好（订阅地址、令牌、签名参数和用户目录已经遮掉）。
+        **请不要贴出订阅地址、账号密码或令牌。** 站点本身失效（在安卓 TVBox 上也打不开）不属于映舟的问题。
+  - type: textarea
+    id: what
+    attributes:
+      label: 遇到了什么问题
+      description: 做了什么、看到了什么、本来以为会怎样。有提示文字的话请照抄。
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 怎样重现
+      placeholder: |
+        1. 打开…
+        2. 点…
+        3. 出现…
+  - type: input
+    id: version
+    attributes:
+      label: 映舟版本
+      description: 「设置 → 关于 → 诊断与反馈 → 查看记录」最上面写着。
+      placeholder: 0.4.0+5
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: 系统与设备形态
+      placeholder: Windows 11 · 桌面 / Android 14 (API 34) · 小米盒子 · 电视
+    validations:
+      required: true
+  - type: input
+    id: engine
+    attributes:
+      label: 引擎
+      description: 引擎的版本，和它在哪（本机、局域网里的另一台设备、NAS 上的 Docker）。
+      placeholder: tvbox-engine 0.4.0（windows，协议 v1）· 本机
+  - type: textarea
+    id: logs
+    attributes:
+      label: 诊断信息
+      description: 映舟「诊断与反馈」里的「复制诊断信息」，或者一条崩溃记录、引擎日志。提交前再看一遍，删掉你不想公开的内容。
+      render: text
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 确认
+      options:
+        - label: 我看过上面的内容，里面没有订阅地址、账号密码、令牌等我不想公开的信息
+          required: true
