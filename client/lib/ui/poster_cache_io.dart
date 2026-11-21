@@ -39,11 +39,12 @@ class _DiskPosterCache implements PosterCache {
     return response.bodyBytes;
   }
 
-  /// FNV-1a over the url, twice with different seeds: a stable 128-bit file name without a crypto dependency.
-  static String _name(String url) {
+  /// FNV-1a over the key (the url, or the address as written), twice with different seeds: a stable 128-bit file
+  /// name without a crypto dependency.
+  static String _name(String key) {
     String half(int seed) {
       var h = seed;
-      for (final b in utf8.encode(url)) {
+      for (final b in utf8.encode(key)) {
         h = ((h ^ b) * 0x100000001b3) & 0x7fffffffffffffff;
       }
       return h.toRadixString(16).padLeft(16, '0');
@@ -52,16 +53,19 @@ class _DiskPosterCache implements PosterCache {
     return half(0x4bf29ce484222325) + half(0x2f29ce484222325b);
   }
 
-  File _file(String url) => File('${_dir.path}${Platform.pathSeparator}${_name(url)}');
+  File _file(String key) => File('${_dir.path}${Platform.pathSeparator}${_name(key)}');
 
   @override
-  Future<Uint8List> load(String url, {Map<String, String>? headers}) => _loading[url] ??= _load(url, headers ?? const {}).whenComplete(() {
-    // A block, not an arrow: whenComplete would wait for the future remove() returns, which is this very one.
-    _loading.remove(url);
-  });
+  Future<Uint8List> load(String url, {Map<String, String>? headers, String? key}) {
+    final id = key ?? url;
+    return _loading[id] ??= _load(url, id, headers ?? const {}).whenComplete(() {
+      // A block, not an arrow: whenComplete would wait for the future remove() returns, which is this very one.
+      _loading.remove(id);
+    });
+  }
 
-  Future<Uint8List> _load(String url, Map<String, String> headers) async {
-    final file = _file(url);
+  Future<Uint8List> _load(String url, String id, Map<String, String> headers) async {
+    final file = _file(id);
     try {
       final bytes = await file.readAsBytes();
       if (bytes.isNotEmpty) {

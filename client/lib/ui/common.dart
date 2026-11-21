@@ -1,6 +1,5 @@
 import 'package:material_ui/material_ui.dart';
 
-import 'poster_cache.dart';
 import 'engine_image.dart';
 
 /// Centered status message with an optional action, for empty / error states.
@@ -57,13 +56,12 @@ class NetImage extends StatelessWidget {
       color: scheme.surfaceContainerHigh,
       child: Center(child: Icon(Icons.movie_outlined, color: scheme.onSurfaceVariant.withValues(alpha: 0.5))),
     );
-    if (url.isEmpty) return placeholder;
-    // Through the disk cache when the app has one: painted at once on the next visit, and without a network.
-    final cache = PosterCache.instance;
-    // The engine's own images need the paired device's token; nobody else gets it.
-    final sent = headers ?? engineImageHeaders(context, url);
+    // Addresses as configs write them (headers after an @, proxy://, data:...); through the disk cache when the app
+    // has one, so it paints at once on the next visit, and without a network.
+    final image = netImageProvider(context, url, headers: headers);
+    if (image == null) return placeholder;
     return Image(
-      image: cache != null && url.startsWith('http') ? CachedPoster(url, cache, headers: sent) : NetworkImage(url, headers: sent) as ImageProvider,
+      image: image,
       fit: fit,
       gaplessPlayback: true,
       frameBuilder: (context, child, frame, wasSync) => wasSync

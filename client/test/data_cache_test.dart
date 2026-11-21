@@ -91,7 +91,7 @@ class _MemoryPosters implements PosterCache {
   int bytes = 0;
 
   @override
-  Future<Uint8List> load(String url, {Map<String, String>? headers}) async => Uint8List(0);
+  Future<Uint8List> load(String url, {Map<String, String>? headers, String? key}) async => Uint8List(0);
 
   @override
   Future<int> size() async => bytes;

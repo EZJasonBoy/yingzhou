@@ -1381,10 +1381,12 @@ class _Logo extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final fallback = Icon(Icons.tv_rounded, color: scheme.onSurfaceVariant);
+    // Logo addresses are written like covers (headers after an @, proxy://, data:...) and go the same way.
+    final image = netImageProvider(context, url);
     return SizedBox(
       width: 48,
       height: 32,
-      child: url.isEmpty ? fallback : Image.network(url, fit: BoxFit.contain, headers: engineImageHeaders(context, url), errorBuilder: (_, _, _) => fallback),
+      child: image == null ? fallback : Image(image: image, fit: BoxFit.contain, errorBuilder: (_, _, _) => fallback),
     );
   }
 }
