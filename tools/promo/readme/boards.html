@@ -24,6 +24,9 @@
   .tablet { aspect-ratio: 1180 / 820; border-radius: 24px; border: 11px solid #1B1A33; outline: 1px solid rgba(255,255,255,.16); }
   .tv { aspect-ratio: 16 / 9; border-radius: 8px; border: 9px solid #101020; outline: 1px solid rgba(255,255,255,.14); }
   .stand { position: absolute; height: 12px; border-radius: 4px; background: linear-gradient(180deg, #23223F, #101020); }
+  .split { position: relative; }
+  .split img { display: block; width: 100%; }
+  .split img + img { position: absolute; inset: 0; clip-path: polygon(0 0, 61% 0, 39% 100%, 0 100%); }
   .stand::before { content: ''; position: absolute; left: 50%; top: -22px; width: 30px; height: 22px; margin-left: -15px; background: #17172C; }
 </style>
 </head>
@@ -51,6 +54,17 @@
 <div class="board" id="live" style="width:1600px;height:960px">
   <div class="win" style="left:60px;top:56px;width:1060px"><div class="bar"><img src="/brand/logo.svg" alt=""><span>映舟</span><em></em><b></b><b></b><b></b></div><img src="/build/img/desktop-live.jpg" alt=""></div>
   <div class="win" style="left:860px;top:420px;width:680px"><div class="bar"><img src="/brand/logo.svg" alt=""><span>映舟</span><em></em><b></b><b></b><b></b></div><img src="/build/img/desktop-search.jpg" alt=""></div>
+</div>
+
+<div class="board" id="remote" style="width:1600px;height:860px">
+  <div class="dev tv" style="left:56px;top:130px;width:960px"><img src="/build/img/tv-player.jpg" alt=""></div>
+  <div class="stand" style="left:416px;top:721px;width:240px"></div>
+  <div class="dev phone" style="left:1068px;top:104px;width:250px"><img src="/build/img/web-remote-remote.jpg" alt=""></div>
+  <div class="dev phone" style="left:1334px;top:176px;width:250px"><img src="/build/img/web-remote-play.jpg" alt=""></div>
+</div>
+
+<div class="board" id="settings" style="width:1600px;height:900px">
+  <div class="win" style="left:160px;top:64px;width:1280px"><div class="bar"><img src="/brand/logo.svg" alt=""><span>映舟</span><em></em><b></b><b></b><b></b></div><div class="split"><img src="/build/img/desktop-settings.jpg" alt=""><img src="/build/img/light-desktop-settings.jpg" alt=""></div></div>
 </div>
 
 <script>

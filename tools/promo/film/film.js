@@ -327,13 +327,11 @@ function tv(t) {
   rem.style.opacity = pr.toFixed(4);
   rem.style.transform = `translateY(${((1 - pr) * 80).toFixed(2)}px) rotate(${(8 - 2 * d).toFixed(3)}deg)`;
   const right = press(t, 49.35, 0.3), ok = Math.max(press(t, 50.35, 0.3), press(t, 51.35, 0.3));
-  const ri = $('.r', rem), ob = $('.pad b', rem);
-  ri.style.background = right > 0.05 ? BRAND.coral : 'rgba(255,255,255,.3)';
-  ri.style.transform = `scale(${(1 + right * 0.9).toFixed(3)})`;
-  ri.style.boxShadow = `0 0 ${(right * 22).toFixed(1)}px ${BRAND.coral}`;
-  ob.style.background = ok > 0.05 ? BRAND.coral : 'rgba(255,255,255,.25)';
-  ob.style.transform = `scale(${(1 + ok * 0.5).toFixed(3)})`;
-  ob.style.boxShadow = `0 0 ${(ok * 26).toFixed(1)}px ${BRAND.coral}`;
+  const ri = $('.key.r', rem), ob = $('.key.ok', rem);
+  ri.style.opacity = right.toFixed(4);
+  ri.style.transform = `scale(${(0.7 + right * 0.4).toFixed(3)})`;
+  ob.style.opacity = ok.toFixed(4);
+  ob.style.transform = `scale(${(0.75 + ok * 0.35).toFixed(3)})`;
 }
 
 function fleet(t) {

@@ -17,8 +17,13 @@ java -XX:+UnlockDiagnosticVMOptions -XX:-BytecodeVerificationRemote \
   -cp "engine/server/build/install/tvbox-engine/lib/*" tvbox.engine.server.MainKt \
   --port 19979 --data <临时目录> --subscribe http://127.0.0.1:5199/config.json
 cd client && flutter test integration_test/promo_shots_test.dart -d windows \
-  --dart-define=SHOT_DIR=<仓库>/dist/promo/build/shots
-node tools/promo/make-assets.mjs            # 截图 -> dist/promo/build/img
+  --dart-define=SHOT_DIR=<仓库>/dist/promo/build/shots --dart-define=REMOTE_HOLD=60
+#   电视那一段放片时会打出 MARK:remote-ready，这时另开终端拍网页遥控器（它遥控的就是这个应用）：
+node tools/remote/screenshots.mjs http://127.0.0.1:19979 dist/promo/build/remote-shots
+#   浅色主题再跑一遍（「设置与明暗」用到）
+cd client && flutter test integration_test/promo_shots_test.dart -d windows \
+  --dart-define=SHOT_DIR=<仓库>/dist/promo/build/shots-light --dart-define=THEME=light
+node tools/promo/make-assets.mjs            # 截图 -> dist/promo/build/img（浅色的叫 light-*.jpg）
 
 # 3. 宣传片
 node tools/promo/make-audio.mjs             # 配乐 -> dist/promo/build/audio.wav
@@ -31,8 +36,10 @@ ffmpeg -i dist/promo/build/master.mp4 -i dist/promo/build/audio.wav -map 0:v -ma
 node tools/promo/make-portfolio.mjs         # -> dist/promo/yingzhou-portfolio.pdf，单页图片在 build/portfolio-pages
 
 # 5. README 的截图、横幅和品牌页（进仓库）
-node tools/promo/make-readme-images.mjs     # -> docs/screenshots/*.jpg、docs/brand/{yingzhou-hero,brand-board}.jpg、social-preview.png
+node tools/promo/make-readme-images.mjs     # -> docs/screenshots/*.jpg（含 remote、settings）、docs/brand/{yingzhou-hero,brand-board}.jpg、social-preview.png
 ```
+
+「设置」页会显示播放缓存的位置，也就是引擎的 `--data`。截图用的引擎最好放在一个看起来干净的路径上，比如先 `subst Y: <临时目录>`，再用 `--data Y:\Yingzhou\engine`，截完 `subst Y: /d`。
 
 换了片源里的视频后要给引擎换一个空的 `--data` 目录，否则播放缓存里还是旧的分片。
 
@@ -47,7 +54,7 @@ node tools/promo/make-readme-images.mjs     # -> docs/screenshots/*.jpg、docs/b
 | `film/` | 宣传片：`river.js` 是夜色里的河与船，`film.js` 是时间线，每一帧都只由时间决定 |
 | `render.mjs` | 把暴露 `window.__seek(t)` 的页面逐帧录成视频，或取静帧（`--stills 1.5,4`） |
 | `make-audio.mjs` | 配乐：80 BPM，一小节 3 秒，镜头切换都落在小节上 |
-| `portfolio/` | 作品集的 14 页 |
+| `portfolio/` | 作品集的 16 页 |
 | `sheet.mjs` | 把静帧拼成四宫格，方便过一遍画面 |
 
 预览宣传片：开着 `server.mjs`，浏览器打开 `http://127.0.0.1:5199/film/index.html`（加 `?t=37.6` 停在某一秒，`?plain=1` 只看背景）。

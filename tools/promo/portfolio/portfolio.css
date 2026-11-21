@@ -93,6 +93,9 @@ li::before { content: ''; position: absolute; left: 2px; top: .78em; width: 7px;
 .phone.land { aspect-ratio: 852 / 393; border-radius: 26px; }
 .tablet { border-radius: 24px; border: 10px solid #1B1A33; outline: 1px solid rgba(255, 255, 255, .16); aspect-ratio: 1180 / 820; }
 .tvset { border-radius: 8px; border: 8px solid #101020; outline: 1px solid rgba(255, 255, 255, .14); aspect-ratio: 16 / 9; }
+.split { position: relative; }
+.split img + img { position: absolute; inset: 0; clip-path: polygon(0 0, 61% 0, 39% 100%, 0 100%); }
+.list li { font-size: 16px; line-height: 1.7; margin-bottom: 14px; }
 .rounded { border-radius: 10px; border: 1px solid rgba(255, 255, 255, .14); }
 .note { position: absolute; font-size: 13.5px; letter-spacing: .08em; color: rgba(236, 233, 255, .66); }
 .note b { color: var(--coral); font-weight: 500; margin-right: 8px; font-family: var(--latin); letter-spacing: .2em; }
@@ -117,7 +120,7 @@ kbd { font-family: var(--latin); font-size: 13px; padding: 2px 9px 3px; border-r
 .strip span b { color: var(--gold); font-family: var(--latin); font-weight: 400; font-size: 17px; margin-right: 6px; }
 
 /* timeline */
-.tl { position: absolute; left: 84px; right: 84px; top: 250px; display: grid; grid-template-columns: 1.5fr 1fr .8fr .8fr 1.15fr 2.1fr; gap: 0; }
+.tl { position: absolute; left: 84px; right: 84px; top: 250px; display: grid; grid-template-columns: 1.3fr .82fr .7fr .7fr 1fr 1.75fr 1.5fr; gap: 0; }
 .day { position: relative; padding: 46px 22px 0 0; }
 .day::before { content: ''; position: absolute; left: 0; right: 0; top: 16px; height: 2px; background: rgba(30, 28, 58, .2); }
 .day::after { content: ''; position: absolute; left: 0; top: 9px; width: 16px; height: 16px; border-radius: 50%; background: var(--paper); border: 3px solid #C2573F; }
@@ -132,7 +135,7 @@ kbd { font-family: var(--latin); font-size: 13px; padding: 2px 9px 3px; border-r
 .notes li { font-size: 15.5px; line-height: 1.66; }
 .how { position: absolute; left: 84px; right: 84px; top: 632px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 34px; border-top: 1px solid rgba(30, 28, 58, .16); padding-top: 26px; }
 .how h2 { font-size: 20px; margin-bottom: 8px; } .how p { font-size: 15px; line-height: 1.75; }
-.miles { position: absolute; left: 0; top: 548px; width: 900px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.miles { position: absolute; left: 0; top: 584px; width: 900px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
 .miles div { border-radius: 16px; padding: 16px 18px 18px; background: linear-gradient(180deg, rgba(47, 44, 85, .86), rgba(24, 23, 52, .86)); border: 1px solid rgba(255, 255, 255, .1); }
 .miles em { display: block; font-family: var(--latin); font-style: normal; font-size: 13px; letter-spacing: .3em; color: var(--coral); }
 .miles b { display: block; font-size: 26px; font-weight: 700; margin: 6px 0 10px; }

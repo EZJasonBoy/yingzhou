@@ -15,7 +15,7 @@
   <div class="latin">YINGZHOU</div>
   <div class="rule"></div>
   <div class="tag">One boat, all streams.</div>
-  <div class="what">兼容 TVBox 订阅的全平台影视客户端<br>Windows · macOS · Android · Android TV · Docker</div>
+  <div class="what">兼容 TVBox 订阅的全平台影视客户端<br>Windows · macOS · Linux · Android · Android TV · Docker</div>
 </section>
 
 <!-- 2 · overview -->
@@ -24,15 +24,15 @@
     <div style="position:absolute;left:0;top:0;width:800px">
       <div class="k"><i>00</i>概述 · OVERVIEW</div>
       <h1>一条船，<br>把影像载到每块屏幕上。</h1>
-      <p class="lead">映舟是一个兼容 TVBox 配置与蜘蛛协议的全平台影视客户端。TVBox 的订阅生态很大，能好好用它的地方却几乎只有安卓；映舟把它带到 Windows、macOS、手机、平板和电视上，并且在每一种设备上，都按那种设备的习惯来操作。</p>
+      <p class="lead">映舟是一个兼容 TVBox 配置与蜘蛛协议的全平台影视客户端。TVBox 的订阅生态很大，能好好用它的地方却几乎只有安卓；映舟把它带到 Windows、macOS、Linux、手机、平板和电视上，并且在每一种设备上，都按那种设备的习惯来操作。</p>
       <p class="lead" style="margin-top:16px">做法是<b>一个引擎、一个客户端、一套协议</b>：Kotlin 引擎负责订阅、蜘蛛、解析和缓存，Flutter 客户端负责界面与播放，中间是 HTTP。所以引擎可以装进桌面安装包，装进安卓 App，也可以住进 NAS。</p>
       <p style="margin-top:26px;font-size:15.5px;color:rgba(236,233,255,.62)">它只是播放器外壳：不内置、不提供任何影视内容或订阅源。<br>本册范围：产品定义 · 架构 · 引擎 · 客户端 · 品牌 · 打包与发布。开源于 AGPL-3.0。</p>
     </div>
     <div class="stats" style="position:absolute;left:900px;top:92px;width:560px">
-      <div class="stat"><b>8<small>天</small></b><span>从第一次提交到 v0.3.14<br>2026.11.12 — 11.19</span></div>
-      <div class="stat"><b>96<small>次提交</small></b><span>4 个版本：v0.1.0 · v0.2.0<br>v0.3.0 · v0.3.14</span></div>
-      <div class="stat"><b>424<small>项测试</small></b><span>引擎 269 · 客户端 155<br>另有驱动真实应用的集成测试</span></div>
-      <div class="stat"><b>5.3<small>万行</small></b><span>Kotlin 2.85 万 · Dart 2.5 万<br>四种设备形态共用一套客户端</span></div>
+      <div class="stat"><b>9<small>天</small></b><span>从第一次提交到 v0.4.0<br>2026.11.12 — 11.20</span></div>
+      <div class="stat"><b>125<small>次提交</small></b><span>5 个版本：v0.1.0 · v0.2.0<br>v0.3.0 · v0.3.14 · v0.4.0</span></div>
+      <div class="stat"><b>524<small>项测试</small></b><span>引擎 292 · 客户端 232<br>另有驱动真实应用的集成测试</span></div>
+      <div class="stat"><b>6.5<small>万行</small></b><span>Kotlin 3.0 万 · Dart 3.5 万<br>四种设备形态共用一套客户端</span></div>
     </div>
   </div>
   <div class="frame rounded" style="left:84px;top:598px;width:400px;height:225px"><img src="/build/img/desktop-home.jpg" alt=""></div>
@@ -69,7 +69,7 @@
         <div class="sw" style="background:#F0C670;color:#3A2C0E"><b>鎏金</b><span>#F0C670</span></div>
         <div class="sw" style="background:#84CFAE;color:#12301F"><b>青瓷</b><span>#84CFAE</span></div>
       </div>
-      <p style="margin-top:16px;font-size:15.5px;line-height:1.75">活泼，但压低饱和度。第一版用的是青绿 <span class="mono">#0F766E</span>，看起来像上一个时代的 Material 配色，于是换成了黄昏之后的这一组：夜色做底，船是暖的，水纹带一点光。</p>
+      <p style="margin-top:16px;font-size:15.5px;line-height:1.75">暮光是太阳刚落下去的那一刻：天色沉成靛蓝，水面上还留着一点余晖。所以夜色做底，船身是暖的珊瑚，三道水纹是被晚霞照亮的颜色。饱和度都收着一点，亮而不刺眼，看一整晚也不累。</p>
       <h2 style="font-size:21px;margin:30px 0 12px">字</h2>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
         <div style="border-radius:16px;background:#fff;padding:16px 18px 14px"><div style="font-size:46px;font-weight:700;line-height:1.1">映舟</div><small style="font-size:12.5px;opacity:.6">Noto Sans SC · 界面与标题</small></div>
@@ -174,7 +174,7 @@
     <ul><li><b>双击</b>左右三分之一退、进 10 秒，中间暂停。</li></ul>
     <ul><li><b>上下拖</b>：左半边亮度，右半边音量；<b>左右拖</b>带预览跳转。</li></ul>
     <ul><li><b>长按</b> 2 倍速，松手恢复；直播页左右滑换台。</li></ul>
-    <ul><li><b>画中画</b>小窗；浅色、深色跟随系统；平板用侧栏。</li></ul>
+    <ul><li><b>画中画</b>小窗；浅色、深色随系统或手选；平板用侧栏。</li></ul>
   </div>
   <div class="folio"><span>映舟 YINGZHOU</span><span>07</span></div>
 </section>
@@ -196,10 +196,27 @@
   <div class="folio"><span>映舟 YINGZHOU</span><span>08</span></div>
 </section>
 
-<!-- 9 · live and more -->
+<!-- 9 · remote -->
 <section class="page">
   <div class="pad">
-    <div class="k"><i>07</i>直播与其他 · LIVE & MORE</div>
+    <div class="k"><i>07</i>遥控 · REMOTE</div>
+    <h1>手边的手机，就是遥控器。</h1>
+  </div>
+  <div class="frame tvset" style="left:84px;top:204px;width:860px"><img src="/build/img/tv-player.jpg" alt=""></div>
+  <div class="frame phone" style="left:1000px;top:186px;width:228px"><img src="/build/img/web-remote-remote.jpg" alt=""></div>
+  <div class="frame phone" style="left:1274px;top:226px;width:228px"><img src="/build/img/web-remote-play.jpg" alt=""></div>
+  <div class="notes" style="left:84px;top:736px;width:900px">
+    <ul><li><b>扫码即用</b>：电视或电脑上打开「允许手机遥控」，相机一扫就是遥控器，不用装应用，iPhone 也行。</li><li><b>真实的按键</b>：方向键、OK、返回到了大屏上就是遥控器按键，焦点照常走。</li></ul>
+    <ul><li><b>播放随手调</b>：进度、倍速、线路、选集、字幕、音轨、弹幕、直播换台；打字也在手机上。</li><li><b>电视模式</b>：电脑接在电视上时，换成和盒子一样的十英尺界面。</li></ul>
+  </div>
+  <div class="note" style="left:1000px;top:808px"><b>TESTED</b>集成测试驱动真实应用；真手机上还没试过。</div>
+  <div class="folio"><span>映舟 YINGZHOU</span><span>09</span></div>
+</section>
+
+<!-- 10 · live and more -->
+<section class="page">
+  <div class="pad">
+    <div class="k"><i>08</i>直播与其他 · LIVE & MORE</div>
     <h1>直播、搜索、片库，都在一条船上。</h1>
   </div>
   <div class="win" style="left:84px;top:204px;width:900px"><div class="bar"><img src="/brand/logo.svg" alt=""><span>映舟</span><em></em><b></b><b></b><b></b></div><img class="shot" src="/build/img/desktop-live.jpg" alt=""></div>
@@ -209,13 +226,33 @@
     <ul><li><b>直播</b>：分组、节目单、回看，坏线路自动跳过。</li><li><b>聚合搜索</b>：所有站点同时搜，边搜边出。</li></ul>
     <ul><li><b>网盘与离线下载</b>：AList、WebDAV、本机文件夹。</li><li><b>局域网共享</b>：配对码 + 令牌，一个引擎全家用。</li></ul>
   </div>
-  <div class="folio"><span>映舟 YINGZHOU</span><span>09</span></div>
+  <div class="folio"><span>映舟 YINGZHOU</span><span>10</span></div>
 </section>
 
-<!-- 10 · engineering -->
+<!-- 11 · settings -->
 <section class="page">
   <div class="pad">
-    <div class="k"><i>08</i>工程 · ENGINEERING</div>
+    <div class="k"><i>09</i>设置与细节 · SETTINGS</div>
+    <h1>明暗随你，设置归位。</h1>
+  </div>
+  <div class="win" style="left:84px;top:204px;width:900px"><div class="bar"><img src="/brand/logo.svg" alt=""><span>映舟</span><em></em><b></b><b></b><b></b></div><div class="split"><img class="shot" src="/build/img/desktop-settings.jpg" alt=""><img class="shot" src="/build/img/light-desktop-settings.jpg" alt=""></div></div>
+  <div style="position:absolute;left:1030px;top:204px;width:486px">
+    <ul class="list">
+      <li><b>「设置」单独成页</b>：「源」只管内容从哪里来，映舟和引擎怎么工作都在「设置」里。</li>
+      <li><b>浅色 / 深色</b>：跟随系统或手动选；画面上的控件始终是深色。</li>
+      <li><b>检查更新</b>：直连 GitHub，不通时经加速代理；可以单独给更新配一个 HTTP 代理。自动检查默认关闭。</li>
+      <li><b>GitHub 加速</b>：十个实测可用的预设，一键测速。</li>
+      <li><b>崩溃记录与反馈</b>：只留在本机；遮掉订阅地址和令牌后再复制或提交，不自动上传。</li>
+      <li><b>Linux</b>：deb 与 tar.gz，CI 里在虚拟屏幕上冒烟测试。</li>
+    </ul>
+  </div>
+  <div class="folio"><span>映舟 YINGZHOU</span><span>11</span></div>
+</section>
+
+<!-- 12 · engineering -->
+<section class="page">
+  <div class="pad">
+    <div class="k"><i>10</i>工程 · ENGINEERING</div>
     <h1>几件不那么显然的事。</h1>
   </div>
   <div class="cards">
@@ -224,17 +261,17 @@
     <div class="card"><em>03 · SNIFFING</em><h2>嗅探放在引擎一侧</h2><p>要从网页里找出视频地址时，桌面用无头的 Edge / Chrome（DevTools 协议），安卓用 WebView。客户端不用关心片源是怎么来的。</p></div>
     <div class="card"><em>04 · STREAMS</em><h2>m3u8：去广告与播放缓存</h2><p>播放列表经引擎清洗后再交给播放器，分片缓存在磁盘上，拖动进度条立刻有画面；连着远处的引擎时，播放器改为直连片源。</p></div>
     <div class="card"><em>05 · ONE CODEBASE</em><h2>一套代码，四种手感</h2><p>设备形态（桌面、手机、平板、电视）是界面里的一等概念：同一个页面按形态换布局、换手势层、换焦点规则，而不是四个应用。</p></div>
-    <div class="card"><em>06 · DEFAULTS</em><h2>会把数据交给第三方的，默认关</h2><p>GitHub 加速、DoH、订阅自带的弹幕接口，都是开关且默认关闭。体检工具没被要求时，不会注册任何蜘蛛运行时。</p></div>
+    <div class="card"><em>06 · DEFAULTS</em><h2>会把数据交给第三方的，默认关</h2><p>GitHub 加速、DoH、订阅自带的弹幕接口、自动检查更新，都是开关且默认关闭；崩溃记录只留在本机。体检工具没被要求时，不注册任何蜘蛛运行时。</p></div>
   </div>
-  <div class="strip"><span><b>269</b>引擎测试</span><span><b>155</b>客户端测试</span><span>集成测试驱动真实的 Windows 应用</span><span>CI：Windows 安装包 · macOS DMG · 签名 APK · Docker 镜像</span></div>
-  <div class="folio"><span>映舟 YINGZHOU</span><span>10</span></div>
+  <div class="strip"><span><b>292</b>引擎测试</span><span><b>232</b>客户端测试</span><span>集成测试驱动真实的 Windows 应用</span><span>CI：Windows 安装包 · macOS DMG · Linux deb · 签名 APK · Docker 镜像</span></div>
+  <div class="folio"><span>映舟 YINGZHOU</span><span>12</span></div>
 </section>
 
-<!-- 11 · timeline -->
+<!-- 13 · timeline -->
 <section class="page paper">
   <div class="pad">
-    <div class="k"><i>09</i>时间线 · TIMELINE</div>
-    <h1>八天：从一个空目录，到四个版本。</h1>
+    <div class="k"><i>11</i>时间线 · TIMELINE</div>
+    <h1>九天：从一个空目录，到五个版本。</h1>
   </div>
   <div class="tl">
     <div class="day"><h2>11.12<small>13 次提交</small></h2><ul><li>脚手架：Kotlin 引擎 + Flutter 客户端</li><li>采集站的浏览、搜索、播放；续播</li><li>JS 蜘蛛运行时</li><li>安卓内置引擎，jar 蜘蛛</li><li>Windows 客户端自带引擎</li><li>桌面跑 jar；引擎侧嗅探</li><li>真实订阅兼容：解析、去广告</li></ul></div>
@@ -245,27 +282,31 @@
     <div class="day big"><h2>11.19<small>68 次提交</small></h2>
       <div style="margin-top:12px"><span class="rel">v0.1.0</span><span class="rel">v0.2.0</span><span class="rel">v0.3.0</span><span class="rel">v0.3.14</span></div>
       <ul style="margin-top:6px"><li>播放缓存、数据缓存、直播回看</li><li>局域网配对与 mDNS；Docker 镜像</li><li>字幕与音轨、弹幕</li><li>Python 蜘蛛；网盘；离线下载</li><li>安卓：手机、平板、电视三种界面，内置引擎补齐</li><li>第一批签名 APK；手机扫码输入</li><li>远处引擎时播放器直连片源</li></ul></div>
+    <div class="day big"><h2>11.20<small>29</small></h2>
+      <div style="margin-top:12px"><span class="rel">v0.4.0</span></div>
+      <ul style="margin-top:6px"><li>手机当遥控器；电脑的电视模式</li><li>「设置」独立；浅色 / 深色</li><li>检查更新；加速预设与测速</li><li>崩溃记录与问题反馈</li><li>Linux：deb 与 tar.gz</li><li>第一次真实订阅完整体检</li><li>宣传片与作品集</li></ul></div>
   </div>
   <div class="how">
     <div><h2>先能看，再兼容，再好用</h2><p>四个里程碑依次推进：M1 能看，M2 兼容真实订阅，M3 补齐缓存、弹幕、字幕、网盘，M4 铺到全平台。</p></div>
-    <div><h2>拆成互不相撞的航道</h2><p>11.19 的功能分三批并行：每条分支在自己的工作树里开发、测试，再逐条合流，冲突只落在几处注册代码上。</p></div>
+    <div><h2>拆成互不相撞的航道</h2><p>11.19、11.20 的功能分批并行：每条分支在自己的工作树里开发、测试，再逐条合流，冲突只落在几处注册代码上。</p></div>
     <div><h2>文档和代码一起走</h2><p>需求、进度、兼容性、协议、使用说明，每次合并都同步改；没验证过的事，写明没验证过。</p></div>
   </div>
-  <div class="folio"><span>映舟 YINGZHOU</span><span>11</span></div>
+  <div class="folio"><span>映舟 YINGZHOU</span><span>13</span></div>
 </section>
 
-<!-- 12 · status -->
+<!-- 14 · status -->
 <section class="page">
   <div class="pad">
-    <div class="k"><i>10</i>现状与路线 · STATUS</div>
+    <div class="k"><i>12</i>现状与路线 · STATUS</div>
     <h1>已经能用的，和还在路上的。</h1>
     <div style="position:absolute;left:0;top:152px;width:900px">
       <table>
         <tr><th style="width:190px">平台</th><th style="width:120px">状态</th><th>说明</th></tr>
-        <tr><td>Windows</td><td><span class="pill ok">可用</span></td><td>安装程序与绿色包；点播、搜索、直播端到端验证过。尚无数字签名和自动更新。</td></tr>
+        <tr><td>Windows</td><td><span class="pill ok">可用</span></td><td>安装程序与绿色包；点播、搜索、直播、手机遥控端到端验证过。能检查更新；尚无数字签名。</td></tr>
         <tr><td>macOS</td><td><span class="pill ok">真机验证</span></td><td>Apple Silicon 的 DMG 在真机上试过，效果良好。临时签名，第一次打开要右键。</td></tr>
         <tr><td>Android TV · 盒子</td><td><span class="pill ok">真机验证</span></td><td>在真实的电视盒子上试过，效果良好：遥控器焦点、菜单键、手机扫码输入。</td></tr>
         <tr><td>Android 手机 · 平板</td><td><span class="pill ok">已发布</span></td><td>触屏界面、手势、画中画、内置引擎；签名 APK 随 Release 发布，可覆盖升级。</td></tr>
+        <tr><td>Linux</td><td><span class="pill part">CI 验证</span></td><td>x64 的 deb 与 tar.gz；只在 CI 的虚拟屏幕上装过、播过，没在真机桌面上用过。</td></tr>
         <tr><td>Docker 引擎</td><td><span class="pill part">待验证</span></td><td>镜像已发布，CI 里构建并自检通过；还没在 NAS 上实际跑过。</td></tr>
         <tr><td>iOS</td><td><span class="pill todo">未开始</span></td><td>计划做成纯客户端，连局域网或 NAS 上的引擎。</td></tr>
       </table>
@@ -279,23 +320,23 @@
     <div style="position:absolute;left:968px;top:152px;width:464px">
       <h2 style="margin-bottom:14px">接下来</h2>
       <ul>
-        <li>按真实订阅的体检报告，补 jar / JS 蜘蛛的兼容。</li>
+        <li>用真手机试遥控：iPhone 的 Safari、安卓的浏览器和映舟应用。</li>
+        <li>体检剩下的订阅，补 jar / JS 蜘蛛的兼容。</li>
         <li>点播自动换源：线路全失效时，去别的站点找同一部片。</li>
-        <li>交互细节打磨：焦点、过渡、空状态、字体。</li>
-        <li>在 NAS 上实跑 Docker 引擎。</li>
+        <li>在真机上试 Linux 版，在 NAS 上实跑 Docker 引擎。</li>
         <li>iOS 客户端：纯客户端，连局域网或 NAS 上的引擎。</li>
-        <li>安装包签名与自动更新。</li>
+        <li>安装包签名。</li>
       </ul>
       <p style="margin-top:22px;font-size:15px;color:rgba(236,233,255,.6)">已知缺口都写在仓库的 docs/status.md 里，这一页是它的缩写。</p>
     </div>
   </div>
-  <div class="folio"><span>映舟 YINGZHOU</span><span>12</span></div>
+  <div class="folio"><span>映舟 YINGZHOU</span><span>14</span></div>
 </section>
 
-<!-- 13 · the film -->
+<!-- 15 · the film -->
 <section class="page">
   <div class="pad">
-    <div class="k"><i>11</i>宣传片 · FILM</div>
+    <div class="k"><i>13</i>宣传片 · FILM</div>
     <h1>《一舟映之》</h1>
   </div>
   <div class="stills">
@@ -306,10 +347,10 @@
     <p style="font-size:15.5px">78 秒 · 1080p 60 帧。三句改写的诗分出三幕：源、屏、核。</p>
     <p style="font-size:15.5px;color:rgba(236,233,255,.62)">画面由代码逐帧渲染，界面是真实应用的截图，配乐由代码合成；全部脚本在 tools/promo。</p>
   </div>
-  <div class="folio"><span>映舟 YINGZHOU</span><span>13</span></div>
+  <div class="folio"><span>映舟 YINGZHOU</span><span>15</span></div>
 </section>
 
-<!-- 14 · back -->
+<!-- 16 · back -->
 <section class="page cover">
   <img class="bg" src="/build/img/plate-dawn.jpg" alt="">
   <div style="position:absolute;left:0;right:0;top:150px;text-align:center">

@@ -1,7 +1,7 @@
 // The images the README shows: framed screenshots (readme/boards.html), a banner and a social preview cut from the
 // film's title, and the brand board (page 3 of the portfolio). Needs the promo source running, dist/promo/build/img
 // (make-assets.mjs) and dist/promo/build/portfolio-pages (make-portfolio.mjs).
-//   -> docs/screenshots/{desktop,mobile,tv,live,architecture}.jpg, docs/brand/{yingzhou-hero,brand-board}.jpg,
+//   -> docs/screenshots/{desktop,mobile,tv,remote,live,settings,architecture}.jpg, docs/brand/{yingzhou-hero,brand-board}.jpg,
 //      docs/brand/social-preview.png
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -16,7 +16,7 @@ const base = process.env.PROMO_URL || 'http://127.0.0.1:5199';
 const shots = join(repo, 'docs/screenshots'), brand = join(repo, 'docs/brand');
 mkdirSync(shots, { recursive: true });
 
-const BOARDS = { desktop: [1600, 1000], mobile: [1600, 780], tv: [1600, 860], live: [1600, 960] };
+const BOARDS = { desktop: [1600, 1000], mobile: [1600, 780], tv: [1600, 860], remote: [1600, 860], live: [1600, 960], settings: [1600, 900] };
 const browser = await launch({ width: 1920, height: 1080, profileDir: join(build, '.chrome-readme') });
 try {
   for (const [id, [w, h]] of Object.entries(BOARDS)) {

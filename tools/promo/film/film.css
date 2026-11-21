@@ -94,6 +94,10 @@ kbd.w { min-width: 126px; }
 .remote .pad .u { left: 31px; top: 5px; } .remote .pad .d { left: 31px; bottom: 5px; } .remote .pad .l { left: 5px; top: 31px; } .remote .pad .r { right: 5px; top: 31px; }
 .remote .dots { position: absolute; left: 0; right: 0; top: 140px; display: flex; flex-direction: column; align-items: center; gap: 18px; }
 .remote .dots span { width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .18); }
+.rphone > img { opacity: 1; }
+.rphone .key { position: absolute; border-radius: 50%; opacity: 0; background: radial-gradient(circle, rgba(244, 160, 138, .75) 0%, rgba(244, 160, 138, 0) 70%); }
+.rphone .key.r { left: 76.6%; top: 43.1%; width: 30%; height: 13.9%; margin: -6.95% 0 0 -15%; }
+.rphone .key.ok { left: 50%; top: 43.1%; width: 44%; height: 20.3%; margin: -10.15% 0 0 -22%; }
 .plats { position: absolute; left: 0; right: 0; display: flex; justify-content: center; gap: 18px; font-size: 24px; letter-spacing: .08em; }
 .plats span { padding: 9px 24px 10px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .22); color: #ECE9FF; background: rgba(12, 11, 34, .5); white-space: nowrap; }
 .plats .soon { border-style: dashed; border-color: var(--coral); color: var(--coral); }

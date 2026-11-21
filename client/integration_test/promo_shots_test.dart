@@ -4,6 +4,10 @@
 //   tvbox-engine --port 19979 --data <scratch> --subscribe http://127.0.0.1:5199/config.json
 //   flutter test integration_test/promo_shots_test.dart -d windows --dart-define=SHOT_DIR=<dir>
 //
+// In the TV run the app is also a screen of the engine's remote control (「允许手机遥控」 on, named 客厅电视). With
+// --dart-define=REMOTE_HOLD=<seconds> it prints MARK:remote-ready once the film plays and keeps playing that long,
+// for tools/remote/screenshots.mjs to photograph the web remote driving it (the page is opened on this machine).
+//
 // The window itself is not what is captured: each test lays the app out at a device's size and pixel ratio and
 // renders its layer tree to a PNG, so a 4K-sized phone or TV shot does not need a 4K screen.
 import 'dart:io';
@@ -19,6 +23,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:tvbox_client/app_state.dart';
 import 'package:tvbox_client/engine/engine_client.dart';
 import 'package:tvbox_client/main.dart';
+import 'package:tvbox_client/remote/remote_agent.dart';
 import 'package:tvbox_client/settings.dart';
 import 'package:tvbox_client/ui/device_form.dart';
 
@@ -27,6 +32,9 @@ const shotDir = String.fromEnvironment('SHOT_DIR');
 
 /// `--dart-define=THEME=light` (or `dark`): every form in that theme, whatever its default is.
 const theme = String.fromEnvironment('THEME');
+
+/// Seconds the TV run keeps playing after MARK:remote-ready; 0 = none.
+const remoteHold = int.fromEnvironment('REMOTE_HOLD');
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -107,7 +115,8 @@ void main() {
     if (theme.isNotEmpty) await settings.setString('ui.theme', theme);
     final state = AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings);
     final app = TvboxApp(state: state);
-    await tester.pumpWidget(form == null ? app : DeviceFormScope.fixed(form, child: app));
+    // A desktop gets the controller the real app has, so 设置 shows 界面模式 (desktop or TV layout) as it does there.
+    await tester.pumpWidget(form == null ? DeviceFormScope(controller: DeviceFormController(settings: settings), child: app) : DeviceFormScope.fixed(form, child: app));
     await until(tester, find.text('星垂平野'));
     return state;
   }
@@ -224,7 +233,7 @@ void main() {
 
   testWidgets('tv', (tester) async {
     await screen(tester, 960, 540, 2);
-    await start(tester, form: DeviceForm.tv);
+    await start(tester, form: DeviceForm.tv, prefs: {RemoteAgent.enabledKey: '1', RemoteAgent.nameKey: '客厅电视'});
     await shot(tester, 'tv-home-a', settle: const Duration(seconds: 4));
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await wait(tester, const Duration(milliseconds: 400));
@@ -242,5 +251,10 @@ void main() {
     await shot(tester, 'tv-player-clean', settle: const Duration(milliseconds: 300));
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
     await shot(tester, 'tv-player', settle: const Duration(milliseconds: 700));
+    if (remoteHold > 0) {
+      // ignore: avoid_print
+      print('MARK:remote-ready');
+      await wait(tester, const Duration(seconds: remoteHold));
+    }
   });
 }
