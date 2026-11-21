@@ -65,7 +65,7 @@ abstract class JarSpiderRuntime(
         val spider = try {
             jar.loader.loadClass(className).getDeclaredConstructor().newInstance() as CatSpider
         } catch (e: ClassNotFoundException) {
-            throw SpiderLoadException("${site.name}: $className is not in the jar")
+            throw SpiderLoadException("${site.name}: $className is not in the jar ${spec.substringBefore(";md5;").trim()}")
         } catch (e: Throwable) {
             throw SpiderLoadException("${site.name}: cannot create $className: ${e.message ?: e.javaClass.simpleName}", e)
         }

@@ -26,8 +26,9 @@ import java.util.Date
  *
  * - `compat`: the engine's to fix (a spider that does not load or link here, something not implemented);
  * - `unsupported`: a kind of site the engine does not run yet;
- * - `network`: the site or its jar did not answer;
- * - `site`: the site answered with an error of its own.
+ * - `network`: the site, its jar or a module of its script did not answer, or answered with a web page;
+ * - `site`: the site answered with an error of its own, its script threw, or the config names a spider its jar
+ *   does not have.
  *
  * A multi-repository subscription is checked entry by entry, lists inside lists included. Python sites and lives are
  * skipped (with the reason) when this machine has no Python or lacks a package their spider imports.
@@ -274,17 +275,22 @@ class Checker(private val engine: Engine, private val options: Options, private 
         private val COMPAT = Regex(
             "ClassNotFound|NoClassDefFound|NoSuchMethod|NoSuchField|VerifyError|LinkageError|UnsatisfiedLink|AbstractMethodError|" +
                 "IncompatibleClassChange|IllegalAccessError|ExceptionInInitializer|ClassFormatError|ClassCastException|zipfs|" +
-                "Stub!|UnsupportedOperation|not implemented|is not in the jar|cannot load the spider jar|cannot read the dex|neither a zip nor a dex",
+                "Stub!|UnsupportedOperation|not implemented|cannot load the spider jar|cannot read the dex|neither a zip nor a dex",
             RegexOption.IGNORE_CASE,
         )
         private val NETWORK = Regex(
-            "HTTP \\d{3}|timeout|timed out|Unable to resolve|UnknownHost|No such host|connect|refused|reset|SSL|certificate|handshake|unexpected end of stream|cannot download",
+            "HTTP \\d{3}|timeout|timed out|Unable to resolve|UnknownHost|No such host|getaddrinfo|Name or service not known|nodename nor servname|" +
+                "urlopen error|cannot fetch|connect|refused|reset|SSL|certificate|handshake|unexpected end of stream|cannot download",
             RegexOption.IGNORE_CASE,
         )
+
+        /** The config names a spider class that the jar it names does not contain. */
+        private val NOT_IN_JAR = Regex("is not in the jar")
 
         /** Whose failure it is, from the engine's error code and message. */
         fun cause(code: String, message: String): String = when {
             code == "UNSUPPORTED_SITE" -> "unsupported"
+            NOT_IN_JAR.containsMatchIn(message) -> "site"
             COMPAT.containsMatchIn(message) -> "compat"
             code == "SITE_TIMEOUT" || code == "SITE_UNREACHABLE" -> "network"
             NETWORK.containsMatchIn(message) -> "network"
@@ -321,7 +327,8 @@ class Checker(private val engine: Engine, private val options: Options, private 
             header.forEach { appendLine("- $it") }
             appendLine()
             appendLine("每个站点依次走：首页 → 第一个分类 → 第一部影片的详情（加 `--play` 时再解析第一集的播放地址）。")
-            appendLine("「引擎兼容」是引擎要修的；「不支持」是还没做的站点类型；「网络」「站点报错」多半是站点自己失效。")
+            appendLine("「引擎兼容」是引擎要修的；「不支持」是还没做的站点类型；「网络」「站点报错」多半是站点自己失效")
+            appendLine("（「网络」包括蜘蛛 jar 或脚本模块的地址打不开、只返回一个网页；「站点报错」包括蜘蛛脚本运行时报错、配置里写的蜘蛛类不在它的 jar 里）。")
             appendLine()
             appendLine("## 汇总")
             appendLine()

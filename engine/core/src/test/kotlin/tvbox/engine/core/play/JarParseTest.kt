@@ -115,4 +115,20 @@ class JarParseTest {
         assertEquals(jar.toList(), JarRepository.unwrap(marked, isImage = true, url = "x.png").toList(), "img+ base64 after the marker")
         assertEquals(jar.toList(), JarRepository.unwrap(jar, isImage = false, url = "x.jar").toList())
     }
+
+    @Test
+    fun `a jar address that serves a web page is reported as such`() {
+        val page = "﻿\n<!DOCTYPE html><html><body>404 Not Found</body></html>".toByteArray()
+        val e = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException::class.java) {
+            JarRepository.unwrap(page, isImage = false, url = "https://gone.test/83.jar")
+        }
+        assertEquals("https://gone.test/83.jar answered with a web page, not a jar", e.message)
+        val text = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException::class.java) {
+            JarRepository.unwrap("""{"code":403,"msg":"forbidden"}""".toByteArray(), isImage = false, url = "j.php")
+        }
+        assertTrue(text.message!!.contains("""text ("{"code":403"""), text.message)
+        // Binary that is neither zip nor dex is left to the dex converter to report.
+        val binary = byteArrayOf(1, 2, 3, 0, 0, 7, 8)
+        assertEquals(binary.toList(), JarRepository.unwrap(binary, isImage = false, url = "x.bin").toList())
+    }
 }

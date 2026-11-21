@@ -45,7 +45,13 @@ class JarRepository(
             if (file.length() > 0) return file
             throw e
         }
-        val bytes = unwrap(raw, isImage, url)
+        val bytes = try {
+            unwrap(raw, isImage, url)
+        } catch (e: IllegalStateException) {
+            // The address now serves something else (a web page, an error message): an older copy is better.
+            if (file.length() > 0) return file
+            throw e
+        }
         dir.mkdirs()
         md5File.writeText(hex(MessageDigest.getInstance("MD5").digest(raw)))
         // Android 14+ refuses to load writable dex files, so write elsewhere and publish read-only.
@@ -83,7 +89,25 @@ class JarRepository(
             val zipAt = (0..bytes.size - 4).firstOrNull { isZip(bytes, it) }
             if (zipAt != null) return bytes.copyOfRange(zipAt, bytes.size)
             if (isImage) throw IllegalStateException("no jar inside image $url")
+            if (looksLikeText(bytes)) throw IllegalStateException("$url answered with ${describeText(bytes)}, not a jar")
             return bytes
+        }
+
+        /** A jar address that now serves a web page, a JSON error or a short message: the address is dead. */
+        private fun looksLikeText(b: ByteArray): Boolean {
+            if (b.isEmpty()) return true
+            val head = b.copyOfRange(0, minOf(b.size, 512))
+            val printable = head.count { val c = it.toInt() and 0xff; c == 9 || c == 10 || c == 13 || c >= 32 }
+            return printable >= head.size * 0.95
+        }
+
+        private fun describeText(b: ByteArray): String {
+            val text = String(b, 0, minOf(b.size, 512), Charsets.UTF_8).trimStart('\uFEFF', ' ', '\n', '\r', '\t')
+            return when {
+                text.isEmpty() -> "an empty file"
+                text.startsWith("<") -> "a web page"
+                else -> "text (\"${text.lineSequence().first().take(60)}\")"
+            }
         }
 
         private fun isZip(b: ByteArray, at: Int) =

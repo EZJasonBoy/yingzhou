@@ -145,12 +145,15 @@ class JsSpider private constructor(
             throw e
         } catch (e: Exception) {
             env.log("js ${site.key}: ${e.message}")
-            throw SpiderLoadException("${site.name}: ${e.message ?: "script error"}", e)
+            throw SpiderLoadException("${site.name}: ${e.message ?: "script error"}", e, SPIDER_ERROR)
         }
     }
 
     companion object {
         private val gson = Gson()
+
+        /** The spider loaded but threw while answering: its own error or its site's, not the engine's. */
+        const val SPIDER_ERROR = "SPIDER_ERROR"
 
         /** TVBox compiles an empty module with these exports when an import cannot be found. */
         private const val EMPTY_MODULE = """
@@ -188,6 +191,7 @@ class JsSpider private constructor(
             val mainSource = if (main.contains("__JS_SPIDER__")) main.replace(Regex("__JS_SPIDER__\\s*="), "export default ") else main
 
             val executor = Executors.newSingleThreadExecutor { r -> Thread(r, "js-spider-${site.key}").apply { isDaemon = true } }
+            val missing = java.util.Collections.synchronizedList(ArrayList<String>())
             val loader = moduleLoader {
                 normalize { base, requested -> env.modules.normalize(base, requested) }
                 load { name ->
@@ -195,6 +199,7 @@ class JsSpider private constructor(
                     when {
                         source == null -> {
                             env.log("js ${site.key}: module not found, using an empty one: $name")
+                            missing += name
                             ModuleContent.Source(EMPTY_MODULE)
                         }
                         source.startsWith("//bb") || source.startsWith("//DRPY") -> {
@@ -231,6 +236,12 @@ class JsSpider private constructor(
                 return spider
             } catch (e: Exception) {
                 spider.destroy()
+                // TVBox's stand-in for a module it cannot fetch has no named exports, so a dead module address
+                // usually ends as a link error ("Could not find export ..."): name the address instead.
+                val unfetched = missing.filter { it.startsWith("http://") || it.startsWith("https://") }
+                if (unfetched.isNotEmpty() && e !is kotlinx.coroutines.CancellationException) {
+                    throw SpiderLoadException("${site.name}: cannot download ${unfetched.joinToString()} (${e.message ?: "failed to load"})", e)
+                }
                 if (e is SpiderLoadException) throw e
                 throw SpiderLoadException("${site.name}: ${e.message ?: "failed to load"}", e)
             }
@@ -246,9 +257,17 @@ class JsSpider private constructor(
 
             qjs.function("getProxy") { _ -> proxy }
             qjs.function("joinUrl") { a -> HtmlParser.joinUrl(a.s(0), a.s(1)) }
-            qjs.function("__host_pd") { a -> parser.parseDomForUrl(a.s(0), a.s(1), a.s(2)) }
-            qjs.function("__host_pdfa") { a -> gson.toJson(parser.parseDomForArray(a.s(0), a.s(1))) }
-            qjs.function("__host_pdfla") { a -> gson.toJson(parser.parseDomForList(a.s(0), a.s(1), a.s(2), a.s(3), a.s(4))) }
+            // As in TVBox, a rule the parser cannot apply (an empty selector, a bad pseudo-class) gives nothing
+            // instead of throwing into the script: spiders rely on that to probe for optional parts of a page.
+            fun <T> rule(what: String, rule: String, empty: T, block: () -> T): T = try {
+                block()
+            } catch (e: Exception) {
+                env.log("js ${site.key}: $what ${rule.take(80)}: ${e.message}")
+                empty
+            }
+            qjs.function("__host_pd") { a -> rule("pd", a.s(1), "") { parser.parseDomForUrl(a.s(0), a.s(1), a.s(2)) } }
+            qjs.function("__host_pdfa") { a -> rule("pdfa", a.s(1), "[]") { gson.toJson(parser.parseDomForArray(a.s(0), a.s(1))) } }
+            qjs.function("__host_pdfla") { a -> rule("pdfla", a.s(1), "[]") { gson.toJson(parser.parseDomForList(a.s(0), a.s(1), a.s(2), a.s(3), a.s(4))) } }
             qjs.function("s2t") { a -> Trans.s2t(false, a.s(0)) ?: "" }
             qjs.function("t2s") { a -> Trans.t2s(false, a.s(0)) ?: "" }
             qjs.function("aesX") { a -> Crypto.aes(a.s(0), a.b(1), a.s(2), a.b(3), a.s(4), a.s(5), a.b(6)) ?: "" }

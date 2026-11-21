@@ -39,6 +39,8 @@ class JsSpiderTest {
                 "/cat.js-spider.js" -> MockResponse().setBody(CAT_SPIDER)
                 "/old.js" -> MockResponse().setBody("""__JS_SPIDER__ = { home() { return '{"class":[{"type_id":"9","type_name":"旧式"}]}' } }""")
                 "/bytecode.js" -> MockResponse().setBody("//bbAAAA")
+                "/probe.js" -> MockResponse().setBody(PROBE_SPIDER)
+                "/dead-import.js" -> MockResponse().setBody("import { gbkTool } from '${base()}/gone.js';\nexport default { home() { return gbkTool; } };")
                 "/echo" -> MockResponse().setBody("""{"method":"${request.method}","body":${if (request.bodySize > 0) request.body.readUtf8() else "null"},"ua":"${request.getHeader("User-Agent")}"}""")
                 else -> MockResponse().setResponseCode(404)
             }
@@ -157,6 +159,36 @@ class JsSpiderTest {
     }
 
     @Test
+    fun `a rule the parser cannot apply gives nothing instead of throwing, as in TVBox`() = runBlocking {
+        val spider = JsSpider.load(site("/probe.js", "probe"), "", env)
+        try {
+            assertEquals("""{"h":"","a":0,"l":0}""", spider.home(true))
+            assertTrue(logs.any { it.contains("pdfh") || it.contains("pd ") }, logs.toString())
+        } finally {
+            spider.destroy()
+        }
+    }
+
+    @Test
+    fun `a script that throws while answering is the spider's error, not a load failure`() = runBlocking {
+        val spider = JsSpider.load(site("/probe.js", "probe"), "", env)
+        try {
+            val e = assertThrows(SpiderLoadException::class.java) { runBlocking { spider.detail("x") } }
+            assertEquals(JsSpider.SPIDER_ERROR, e.code)
+            assertTrue(e.message!!.contains("unexpected token") || e.message!!.contains("JSON"), e.message)
+        } finally {
+            spider.destroy()
+        }
+    }
+
+    @Test
+    fun `a module that cannot be downloaded is named when the script then fails to link`() {
+        val e = assertThrows(SpiderLoadException::class.java) { runBlocking { JsSpider.load(site("/dead-import.js"), "", env) } }
+        assertEquals("SPIDER_LOAD_FAILED", e.code)
+        assertTrue(e.message!!.contains("cannot download ${base()}/gone.js"), e.message)
+    }
+
+    @Test
     fun `html parser follows hiker rules`() {
         val p = HtmlParser()
         val html = """<div class="a"><p>one</p><p>two</p><span style="background:url('/bg.png')">x</span></div>"""
@@ -184,6 +216,16 @@ class JsSpiderTest {
               search(wd, quick) { return JSON.stringify({ list: [{ vod_id: '1', vod_name: wd }] }); },
               play(flag, id, flags) { return JSON.stringify({ parse: 0, url: id, header: { Referer: 'r' }, flags }); },
               proxy(params) { return [200, 'text/plain; charset=utf-8', 'hello ' + params.x, { 'X-Test': '1' }]; },
+            };
+        """.trimIndent()
+
+        private val PROBE_SPIDER = """
+            export default {
+              home(filter) {
+                const html = '<div class="a">x</div>';
+                return JSON.stringify({ h: pdfh(html, ''), a: pdfa(html, '').length, l: pdfla(html, '', 'Text', 'href', '').length });
+              },
+              detail(id) { return JSON.stringify(JSON.parse('<html></html>')); },
             };
         """.trimIndent()
 
