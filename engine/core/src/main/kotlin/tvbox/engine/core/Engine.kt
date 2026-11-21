@@ -461,6 +461,7 @@ class Engine(
             searchable = it.isSearchable,
             quickSearch = it.quickSearch != 0,
             filterable = it.filterable != 0,
+            changeable = it.changeable != 0,
             runtime = it.runtime.name.lowercase(),
         )
     }
@@ -567,8 +568,11 @@ class Engine(
             siteCall(site) { it.category(classId, page.coerceAtLeast(1), filters) }
         }
 
+    /** A detail the site sent without its `vod_id` carries the id it was asked for (the client keeps history by it). */
     suspend fun detail(site: String, id: String, refresh: Boolean = false): VodDetail =
-        kept(site, "detail|$id", refresh, DETAIL_LIFETIME, VodDetail.serializer(), { it.lines.isNotEmpty() }) { siteCall(site) { it.detail(id) } }
+        kept(site, "detail|$id", refresh, DETAIL_LIFETIME, VodDetail.serializer(), { it.lines.isNotEmpty() }) {
+            siteCall(site) { it.detail(id) }.let { if (it.id.isBlank()) it.copy(id = id) else it }
+        }
 
     suspend fun search(site: String, keyword: String, page: Int): VodPage =
         siteCall(site) { it.search(keyword, quick = false, page = page.coerceAtLeast(1)) }

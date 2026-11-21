@@ -12,6 +12,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -181,6 +182,52 @@ class EngineModuleTest {
                 assertEquals(HttpStatusCode.BadRequest, plain.status, "a channel without catch-up")
                 assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/live/0/catchup?channel=$channel&start=x&end=$end").status)
                 assertEquals(HttpStatusCode.NotFound, client.get("/api/v1/live/0/catchup?channel=nope&start=$start&end=$end").status)
+            }
+        } finally {
+            upstream.shutdown()
+        }
+    }
+
+    @Test
+    fun `sites say whether sources may switch to them, and a detail without an id gets the one asked for`() {
+        val upstream = MockWebServer().apply { start() }
+        try {
+            val api = upstream.url("/api.php/provide/vod/").toString()
+            upstream.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    val url = request.requestUrl!!
+                    val body = when {
+                        url.encodedPath == "/tv.json" ->
+                            """{"sites":[{"key":"a","name":"A","type":1,"api":"$api"},{"key":"douban","name":"豆瓣","type":1,"api":"$api","changeable":0},""" +
+                                """{"key":"b","name":"B","type":1,"api":"$api","changeable":1}]}"""
+                        // A detail without vod_id, as some sites send it.
+                        url.queryParameter("ids") != null -> """{"list":[{"vod_name":"片名","vod_play_from":"直链","vod_play_url":"第1集${'$'}https://cdn.test/a.m3u8"}]}"""
+                        else -> """{"class":[],"list":[{"vod_id":"msearch:片名","vod_name":"片名"},{"vod_name":"无编号"}]}"""
+                    }
+                    return MockResponse().setBody(body)
+                }
+            }
+            testApplication {
+                application { engineModule(engine()) }
+                val created = client.post("/api/v1/subscriptions") {
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"url":"${upstream.url("/tv.json")}"}""")
+                }
+                val id = EngineJson.parseToJsonElement(created.bodyAsText()).jsonObject["id"]!!.jsonPrimitive.content
+                client.post("/api/v1/subscriptions/$id/activate")
+
+                val sites = EngineJson.parseToJsonElement(client.get("/api/v1/sites").bodyAsText()).jsonArray
+                assertEquals(
+                    listOf("a" to true, "douban" to false, "b" to true),
+                    sites.map { it.jsonObject["key"]!!.jsonPrimitive.content to it.jsonObject["changeable"]!!.jsonPrimitive.boolean },
+                )
+
+                val home = EngineJson.parseToJsonElement(client.get("/api/v1/sites/douban/home").bodyAsText()).jsonObject
+                assertEquals(listOf("msearch:片名", ""), home["list"]!!.jsonArray.map { it.jsonObject["id"]!!.jsonPrimitive.content })
+
+                val detail = EngineJson.parseToJsonElement(client.get("/api/v1/sites/a/detail?id=vod%2F42").bodyAsText()).jsonObject
+                assertEquals("vod/42", detail["id"]!!.jsonPrimitive.content)
+                assertEquals("片名", detail["name"]!!.jsonPrimitive.content)
             }
         } finally {
             upstream.shutdown()

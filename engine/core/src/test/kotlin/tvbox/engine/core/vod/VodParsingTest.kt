@@ -32,7 +32,24 @@ class VodParsingTest {
         )
         assertEquals(listOf("1" to "电影"), home.classes.map { it.id to it.name })
         assertEquals("area", home.filters["1"]!!.single().key)
-        assertEquals(listOf("3"), home.list.map { it.id })
+        // The card without an id is kept: it is opened by searching for its title.
+        assertEquals(listOf("3" to "x", "" to "no id"), home.list.map { it.id to it.name })
+    }
+
+    @Test
+    fun `cards without an id keep an empty one, cards without an id and a name are dropped`() {
+        val page = TvboxResult.parseList(
+            "s",
+            """{"list":[{"vod_id":"msearch:片名","vod_name":"片名"},{"vod_id":"","vod_name":"空编号"},{"vod_id":null,"vod_name":"null 编号"},""" +
+                """{"vod_pic":"http://p/1.png"},{"vod_id":" ","vod_name":""},{"vod_id":" 7 ","vod_name":"带空格"}]}""",
+        )
+        assertEquals(
+            listOf("msearch:片名" to "片名", "" to "空编号", "" to "null 编号", " 7 " to "带空格"),
+            page.list.map { it.id to it.name },
+        )
+
+        val xml = CmsXml.parseList("x", "<rss><list><video><name>无编号</name></video><video><pic>http://p/2.png</pic></video><video><id>9</id></video></list></rss>")
+        assertEquals(listOf("" to "无编号", "9" to ""), xml.list.map { it.id to it.name })
     }
 
     @Test

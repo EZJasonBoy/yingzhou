@@ -99,11 +99,17 @@ object TvboxResult {
         return result
     }
 
+    /**
+     * A card without a `vod_id` is kept with the id "": TVBox opens such a card (and a `msearch:` one) by searching
+     * for its title on the other sites. Only a card with neither an id nor a name is dropped.
+     */
     private fun cards(site: String, obj: JsonObject): List<VodCard> =
         obj.arrayItems("list").mapNotNull { el ->
             val v = el.asObjectOrNull() ?: return@mapNotNull null
-            val id = v.string("vod_id") ?: return@mapNotNull null
-            VodCard(site, id, v.string("vod_name") ?: "", v.string("vod_pic") ?: "", v.string("vod_remarks") ?: "")
+            val id = v.string("vod_id") ?: ""
+            val name = v.string("vod_name") ?: ""
+            if (id.isBlank() && name.isBlank()) return@mapNotNull null
+            VodCard(site, id, name, v.string("vod_pic") ?: "", v.string("vod_remarks") ?: "")
         }
 
     private fun parseFilter(el: JsonElement): VodFilter? {

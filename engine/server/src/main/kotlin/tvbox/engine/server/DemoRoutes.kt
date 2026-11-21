@@ -25,6 +25,9 @@ import javax.imageio.ImageIO
  * A fake MacCMS JSON site for development (`--demo`): categories, paging, search, details, generated posters,
  * one directly playable line and one line that goes through a JSON parser (and, on one title, a dead line in front
  * of them). Nothing here touches third-party sites except the public HLS test stream used as the video.
+ *
+ * Two sites come last, for switching sources: 演示豆瓣 (a recommendation site, see [DemoDouban]) and 演示失效站, the
+ * same titles as 演示站 with every line dead (`/demo/dead/…`).
  */
 class DemoSite {
     private val classes = listOf("1" to "电影", "2" to "剧集", "3" to "动漫", "4" to "纪录片")
@@ -39,7 +42,7 @@ class DemoSite {
         val episodes = if (classId == "1") 1 else 6 + (i % 20)
         Item(i, classId, name, 2014 + i % 12, episodes)
     }
-    private val posterCache = ConcurrentHashMap<Int, ByteArray>()
+    private val posterCache = ConcurrentHashMap<Pair<Int, String>, ByteArray>()
 
     /** The slow source (see [DemoSlowSource]) and its title, listed after the others. */
     val slow = DemoSlowSource()
@@ -47,6 +50,12 @@ class DemoSite {
     /** Subtitles, audio tracks and danmaku (see [DemoMedia]), listed after the slow source. */
     private val mediaItems = DemoMedia.ITEMS.map { (id, item) -> Item(id, "4", item.first, 2026, 1) }
     private val allItems = items + slowItem + mediaItems
+
+    /** 演示豆瓣: recommends titles of this site, opened by searching for them. */
+    val douban = DemoDouban(this)
+
+    /** The title of the demo video [id]. */
+    fun title(id: Int): String = allItems.first { it.id == id }.name
 
     /** Urls use the host the request came in on, so an emulator or a phone on the LAN gets reachable links. */
     fun configJson(base: String): String = buildJsonObject {
@@ -91,6 +100,17 @@ class DemoSite {
                 put("playUrl", "$base/demo/sniff?url=")
             })
             DemoPython.sites(base).forEach { add(it) }
+            // Last, so the sites above keep their places. Switching sources: a recommendation site (not searched,
+            // not switched to), and the same titles as 演示站 with every line dead.
+            add(douban.siteJson(base))
+            add(buildJsonObject {
+                put("key", DEAD_SITE)
+                put("name", "演示失效站")
+                put("type", 1)
+                put("api", "$base/demo/dead/api.php/provide/vod/")
+                put("searchable", 1)
+                put("changeable", 1)
+            })
         })
         put("parses", buildJsonArray {
             // First = default parser, as in TVBox; engines without jar spiders skip it.
@@ -137,13 +157,14 @@ class DemoSite {
         })
     }.toString()
 
-    fun api(params: Map<String, String>, base: String): String {
+    /** [dead]: 演示失效站, the same answers with every line of a detail dead. */
+    fun api(params: Map<String, String>, base: String, dead: Boolean = false): String {
         val ids = params["ids"]
         val wd = params["wd"]
         val t = params["t"]
         val pg = params["pg"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
         return when {
-            ids != null -> page(ids.split(",").mapNotNull { id -> allItems.firstOrNull { it.id.toString() == id } }, 1, detail = true, base)
+            ids != null -> page(ids.split(",").mapNotNull { id -> allItems.firstOrNull { it.id.toString() == id } }, 1, detail = true, base, dead)
             wd != null -> page(allItems.filter { wd in it.name }, pg, detail = false, base)
             t != null -> page(allItems.filter { it.classId == t }, pg, detail = false, base)
             else -> buildJsonObject {
@@ -169,7 +190,7 @@ class DemoSite {
         })
     }
 
-    private fun page(list: List<Item>, pg: Int, detail: Boolean, base: String): String {
+    private fun page(list: List<Item>, pg: Int, detail: Boolean, base: String, dead: Boolean = false): String {
         val size = 20
         val pageCount = maxOf(1, (list.size + size - 1) / size)
         return buildJsonObject {
@@ -177,11 +198,18 @@ class DemoSite {
             put("pagecount", pageCount)
             put("limit", size.toString())
             put("total", list.size)
-            put("list", JsonArray(list.drop((pg - 1) * size).take(size).map { card(it, detail, base) }))
+            put("list", JsonArray(list.drop((pg - 1) * size).take(size).map { card(it, detail, base, dead) }))
         }.toString()
     }
 
-    private fun card(item: Item, detail: Boolean, base: String): JsonObject = buildJsonObject {
+    /** The episode names 演示站 gives [item], which 演示失效站 gives it too. */
+    private fun episodeNames(item: Item): List<String> = when {
+        item.id == SLOW_ITEM -> SLOW_EPISODES.map { it.first }
+        item.id in DemoMedia.ITEMS -> listOf("正片")
+        else -> (1..item.episodes).map { if (item.episodes == 1) "正片" else "第${it}集" }
+    }
+
+    private fun card(item: Item, detail: Boolean, base: String, dead: Boolean = false): JsonObject = buildJsonObject {
         put("vod_id", item.id.toString())
         put("vod_name", item.name)
         put("vod_pic", "$base/demo/poster/${item.id}.png")
@@ -193,6 +221,19 @@ class DemoSite {
             put("vod_actor", "演员甲,演员乙,演员丙")
             put("vod_director", "导演丁")
             put("vod_content", "这是开发用的演示数据。《${item.name}》讲述了一个关于远方与回声的故事，共 ${item.episodes} 集。")
+            if (dead) {
+                // Every line dead, each its own way: the player cannot open the first (nothing listens on port 1),
+                // the second does not resolve (the demo parsers find nothing at /demo/gone/).
+                val eps = episodeNames(item)
+                put("vod_content", "开发用：和演示站同名的片，线路全部失效（第一条播放器打不开，第二条解析失败），用来测自动换源。")
+                put("vod_play_from", "失效直链${LINE_SEP}失效解析")
+                put(
+                    "vod_play_url",
+                    eps.mapIndexed { i, n -> "$n\$http://127.0.0.1:1/dead/${item.id}/${i + 1}.m3u8" }.joinToString("#") + LINE_SEP +
+                        eps.mapIndexed { i, n -> "$n\$$base/demo/gone/${item.id}/${i + 1}" }.joinToString("#"),
+                )
+                return@buildJsonObject
+            }
             if (item.id == SLOW_ITEM) {
                 // One line; each episode is the same slow stream written as a different kind of playlist.
                 put("vod_content", "开发用：一个又慢又限速的 HLS 源（/demo/slow），用来测拖动进度条和播放缓存。画面上是分片序号和时间。")
@@ -227,7 +268,8 @@ class DemoSite {
         put("url", if (url.contains("/demo/page/")) TEST_STREAM else "")
     }.toString()
 
-    fun poster(id: Int): ByteArray = posterCache.getOrPut(id) {
+    /** The poster of video [id]; [badge] is written in its top right corner (演示豆瓣's posters say 豆瓣). */
+    fun poster(id: Int, badge: String = ""): ByteArray = posterCache.getOrPut(id to badge) {
         val item = allItems.firstOrNull { it.id == id }
         val w = 300
         val h = 420
@@ -247,6 +289,14 @@ class DemoSite {
         g.font = Font(Font.SANS_SERIF, Font.PLAIN, 18)
         g.color = Color(255, 255, 255, 180)
         g.drawString((item?.year ?: 2025).toString(), 24, 70 + 40 * (name.chunked(6).size - 1) + 34)
+        if (badge.isNotEmpty()) {
+            g.font = Font(Font.SANS_SERIF, Font.BOLD, 20)
+            val bw = g.fontMetrics.stringWidth(badge) + 20
+            g.color = Color(0x2E, 0x96, 0x3D)
+            g.fillRoundRect(w - bw - 12, 12, bw, 34, 10, 10)
+            g.color = Color.WHITE
+            g.drawString(badge, w - bw - 2, 36)
+        }
         g.dispose()
         ByteArrayOutputStream().also { ImageIO.write(img, "png", it) }.toByteArray()
     }
@@ -275,6 +325,15 @@ class DemoSite {
 
     companion object {
         private const val LINE_SEP = "\$\$\$"
+
+        /** 演示失效站: the titles of 演示站, every line dead. */
+        const val DEAD_SITE = "demo_dead"
+
+        /**
+         * What the self-test (`--demo --check` without a subscription) leaves out: 演示失效站 fails on purpose, and
+         * whether the player gets past it is for the client's tests to say.
+         */
+        val SELF_CHECK_SKIP = mapOf(DEAD_SITE to "线路全部失效是故意的（留给播放器测自动换源），自检不查")
 
         /** 《白昼迷踪 第二季》, second on the home page: its first line, 失效线路, points at a port nothing listens on. */
         private const val DEAD_LINE_ITEM = 95
@@ -343,6 +402,11 @@ fun Route.demoRoutes(site: DemoSite) {
         val params = call.request.queryParameters.entries().associate { (k, v) -> k to v.firstOrNull().orEmpty() }
         call.respondText(site.api(params, call.base()), ContentType.Application.Json)
     }
+    get("/demo/dead/api.php/provide/vod/") {
+        val params = call.request.queryParameters.entries().associate { (k, v) -> k to v.firstOrNull().orEmpty() }
+        call.respondText(site.api(params, call.base(), dead = true), ContentType.Application.Json)
+    }
+    demoDoubanRoutes(site.douban)
     get("/demo/jx") { call.respondText(site.parse(call.request.queryParameters["url"].orEmpty()), ContentType.Application.Json) }
     // A "parser page" whose player requests the stream from script, like hls.js does: only a browser finds it.
     get("/demo/sniff") {

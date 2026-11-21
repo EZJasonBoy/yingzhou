@@ -69,9 +69,11 @@ object CmsXml {
         )
     }
 
+    /** As in [TvboxResult]: a video without an id is kept with the id "" (opened by its title), unless it has no name either. */
     private fun cards(site: String, root: Element): List<VodCard> = videos(root).mapNotNull { v ->
         val id = v.text("id")
-        if (id.isEmpty()) null else VodCard(site, id, v.text("name"), v.text("pic"), v.text("note"))
+        val name = v.text("name")
+        if (id.isBlank() && name.isBlank()) null else VodCard(site, id, name, v.text("pic"), v.text("note"))
     }
 
     private fun videos(root: Element): List<Element> = root.children("list").flatMap { it.children("video") }

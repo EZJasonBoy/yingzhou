@@ -132,6 +132,11 @@ data class SiteInfo(
     val searchable: Boolean,
     val quickSearch: Boolean,
     val filterable: Boolean,
+    /**
+     * TVBox `changeable` (1 when the config leaves it out): false keeps the site out of switching sources, the search
+     * by title on the other sites that finds a video somewhere else.
+     */
+    val changeable: Boolean,
     /** cms | js | jar | py | remote | unknown */
     val runtime: String,
 )

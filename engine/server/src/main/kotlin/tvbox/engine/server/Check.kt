@@ -30,6 +30,9 @@ import java.util.Date
  * - `site`: the site answered with an error of its own, its script threw, or the config names a spider its jar
  *   does not have.
  *
+ * The first video is the first one the site opens itself: a recommendation site (Douban), whose videos all have a
+ * `msearch:` or empty id and are found by their title on the other sites, passes without a detail.
+ *
  * A multi-repository subscription is checked entry by entry, lists inside lists included. Python sites and lives are
  * skipped (with the reason) when this machine has no Python or lacks a package their spider imports.
  */
@@ -46,6 +49,8 @@ class Checker(private val engine: Engine, private val options: Options, private 
         val maxConfigs: Int = 40,
         val parallel: Int = 4,
         val stepTimeoutMs: Long = 45_000,
+        /** Sites left out, by key, with the reason (the demo's site whose lines are all dead, in the self-test). */
+        val skip: Map<String, String> = emptyMap(),
     )
 
     data class SiteCheck(
@@ -157,7 +162,13 @@ class Checker(private val engine: Engine, private val options: Options, private 
         val checks = sites.map { site ->
             async {
                 gate.withPermit {
-                    val check = if (kind(site) in options.only) checkSite(site) else SiteCheck(site.key, site.name, site.runtime, "skipped")
+                    val skip = options.skip[site.key]
+                    val check = when {
+                        skip != null -> SiteCheck(site.key, site.name, site.runtime, "skipped", message = skip)
+                            .also { log("  [跳过] ${site.name} (${site.runtime}) $skip") }
+                        kind(site) in options.only -> checkSite(site)
+                        else -> SiteCheck(site.key, site.name, site.runtime, "skipped")
+                    }
                     if (check.verdict != "skipped") log(line(check))
                     check
                 }
@@ -185,7 +196,9 @@ class Checker(private val engine: Engine, private val options: Options, private 
                 check = check.copy(items = maxOf(check.items, page.list.size))
             }
             if (home.classes.isEmpty() && items.isEmpty()) return done().copy(verdict = "empty", step = "home", message = "首页没有分类也没有影片")
-            val item = items.firstOrNull() ?: return done().copy(verdict = "empty", step = step, message = "第一个分类下没有影片")
+            if (items.isEmpty()) return done().copy(verdict = "empty", step = step, message = "第一个分类下没有影片")
+            // A recommendation site (Douban) lists videos that are found by their title on the other sites.
+            val item = firstToOpen(items.map { it.id })?.let { i -> items[i] } ?: return done().copy(message = RECOMMENDATION)
             step = "detail"
             val detail = withTimeout(options.stepTimeoutMs) { engine.detail(site.key, item.id) }
             val episodes = detail.lines.sumOf { it.episodes.size }
@@ -262,7 +275,8 @@ class Checker(private val engine: Engine, private val options: Options, private 
 
     private fun line(c: SiteCheck): String {
         val what = when (c.verdict) {
-            "pass" -> "${c.classes} 个分类，${c.items} 部，详情 ${c.lines} 条线路 ${c.episodes} 集" + (if (c.play.isEmpty()) "" else "，播放 ${c.play}")
+            "pass" -> "${c.classes} 个分类，${c.items} 部，" +
+                (if (c.message.isNotEmpty()) c.message else "详情 ${c.lines} 条线路 ${c.episodes} 集") + (if (c.play.isEmpty()) "" else "，播放 ${c.play}")
             else -> "${c.step}: ${c.message}"
         }
         return "  [${label(c.verdict, c.cause)}] ${c.name} (${c.runtime}) $what  ${c.ms}ms"
@@ -271,6 +285,16 @@ class Checker(private val engine: Engine, private val options: Options, private 
     companion object {
         /** Errors that say this machine lacks something a Python spider needs; such sites count as skipped. */
         private val MACHINE_GAPS = setOf("PY_UNAVAILABLE", "PY_MODULE_MISSING")
+
+        /** The message of a site that passes as a recommendation site: none of its videos opens there. */
+        const val RECOMMENDATION = "推荐站：影片按片名到其他站点找"
+
+        /**
+         * The first video the site itself opens, by position: one whose id is not blank and not `msearch:…`
+         * (TVBox opens those by searching for the title on the other sites). Null when there is none.
+         */
+        fun firstToOpen(ids: List<String>): Int? =
+            ids.indexOfFirst { it.isNotBlank() && !it.startsWith("msearch:") }.takeIf { it >= 0 }
 
         private val COMPAT = Regex(
             "ClassNotFound|NoClassDefFound|NoSuchMethod|NoSuchField|VerifyError|LinkageError|UnsatisfiedLink|AbstractMethodError|" +
@@ -386,7 +410,7 @@ class Checker(private val engine: Engine, private val options: Options, private 
                     appendLine()
                     appendLine("| 站点 | 类型 | 分类 | 影片 | 线路 | 剧集 | 播放 | 耗时 |")
                     appendLine("|---|---|---|---|---|---|---|---|")
-                    passed.forEach { appendLine("| ${cell(it.name)} | ${it.runtime} | ${it.classes} | ${it.items} | ${it.lines} | ${it.episodes} | ${cell(it.play)} | ${it.ms}ms |") }
+                    passed.forEach { appendLine("| ${cell(it.name)} | ${it.runtime} | ${it.classes} | ${it.items} | ${it.lines} | ${it.episodes} | ${cell(it.play.ifEmpty { it.message })} | ${it.ms}ms |") }
                     appendLine()
                 }
                 if (c.lives.isNotEmpty()) {

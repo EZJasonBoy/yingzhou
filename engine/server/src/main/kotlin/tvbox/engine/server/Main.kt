@@ -58,7 +58,8 @@ import java.util.concurrent.TimeUnit
  *   configs are full of expired and mismatched certificates.
  * - --check walks every site and live source of the subscriptions and reports what works (see [Checker]); nothing
  *   is saved, the port is a free one, and the exit code is 1 when something is the engine's to fix (with --strict,
- *   when anything at all failed). With --demo and no subscription it checks the built-in demo: a self-test.
+ *   when anything at all failed). With --demo and no subscription it checks the built-in demo: a self-test (which
+ *   leaves out 演示失效站, whose lines are dead on purpose).
  */
 fun main(args: Array<String>) {
     if ("--exit-with-stdin" in args) {
@@ -191,7 +192,8 @@ fun main(args: Array<String>) {
     println(if (sniffer != null) "sniffing with " + CdpSniffer.findBrowser() else "sniffing unavailable: no Edge/Chrome/Chromium found (set TVBOX_BROWSER)")
 
     if (check) {
-        val inputs = checkInputs(args).ifEmpty { listOfNotNull(demo?.let { "$local/demo/config.json" }) }
+        val given = checkInputs(args)
+        val inputs = given.ifEmpty { listOfNotNull(demo?.let { "$local/demo/config.json" }) }
         if (inputs.isEmpty()) {
             System.err.println("--check needs a subscription address, a config file or a folder of config files")
             Runtime.getRuntime().halt(2)
@@ -201,6 +203,8 @@ fun main(args: Array<String>) {
             play = "--play" in args,
             maxSites = argValue(args, "--max-sites")?.toIntOrNull() ?: 0,
             maxConfigs = argValue(args, "--max-configs")?.toIntOrNull() ?: Checker.Options().maxConfigs,
+            // The self-test leaves out the demo site that is dead on purpose.
+            skip = if (given.isEmpty()) DemoSite.SELF_CHECK_SKIP else emptyMap(),
         )
         val header = listOf(
             "引擎：${engine.info.name} ${engine.info.version}（${engine.info.platform}），Java ${System.getProperty("java.version")}",
