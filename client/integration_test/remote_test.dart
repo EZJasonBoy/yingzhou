@@ -286,6 +286,31 @@ void main() {
     expect(find.textContaining('慢速源演示 · $second'), findsWidgets, reason: 'the title on the screen names the episode');
     await mark(tester, 'episode');
 
+    // ---- what the web console asks for (docs/design/web-console.md): answers with data, through the real hub ----
+    final summary = await command('diag.summary');
+    expect(summary['ok'], isTrue, reason: '$summary');
+    final app = (summary['data'] as Map)['app'] as Map;
+    expect(app['form'], 'tv');
+    expect('${app['version']}', isNotEmpty);
+    final log = await command('diag.log', {'limit': 50});
+    final entries = ((log['data'] as Map)['entries'] as List).cast<Map>();
+    expect(entries, isNotEmpty, reason: 'the steps of opening the film are in the log');
+    final report = '${((await command('diag.report'))['data'] as Map)['text']}';
+    expect(report, contains(Platform.operatingSystem), reason: 'the full report, not a summary');
+    expect(report, isNot(contains(Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? '\u0000')), reason: 'the user folder is masked');
+    final got = await command('setting.get');
+    expect(((got['data'] as Map)['values'] as Map)['remote.screenName'], '集成测试');
+    // What 播放信息 says, in the state: the real player's picture.
+    await until(tester, () => ((phone.player?['info'] as Map?)?['width'] as num? ?? 0) > 0, 'player.info with the picture size', timeout: const Duration(seconds: 15));
+    final info = phone.player!['info'] as Map;
+    expect(info['health'], isIn(['waiting', 'smooth', 'enough', 'thin']));
+    // ignore: avoid_print
+    print('INFO:$info');
+    final backup = jsonDecode(await real(tester, () => http('GET', '/api/v1/backup'))) as Map<String, dynamic>;
+    expect(backup['format'], 'yingzhou-backup');
+    expect(backup['history'], isA<List>());
+    await mark(tester, 'console');
+
     // Speed and volume, read back from the real player.
     await command('speed', {'value': 1.5});
     await until(tester, () => player.state.rate == 1.5, 'the speed');

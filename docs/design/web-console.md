@@ -1,6 +1,6 @@
 # 设计说明：网页控制台
 
-> 状态：第一页「日志与崩溃」📋 已排进下一版；其余几页原型已画，排在它后面。来由见 [ux-review.md](ux-review.md) 的 3.2；样子见[原型](prototypes/README.md)里「网页控制台」那一排画板。
+> 状态：✅ 已做（2026-11-22，未发布），五页都在 `engine/api/src/main/resources/remote/`（`pages/*.js` 按需加载）；客户端的命令在 `client/lib/remote/remote_diagnostics.dart`、`remote_app_settings.dart`，备份接口在 `engine/api/.../BackupRoutes.kt`。和下文不同的地方：设置多了一项 `remote.screenName`（屏幕改名）；开关读出来是布尔值，写的时候布尔值和 `"true"` / `"false"` 都收；管理别的配对设备不在网页上做（令牌列不出它们）；收藏只显示片名；只有深色。来由见 [ux-review.md](ux-review.md) 的 3.2；样子见[原型](prototypes/README.md)里「网页控制台」那一排画板。
 
 ## 要解决什么
 

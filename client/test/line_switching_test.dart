@@ -10,6 +10,7 @@ import 'package:tvbox_client/remote/remote_host.dart';
 import 'package:tvbox_client/pages/line_probe_settings.dart';
 import 'package:tvbox_client/pages/player_dial.dart';
 import 'package:tvbox_client/pages/player_page.dart';
+import 'package:tvbox_client/pages/player_switching.dart';
 import 'package:tvbox_client/settings.dart';
 import 'package:tvbox_client/ui/device_form.dart';
 import 'package:tvbox_client/ui/line_probe_view.dart';
@@ -118,6 +119,13 @@ void main() {
   final card = find.byKey(const Key('switching-card'));
   Finder inCard(Finder f) => find.descendant(of: card, matching: f);
   Finder row(int line, Finder f) => find.descendant(of: find.byKey(Key('switching-row-$line')), matching: f);
+
+  test('the card names the site the player moved to when every line of the first failed', () {
+    expect(LineSwitching.words(trying: '「演示站 · 线路 1」', site: '演示站', simple: false), ('已换到「演示站」', '原来站点的线路都打不开，已换到「演示站」的同一集。正在试「演示站 · 线路 1」。'));
+    expect(LineSwitching.words(trying: '线路 2', failed: '线路 1', failedWhy: '无法播放', from: '42:10', site: '演示站', simple: false).$1, '正在换线路',
+        reason: 'once a line of the new site failed too, the card is about lines again');
+    expect(LineSwitching.words(trying: '线路 1', simple: true).$1, '正在等画面');
+  });
 
   group('changing line', () {
     testWidgets('a line the probe found dead is skipped; one it found alive gets the full 15 seconds', (tester) async {

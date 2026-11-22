@@ -609,6 +609,8 @@ class _PlayerPageState extends State<PlayerPage> {
       _error = null;
       _parsedBy = '';
       _status = '${_detail.lines.length > 1 ? '所有线路' : '这条线路'}都没能播放，正在别的站点找《$name》…';
+      // The search says what it does under the spinner; the card comes back with the site found.
+      _switching.dismiss();
     });
     for (var i = 0; i < 8; i++) {
       final card = await finder.nextExact(skip: _triedSources);
@@ -638,7 +640,10 @@ class _PlayerPageState extends State<PlayerPage> {
         _originLine = at.$1;
         _originEpisode = at.$2;
         _failedLines.clear();
-        _switching.failed.clear();
+        _switching
+          ..failed.clear()
+          ..site = site
+          ..switching();
       });
       final from = resume != null && resume > Duration.zero ? '，从 ${_TimeLabel.format(resume)} 接着播' : '';
       _failedNotes.clear();
@@ -1630,6 +1635,7 @@ class _PlayerPageState extends State<PlayerPage> {
       failed: failed == null ? null : _lineLabel(failed),
       failedWhy: failed == null ? '' : (_switching.failed[failed] ?? ''),
       from: from != null && from > Duration.zero ? _TimeLabel.format(from) : null,
+      site: _switching.site,
       simple: _simple,
     );
   }

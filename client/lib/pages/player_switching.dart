@@ -34,6 +34,10 @@ class LineSwitching {
   /// Why each line of this round failed, in a word or two, for its row.
   final failed = <int, String>{};
 
+  /// The site the player moved to by itself in this round, every line of the first having failed (its name): the
+  /// card says so, since it covers the notices that would.
+  String? site;
+
   /// No picture yet [delay] after opening, or the line was changed by itself; and the card was not closed.
   bool get due => _due && !_dismissed;
 
@@ -74,6 +78,7 @@ class LineSwitching {
   /// The user chose an episode or a line, or asked to try again: a new round of lines.
   void newRound() {
     failed.clear();
+    site = null;
     held = false;
     _dismissed = false;
   }
@@ -84,9 +89,11 @@ class LineSwitching {
   }
 
   /// The card's title and sentence. [trying] and [failed] are the lines as a sentence names them, [failedWhy] why
-  /// the last one failed (said only outside simple mode, which says 打不开), [from] where playback carries on.
-  static (String, String) words({required String trying, String? failed, String failedWhy = '', String? from, required bool simple}) {
+  /// the last one failed (said only outside simple mode, which says 打不开), [from] where playback carries on,
+  /// [site] the site the player moved to when every line of the first failed.
+  static (String, String) words({required String trying, String? failed, String failedWhy = '', String? from, String? site, required bool simple}) {
     final carry = from == null ? '' : '，接上以后从 $from 接着播';
+    if (site != null && failed == null) return ('已换到「$site」', '原来站点的线路都打不开，已换到「$site」的同一集。正在试$trying$carry。');
     if (failed == null) return ('正在等画面', '正在试$trying$carry，还没有画面。打不开会自动换下一条，也可以自己选一条。');
     final broke = simple || failedWhy.isEmpty ? '$failed 打不开' : '$failed$failedWhy';
     return ('正在换线路', '$broke。正在试$trying$carry。');

@@ -191,6 +191,8 @@ export default function mount(root, core) {
     }
     renderLock();
     renderApp();
+    // The screen's name is one of these settings: its field shows once the screen has answered.
+    renderTv();
   }
 
   // ---- the engine's network settings ----
