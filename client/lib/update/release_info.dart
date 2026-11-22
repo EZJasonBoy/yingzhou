@@ -3,7 +3,7 @@
 
 /// This build's version, the `version:` of pubspec.yaml without the build number. A test keeps the two the same
 /// (test/update_test.dart); `--dart-define=APP_VERSION=0.1.0` pretends to be another version (to try updating).
-const appVersion = String.fromEnvironment('APP_VERSION', defaultValue: '0.4.1468');
+const appVersion = String.fromEnvironment('APP_VERSION', defaultValue: '0.4.1468250');
 
 /// The repository the releases are published in.
 const releaseRepository = 'Sa1koro/yingzhou';
@@ -82,20 +82,33 @@ class ReleaseInfo {
   String urlOf(ReleaseAsset asset) => '$download${Uri.encodeComponent(asset.name)}';
 }
 
-/// `0.3.14`, `v0.4.0`, `0.4.0-beta.1+5` as numbers and a pre-release label; null when it is not a version.
-(List<int>, String)? parseVersion(String version) {
+/// `0.3.14`, `v0.4.0`, `0.4.0-beta.1+5` as its numbers (the digits as written) and a pre-release label; null when it
+/// is not a version.
+(List<String>, String)? parseVersion(String version) {
   final m = RegExp(r'^v?(\d+(?:\.\d+)*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$').firstMatch(version.trim());
   if (m == null) return null;
-  return ([for (final part in m.group(1)!.split('.')) int.parse(part)], m.group(2) ?? '');
+  return (m.group(1)!.split('.'), m.group(2) ?? '');
 }
 
 /// Negative when [a] is older than [b], 0 when the same, positive when newer. The build number (`+4`) does not
 /// count; a pre-release (`0.4.0-beta.1`) comes before its release. Something that is not a version is the oldest.
+///
+/// Version numbers follow the digits of a constant: `0.4.1421356` is 0.41421356…, `0.4.1468` is 0.41468…. So the
+/// first two numbers are whole numbers, and from the third on each number is the digits of a decimal: `0.4.1468`
+/// is newer than `0.4.1421356` (0.41468 > 0.41421356), `0.4.14` and `0.4.140` are the same.
 int compareVersions(String a, String b) {
   final x = parseVersion(a), y = parseVersion(b);
   if (x == null || y == null) return (x == null ? 0 : 1) - (y == null ? 0 : 1);
   for (var i = 0; i < x.$1.length || i < y.$1.length; i++) {
-    final d = (i < x.$1.length ? x.$1[i] : 0) - (i < y.$1.length ? y.$1[i] : 0);
+    final p = i < x.$1.length ? x.$1[i] : '0', q = i < y.$1.length ? y.$1[i] : '0';
+    final int d;
+    if (i < 2) {
+      d = int.parse(p) - int.parse(q);
+    } else {
+      // Digits after the point: the same length, then digit by digit.
+      final width = p.length > q.length ? p.length : q.length;
+      d = p.padRight(width, '0').compareTo(q.padRight(width, '0'));
+    }
     if (d != 0) return d.sign;
   }
   if (x.$2 == y.$2) return 0;

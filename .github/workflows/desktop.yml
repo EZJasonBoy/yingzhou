@@ -410,9 +410,13 @@ jobs:
           fi
           version="${TAG#v}"
           tmp="$(mktemp -d)"
+          # The channel only moves forward, by the rule the app compares versions with (tools/version-newer.mjs: the
+          # digits after "0.4." are a decimal, so 0.4.1468 comes after 0.4.1421356). Republishing the same version is
+          # allowed (a rerun).
           if gh release download channel --pattern latest.json --dir "$tmp" 2> /dev/null; then
             current="$(jq -er '.version' "$tmp/latest.json")"
-            if [ "$current" != "$version" ] && [ "$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -n 1)" = "$current" ]; then
+            if [ "$current" != "$version" ] && ! node tools/version-newer.mjs "$version" "$current"; then
+              echo "::warning::latest.json stays at $current: $version is not newer"
               exit 0
             fi
           fi
