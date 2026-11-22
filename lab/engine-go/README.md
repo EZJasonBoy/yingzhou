@@ -18,7 +18,9 @@ flutter build ios --simulator --debug
 flutter test -d <模拟器设备ID> integration_test/ios_go_engine_test.dart
 ```
 
-GitHub Actions 为本分支构建设备 IPA 和模拟器 App。模拟器测试在设备内提供一个示例订阅，经 Flutter 调用 Go 取得播放地址，检查播放器播放本地音频，并在重启后读取原订阅。真机安装需要用自己的 Apple 开发身份签名。下载构建产物可前往 [iOS Go engine 构建记录](https://github.com/Sa1koro/yingzhou/actions/workflows/ios-lab.yml?query=branch%3Alab%2Fengine-go)。
+GitHub Actions 为本分支构建设备 IPA 和模拟器 App。模拟器测试通过示例订阅取得播放地址，用映舟的播放器解码 H.264 视频并检查播放进度。测试随后切到远程引擎，再切回本机，检查原来的订阅和站点是否恢复。真机安装需要用自己的 Apple 开发身份签名。下载构建产物可前往 [iOS Go engine 构建记录](https://github.com/Sa1koro/yingzhou/actions/workflows/ios-lab.yml?query=branch%3Alab%2Fengine-go)。
+
+从源码安装到自己的 iPhone 或 iPad 时，在 macOS 打开 `client/ios/Runner.xcworkspace`，在 Runner 的 `Signing & Capabilities` 中选择开发团队和可用的 Bundle Identifier。连接设备后，在 `client` 目录执行 `flutter run --release -d <设备ID>`。
 
 在其他开发机上，可以从本目录运行 `go run . -mobile-data ./state.local -listen 127.0.0.1:9980` 启动相同的移动端 API。在映舟的「引擎地址」填写 `http://127.0.0.1:9980`，再在订阅框输入原始源地址。
 

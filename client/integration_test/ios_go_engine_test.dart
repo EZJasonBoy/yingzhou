@@ -1,75 +1,37 @@
-import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
+import 'dart:isolate';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:tvbox_client/app_state.dart';
 import 'package:tvbox_client/engine/engine_client.dart';
 import 'package:tvbox_client/engine/go_engine.dart';
 import 'package:tvbox_client/engine/models.dart';
+import 'package:tvbox_client/player_backend.dart';
 import 'package:tvbox_client/settings.dart';
 
-Uint8List audioFixture() {
-  const sampleRate = 8000;
-  const samples = sampleRate * 3;
-  final wave = Uint8List(44 + samples * 2);
-  final data = ByteData.sublistView(wave);
-  wave.setRange(0, 4, ascii.encode('RIFF'));
-  data.setUint32(4, wave.length - 8, Endian.little);
-  wave.setRange(8, 16, ascii.encode('WAVEfmt '));
-  data.setUint32(16, 16, Endian.little);
-  data.setUint16(20, 1, Endian.little);
-  data.setUint16(22, 1, Endian.little);
-  data.setUint32(24, sampleRate, Endian.little);
-  data.setUint32(28, sampleRate * 2, Endian.little);
-  data.setUint16(32, 2, Endian.little);
-  data.setUint16(34, 16, Endian.little);
-  wave.setRange(36, 40, ascii.encode('data'));
-  data.setUint32(40, samples * 2, Endian.little);
-  return wave;
-}
+import 'ios_http_fixture.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   testWidgets('iOS embeds Go, plays through a subscription and restores it after restart', (tester) async {
-    final origin = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    addTearDown(() => origin.close(force: true));
-    final base = 'http://127.0.0.1:${origin.port}';
-    final wave = audioFixture();
-    final config = jsonEncode({
-      'sites': [
-        {'key': 'fixture', 'name': '本机推送', 'type': 3, 'api': 'csp_Push'},
-      ],
-    });
-    origin.listen((request) async {
-      final response = request.response;
-      response.headers.contentType = ContentType.json;
-      if (request.uri.path == '/config.json') {
-        response.write(config);
-      } else if (request.uri.path == '/clip.wav') {
-        response.headers.contentType = ContentType('audio', 'wav');
-        response.contentLength = wave.length;
-        response.add(wave);
-      } else if (request.uri.path == '/api/v1/info') {
-        response.write(jsonEncode({'name': 'remote-fixture', 'version': '1', 'platform': 'remote', 'protocol': 1}));
-      } else if (request.uri.path == '/api/v1/subscriptions') {
-        response.write('[]');
-      } else if (request.uri.path == '/api/v1/settings') {
-        response.write('{}');
-      } else if (request.uri.path == '/api/v1/config') {
-        response.statusCode = HttpStatus.notFound;
-        response.write(
-          jsonEncode({
-            'error': {'code': 'NO_CONFIG', 'message': 'No active subscription'},
-          }),
-        );
-      } else {
-        response.statusCode = HttpStatus.notFound;
+    final events = ReceivePort();
+    addTearDown(events.close);
+    final port = Completer<int>();
+    final requests = <String>[];
+    events.listen((event) {
+      if (event is int) port.complete(event);
+      if (event is String) {
+        requests.add(event);
+        debugPrint('fixture $event');
       }
-      await response.close();
     });
+    final fixture = await Isolate.spawn(serveIosFixture, events.sendPort);
+    addTearDown(() => fixture.kill(priority: Isolate.immediate));
+    final base = 'http://127.0.0.1:${await port.future.timeout(const Duration(seconds: 15))}';
 
     final state = AppState(clientFactory: (url) => EngineClient(url), settings: MemorySettings(), goEngine: createGoEngine());
     addTearDown(state.dispose);
@@ -83,18 +45,44 @@ void main() {
     expect(state.summary?.subscriptionId, subscription.id, reason: state.error);
     expect(state.browsableSites.single.key, 'fixture');
     expect((await state.client.home('fixture')).list, isEmpty);
-    final detail = await state.client.detail('fixture', '$base/clip.wav');
+    final detail = await state.client.detail('fixture', '$base/clip.mp4');
     final line = detail.lines.single;
     final playback = await state.client.resolvePlay('fixture', line.name, line.episodes.single.id);
     expect(playback.isDirect, isTrue);
-    expect(playback.url, '$base/clip.wav');
+    expect(playback.url, '$base/clip.mp4');
 
     MediaKit.ensureInitialized();
-    final player = Player();
+    final backend = mediaKitBackend();
+    final player = backend.player;
     addTearDown(player.dispose);
-    await player.open(Media(playback.url));
-    await player.stream.position.firstWhere((position) => position.inMilliseconds >= 250).timeout(const Duration(seconds: 30));
+    final errors = <String>[];
+    final errorEvents = player.stream.error.listen((message) {
+      errors.add(message);
+      debugPrint('player error $message');
+    });
+    final logEvents = player.stream.log.listen((message) => debugPrint('mpv $message'));
+    var furthest = Duration.zero;
+    final positions = player.stream.position.listen((position) {
+      if (position > furthest) furthest = position;
+    });
+    addTearDown(errorEvents.cancel);
+    addTearDown(logEvents.cancel);
+    addTearDown(positions.cancel);
+    await tester.pumpWidget(MaterialApp(home: backend.view));
+    await player.open(Media(playback.url, httpHeaders: playback.headers)).timeout(const Duration(seconds: 30));
+    final elapsed = Stopwatch()..start();
+    while (elapsed.elapsed < const Duration(seconds: 30)) {
+      if (furthest.inMilliseconds >= 250 && player.state.videoParams.w == 64 && player.state.videoParams.h == 48) break;
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    final diagnostics = 'requests=$requests errors=$errors furthest=$furthest state=${player.state}';
+    expect(requests.any((entry) => entry.startsWith('GET /clip.mp4 ')), isTrue, reason: diagnostics);
+    expect(player.state.videoParams.w, 64, reason: diagnostics);
+    expect(player.state.videoParams.h, 48, reason: diagnostics);
+    expect(furthest.inMilliseconds, greaterThanOrEqualTo(250), reason: diagnostics);
+    debugPrint('decoded ${player.state.videoParams.w}×${player.state.videoParams.h} video, played $furthest');
     await player.stop();
+    await tester.pumpWidget(const SizedBox.shrink());
     await state.connect(base);
     expect(state.info?.name, 'remote-fixture', reason: state.error);
     expect(state.usingBuiltInGo, isFalse);

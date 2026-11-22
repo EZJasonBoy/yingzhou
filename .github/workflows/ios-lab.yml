@@ -56,27 +56,30 @@ jobs:
           name: yingzhou-ios-unsigned
           path: ${{ runner.temp }}/yingzhou-ios-unsigned.ipa
           if-no-files-found: error
+      - name: Build the simulator app
+        if: matrix.target == 'simulator'
+        run: |
+          flutter build ios --simulator --debug --no-pub
+          ditto -c -k --keepParent build/ios/iphonesimulator/Runner.app "$RUNNER_TEMP/yingzhou-ios-simulator.zip"
       - name: Boot an iPhone simulator
         if: matrix.target == 'simulator'
         run: |
           device=$(xcrun simctl list devices available --json | jq -er '[.devices | to_entries[] | select(.key | contains(".iOS-")) | .value[] | select(.name | startswith("iPhone"))] | last | .udid')
           xcrun simctl bootstatus "$device" -b
           echo "SIMULATOR_UDID=$device" >> "$GITHUB_ENV"
-      - name: Build and launch the simulator app
+      - name: Install and launch the simulator app
         if: matrix.target == 'simulator'
         run: |
-          flutter build ios --simulator --debug --no-pub
           app=build/ios/iphonesimulator/Runner.app
-          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/yingzhou-ios-simulator.zip"
           bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")
           xcrun simctl install "$SIMULATOR_UDID" "$app"
           xcrun simctl launch "$SIMULATOR_UDID" "$bundle_id"
-      - name: Import a subscription and play through the embedded engine
-        if: matrix.target == 'simulator'
-        run: flutter test --no-pub -d "$SIMULATOR_UDID" integration_test/ios_go_engine_test.dart
       - uses: actions/upload-artifact@v4
         if: matrix.target == 'simulator'
         with:
           name: yingzhou-ios-simulator
           path: ${{ runner.temp }}/yingzhou-ios-simulator.zip
           if-no-files-found: error
+      - name: Import a subscription and play through the embedded engine
+        if: matrix.target == 'simulator'
+        run: flutter test --no-pub -d "$SIMULATOR_UDID" integration_test/ios_go_engine_test.dart
