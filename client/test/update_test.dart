@@ -112,9 +112,18 @@ void main() {
   });
 
   group('versions', () {
-    test('compare numerically; the build number does not count; a pre-release comes first', () {
+    test('the digits of a constant: from the third number on, a decimal; the build number does not count; a pre-release comes first', () {
       expect(compareVersions('0.4.0', '0.3.14'), 1);
-      expect(compareVersions('0.3.14', '0.3.2'), 1, reason: 'not as text');
+      expect(compareVersions('0.10.0', '0.9.0'), 1, reason: 'the first two are whole numbers');
+      // Every version released so far, in order.
+      const released = ['0.3.0', '0.3.14', '0.4.0', '0.4.14', '0.4.1421', '0.4.14213', '0.4.1421356', '0.4.1468'];
+      for (var i = 1; i < released.length; i++) {
+        expect(compareVersions(released[i], released[i - 1]), 1, reason: '${released[i]} after ${released[i - 1]}');
+      }
+      expect(compareVersions('0.4.1468', '0.4.1421356'), 1, reason: '0.41468 is more than 0.41421356');
+      expect(compareVersions('0.4.146825', '0.4.1468'), 1);
+      expect(compareVersions('0.4.14', '0.4.140'), 0);
+      expect(compareVersions('0.3.2', '0.3.14'), 1, reason: '0.32 is more than 0.314');
       expect(compareVersions('0.3.14+4', '0.3.14'), 0);
       expect(compareVersions('v0.3.14', '0.3.14'), 0);
       expect(compareVersions('0.4', '0.4.0'), 0);
@@ -204,7 +213,7 @@ void main() {
       final same = await client().check();
       expect((same.ok, same.newer, same.comparison), (true, false, 0));
 
-      net.latest = _manifest('0.3.2');
+      net.latest = _manifest('0.3.0');
       final older = await client().check();
       expect((older.ok, older.newer, older.comparison), (true, false, -1));
       expect(net.asked, everyElement(startsWith('direct /releases/download/channel/latest.json')));
