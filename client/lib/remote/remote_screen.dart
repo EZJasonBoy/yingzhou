@@ -5,10 +5,14 @@ import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
 import '../desktop/desktop_window.dart';
+import '../diagnostics/diagnostic_snapshot.dart';
+import '../diagnostics/diagnostics.dart';
 import '../engine/models.dart' show EngineException;
 import '../ui/device_form.dart';
 import '../ui/tv/tv_shell.dart';
 import 'remote_agent.dart';
+import 'remote_app_settings.dart';
+import 'remote_diagnostics.dart';
 import 'remote_host.dart';
 import 'remote_keys.dart';
 import 'remote_socket.dart';
@@ -22,6 +26,8 @@ import 'remote_text.dart';
 /// - `home`: out of whatever is open, to 首页;
 /// - `text` / `submit`: into the text field that has the focus ([RemoteTextField]);
 /// - `uiMode`: the TV layout on or off;
+/// - `diag.*`: the log, the crash records and the diagnostic text, redacted ([RemoteDiagnostics]);
+/// - `setting.get` / `setting.set`: a few of the app's own settings ([RemoteAppSettings]);
 /// - everything else goes to the page that plays ([RemoteHost.player]): pause, seek, episode, line, subtitle…
 ///
 /// Nothing here opens the device to anybody by itself: the agent connects only while 「允许手机遥控」 is on (the
@@ -110,12 +116,18 @@ class _RemoteScreenState extends State<RemoteScreen> {
     }
   }
 
+  /// The diagnostics as they are now, as the 诊断与反馈 page would show them.
+  DiagnosticSnapshot _snapshot() => DiagnosticSnapshot.of(Diagnostics.instance, _app, form: _form);
+
+  late final _diagnostics = RemoteDiagnostics(snapshot: _snapshot);
+
   // ---- the state ----
 
   Map<String, Object?> _collect() {
     Map<String, Object?>? player;
     try {
       player = RemoteHost.instance.player?.remoteState();
+      if (player != null) player = _redactPlayer(player);
     } catch (_) {
       // A page on its way out: nothing plays as far as a remote is concerned.
     }
@@ -129,10 +141,38 @@ class _RemoteScreenState extends State<RemoteScreen> {
     };
   }
 
+  /// What leaves the device of where the video comes from goes through the same redaction as the diagnostics: the
+  /// developer mode's 链路 (`player.chain`: subscription, addresses, headers) and why lines were given up on
+  /// (`player.info.switched`, which may quote an address).
+  Map<String, Object?> _redactPlayer(Map<String, Object?> player) {
+    final info = player['info'];
+    final chain = player['chain'];
+    if (info is! Map && chain is! Map) return player;
+    final s = _snapshot();
+    Object? clean(Object? v) => switch (v) {
+      String() => s.redact(v),
+      List() => [for (final e in v) clean(e)],
+      Map() => {for (final e in v.entries) '${e.key}': clean(e.value)},
+      _ => v,
+    };
+    return {
+      ...player,
+      if (info is Map) 'info': {...info.cast<String, Object?>(), 'switched': clean(info['switched'] ?? const <Object?>[])},
+      if (chain is Map) 'chain': clean(chain),
+    };
+  }
+
   // ---- commands ----
 
-  Future<String?> _perform(String name, Map<String, Object?> args) async {
+  Future<Object?> _perform(String name, Map<String, Object?> args) async {
     if (!mounted) return '屏幕正在关闭';
+    // The app's own: answered on any page.
+    if (RemoteDiagnostics.handles(name)) return await _diagnostics.perform(name, args) ?? '不认识的命令：$name';
+    if (RemoteAppSettings.handles(name)) {
+      final app = _app;
+      if (app == null) return '屏幕还没有准备好';
+      return await RemoteAppSettings(settings: app.settings, userMode: app.userMode, form: _form).perform(name, args);
+    }
     switch (name) {
       case 'key':
         final key = args.string('key') ?? '';

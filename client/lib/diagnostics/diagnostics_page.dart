@@ -6,73 +6,23 @@ import '../pages/cache_settings.dart' show formatFetchedAt;
 import '../ui/device_form.dart';
 import '../ui/phone_input.dart' show QrView;
 import '../ui/tv/tv_focus.dart' show TvAutofocus, tvOwnFocusLook;
+import 'console_link.dart';
 import 'crash_record.dart';
+import 'diagnostic_snapshot.dart';
 import 'diagnostics.dart';
 import 'diagnostics_store.dart';
 import 'feedback.dart';
 
-/// Everything the diagnostics card and pages show is collected here and passed through [Diagnostics.redact], with
-/// the subscription addresses the app knows of, before it reaches the screen or the clipboard.
-class _Collected {
-  _Collected(this.diagnostics, this.env, this.secrets);
+/// Everything the diagnostics card and pages show is collected here ([DiagnosticSnapshot]) and passed through
+/// [Diagnostics.redact], with the subscription addresses the app knows of, before it reaches the screen or the
+/// clipboard.
+typedef _Collected = DiagnosticSnapshot;
 
-  final Diagnostics diagnostics;
-  final DiagnosticEnvironment env;
-  final List<String> secrets;
-
-  String redact(String text) => diagnostics.redact(text, secrets: secrets);
-
-  static _Collected of(BuildContext context, Diagnostics d) {
-    final state = context.getInheritedWidgetOfExactType<AppScope>()?.notifier;
-    return _Collected(d, _environment(context, d, state), _secrets(state));
-  }
-
-  static DiagnosticEnvironment _environment(BuildContext context, Diagnostics d, AppState? state) {
-    final info = state?.info;
-    var engine = '未连接';
-    if (state != null && info != null) {
-      final host = Uri.tryParse(state.engineUrl)?.host ?? '';
-      final where = host == '127.0.0.1' || host == 'localhost' || host == '::1'
-          ? '本机'
-          : state.engineOnLan
-          ? '局域网里的另一台设备'
-          : '远程';
-      final can = [
-        for (final e in info.capabilities.entries)
-          if (e.value) e.key,
-      ];
-      engine = '${info.name} ${info.version}（${info.platform}，协议 v${info.protocol}${can.isEmpty ? '' : '，${can.join(' ')}'}）· $where';
-    }
-    return DiagnosticEnvironment(appVersion: d.appVersion, platform: d.platform, form: DeviceFormScope.of(context).name, engine: engine);
-  }
-
-  static List<String> _secrets(AppState? state) {
-    if (state == null) return const [];
-    final summary = state.summary;
-    return [
-      if (summary != null) ...[summary.url, summary.fetchedUrl, for (final r in summary.repos) r.url],
-      for (final s in state.subscriptions) s.url,
-    ];
-  }
-
-  /// The log that goes with the records: the desktop engine's output, Android's logcat of this app, or nothing.
-  Future<(String, String)> log({int lines = 150}) async {
-    if (Diagnostics.keepsEngineLog) return ('引擎日志', await diagnostics.store.engineLogTail(lines: lines));
-    if (Diagnostics.onAndroid) return ('应用日志（logcat）', await diagnostics.androidLog(lines: lines));
-    return ('日志', '');
-  }
-
-  /// 「复制诊断信息」 and the feedback page: redacted.
-  Future<String> report() async {
-    await diagnostics.flush();
-    final records = [for (final r in await diagnostics.store.list()) r.record];
-    final (title, text) = await log();
-    return redact(buildDiagnosticReport(env: env, records: records, logTitle: title, log: text));
-  }
-}
+_Collected _collected(BuildContext context, Diagnostics d) =>
+    DiagnosticSnapshot.of(d, context.getInheritedWidgetOfExactType<AppScope>()?.notifier, form: DeviceFormScope.of(context).name);
 
 Future<void> _copyReport(BuildContext context, Diagnostics d) async {
-  final collected = _Collected.of(context, d);
+  final collected = _collected(context, d);
   final messenger = ScaffoldMessenger.maybeOf(context);
   final navigator = Navigator.of(context);
   final text = await collected.report();
@@ -231,7 +181,7 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final c = _Collected.of(context, _d);
+    final c = _collected(context, _d);
     final records = _records;
     final location = _location;
     Widget header(String text) => Padding(
@@ -262,6 +212,8 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
                     ),
                   ),
                 ),
+                // The way to all of it on a phone (the web console), where it can be read, saved and sent.
+                const PhoneConsoleCard(),
                 header(records == null || records.isEmpty ? '崩溃记录' : '崩溃记录（${records.length} 条，保留最近 20 条）'),
                 Card(
                   clipBehavior: Clip.antiAlias,
@@ -483,7 +435,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      final text = await _Collected.of(context, _d).report();
+      final text = await _collected(context, _d).report();
       if (mounted) setState(() => _text = text);
     });
   }
@@ -501,7 +453,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final c = _Collected.of(context, _d);
+    final c = _collected(context, _d);
     final text = _text;
     final tv = isTv(context);
     final showQr = text != null && (tv || _openFailed);

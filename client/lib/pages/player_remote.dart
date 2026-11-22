@@ -16,6 +16,35 @@ class _PlayerRemote implements RemotePlayerTarget {
 
   @override
   FutureOr<String?> remoteCommand(String name, Map<String, Object?> args) => _page._remoteCommand(name, args);
+
+  // ---- the player's own account, for `player.info` ----
+
+  /// What [PlayInfoPanel] reads from libmpv.
+  static const _mpvNames = ['video-params/w', 'video-params/h', 'container-fps', 'estimated-vf-fps', 'hwdec-current', 'demuxer-cache-duration', 'cache-speed', 'frame-drop-count'];
+
+  /// How old the numbers may be before the state asks libmpv again: about once per refresh of the state.
+  static const _mpvMaxAge = Duration(seconds: 4);
+
+  /// The last answers (empty before the first, and where there is no libmpv to ask).
+  Map<String, String> mpv = const {};
+  DateTime _mpvAt = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _reading = false;
+
+  /// Asks libmpv again when the numbers are old and a remote is connected (nobody else sees them here); the state
+  /// goes out again once they are in.
+  void refreshMpv(Player player) {
+    if (!RemoteHost.instance.watched || _reading || DateTime.now().difference(_mpvAt) < _mpvMaxAge) return;
+    _reading = true;
+    unawaited(
+      readMpvProperties(player, _mpvNames)
+          .then((values) {
+            _mpvAt = DateTime.now();
+            mpv = values;
+            if (_page.mounted) RemoteHost.instance.changed();
+          })
+          .whenComplete(() => _reading = false),
+    );
+  }
 }
 
 extension _PlayerRemoteGlue on _PlayerPageState {
@@ -83,6 +112,70 @@ extension _PlayerRemoteGlue on _PlayerPageState {
       ],
       'audioId': _tracks.audioSelected,
       'danmaku': _danmakuPrefs.enabled,
+      'info': _remoteInfo(),
+      // Developer mode: where the video comes from, step by step (the screen redacts it before it leaves).
+      if (_dev) 'chain': _remoteChain(),
+    };
+  }
+
+  /// 播放信息 as facts (player_info.dart's [PlayInfoPanel] shows the same in words): how it is going, the picture,
+  /// the speed, the decoder, and where it comes from.
+  Map<String, Object?> _remoteInfo() {
+    _remote.refreshMpv(_player);
+    final v = _remote.mpv;
+    final state = _player.state;
+    final measured = double.tryParse(v['demuxer-cache-duration'] ?? '') ?? (state.buffer - state.position).inMilliseconds / 1000;
+    final ahead = measured > 0 ? measured : 0.0;
+    final fps = double.tryParse(v['container-fps'] ?? v['estimated-vf-fps'] ?? '');
+    final hwdec = v['hwdec-current'];
+    final played = _played;
+    return {
+      'health': PlayHealth.of(ahead: ahead, buffering: state.buffering).name,
+      'bufferSeconds': double.parse(ahead.toStringAsFixed(1)),
+      'width': int.tryParse(v['video-params/w'] ?? '') ?? state.width,
+      'height': int.tryParse(v['video-params/h'] ?? '') ?? state.height,
+      'fps': fps == null || fps <= 0 ? null : double.parse(fps.toStringAsFixed(2)),
+      'bytesPerSecond': double.tryParse(v['cache-speed'] ?? '')?.round(),
+      'hwdec': hwdec == null ? null : hwdec != 'no',
+      'droppedFrames': int.tryParse(v['frame-drop-count'] ?? ''),
+      'source': AppScope.read(context).siteName(_detail.site),
+      'line': _lineName(_line),
+      'lineCount': _detail.lines.length,
+      'how': [
+        played == null ? '正在找播放地址' : (_parsedBy.isEmpty ? '直链' : _PlayerPageState._parserLabel(_parsedBy)),
+        if (played?.relay.isNotEmpty == true) _onRelay ? '经引擎' : '直连片源',
+      ].join(' · '),
+      'switched': List.of(_failedNotes),
+    };
+  }
+
+  /// 片源从哪来 ([PlayerChainPanel]) as steps, and as the text it copies.
+  Map<String, Object?> _remoteChain() {
+    final chain = _chain;
+    final p = chain.played;
+    Map<String, Object?> step(String title, String detail, {int? ms, bool ok = true, bool pending = false}) => {
+      'title': title,
+      'detail': detail,
+      'ms': ?ms,
+      'ok': ok && !pending,
+      if (pending) 'pending': true,
+    };
+    return {
+      'steps': [
+        step('订阅', chain.subscription.isEmpty ? '（没有订阅：网盘或离线）' : chain.subscription),
+        step('站点 · ${chain.siteName}', '${chain.siteKey}${chain.runtime.isEmpty ? '' : ' · ${chain.runtime}'} · vod_id ${chain.vodId}'),
+        for (final f in chain.failed) step('线路 · 打不开', f, ok: false),
+        step('线路 · ${chain.lineName.isEmpty ? '未命名' : chain.lineName}（共 ${chain.lineCount} 条）', '${chain.episodeName}\n${chain.episodeId}'),
+        step('解析 · ${p == null ? '正在解析…' : chain.parser}', '', ms: chain.resolveMs, pending: p == null),
+        if (p != null)
+          step('播放地址${chain.onRelay ? ' · 经引擎' : (p.relay.isNotEmpty ? ' · 直连片源' : '')}', [
+            chain.url,
+            for (final h in p.headers.entries) '${h.key}: ${h.value}',
+            if (p.cache.isNotEmpty) '引擎缓存：${p.cache}',
+          ].join('\n')),
+        step(chain.firstFrameMs == null ? '首帧 · 还没有画面' : '首帧', '', ms: chain.firstFrameMs, pending: chain.firstFrameMs == null),
+      ],
+      'text': chain.toText(),
     };
   }
 

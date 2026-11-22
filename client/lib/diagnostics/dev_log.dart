@@ -8,7 +8,11 @@ enum DevLevel { info, warn, error }
 /// One line of the [DevLog].
 @immutable
 class DevLogEntry {
-  const DevLogEntry({required this.time, required this.level, required this.module, required this.message, this.detail = const {}});
+  const DevLogEntry({required this.time, required this.level, required this.module, required this.message, this.detail = const {}, this.seq = 0});
+
+  /// Its place in the log, counted from 1 and never used twice while the app runs (clearing the log does not start
+  /// it again): a remote asks for what came after the last one it has.
+  final int seq;
 
   final DateTime time;
   final DevLevel level;
@@ -50,14 +54,18 @@ class DevLog extends ChangeNotifier {
   final DateTime Function() _now;
   final _entries = ListQueue<DevLogEntry>();
   bool _telling = false;
+  int _seq = 0;
 
   /// Oldest first.
   List<DevLogEntry> get entries => _entries.toList(growable: false);
 
   int get length => _entries.length;
 
+  /// The [DevLogEntry.seq] of the newest line; 0 before the first.
+  int get lastSeq => _seq;
+
   void add(DevLevel level, String module, String message, {Map<String, String> detail = const {}}) {
-    _entries.addLast(DevLogEntry(time: _now(), level: level, module: module, message: message, detail: detail));
+    _entries.addLast(DevLogEntry(seq: ++_seq, time: _now(), level: level, module: module, message: message, detail: detail));
     while (_entries.length > capacity) {
       _entries.removeFirst();
     }

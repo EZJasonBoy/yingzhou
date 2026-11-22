@@ -25,6 +25,19 @@ enum RemoteAgentStatus {
   offline,
 }
 
+/// What a command came to, when it answers with more than done or not: the log page, the crash record, the settings
+/// asked for ([data], a JSON object the engine passes on to the remote that asked), and why not when it failed.
+///
+/// A command may also answer with null (done) or a sentence (why not), as all the older ones do.
+class RemoteResult {
+  const RemoteResult.ok([this.data]) : error = null;
+  const RemoteResult.failed(String this.error, [this.data]);
+
+  /// Why it was not done, for the person holding the remote; null when it was.
+  final String? error;
+  final Map<String, Object?>? data;
+}
+
 /// This app as a *screen* of the LAN remote control (docs/protocol.md, "遥控"; the engine's `RemoteHub`).
 ///
 /// While 「允许手机遥控」 is on and the app has an engine, the agent keeps a WebSocket to that engine's
@@ -53,8 +66,8 @@ class RemoteAgent extends ChangeNotifier {
   /// The screen's state now (remote_screen.dart puts it together).
   final Map<String, Object?> Function() collect;
 
-  /// Does a remote's command; null when done, else why not.
-  final Future<String?> Function(String name, Map<String, Object?> args) perform;
+  /// Does a remote's command: null when done, else why not, in a sentence; or a [RemoteResult] that carries data.
+  final Future<Object?> Function(String name, Map<String, Object?> args) perform;
   final RemoteConnector _connector;
 
   /// After a failed connection: the HTTP status of the engine's `GET /api/v1/remote/screens` (0 when it does not
@@ -71,6 +84,11 @@ class RemoteAgent extends ChangeNotifier {
   /// With several remotes or a film that plays, how often the state is sent again without anything else changing
   /// (remotes move the position on by themselves in between).
   static const refresh = Duration(seconds: 5);
+
+  /// The longest message the engine takes from a screen (`RemoteHub.MAX_SCREEN_MESSAGE`, in UTF-16 units as Dart
+  /// counts a string's length too); a longer one would end the connection. Answers stay a little below it.
+  static const maxMessage = 512 * 1024;
+  static const maxAnswer = maxMessage - 4096;
 
   // ---- settings ----
 
@@ -192,6 +210,7 @@ class RemoteAgent extends ChangeNotifier {
     _lastSent = '';
     if (controllers.isNotEmpty) {
       controllers = const [];
+      RemoteHost.instance.watched = false;
       onControllersGone?.call();
       notifyListeners();
     }
@@ -273,6 +292,7 @@ class RemoteAgent extends ChangeNotifier {
             for (final n in names)
               if (n is String) n,
         ];
+        RemoteHost.instance.watched = controllers.isNotEmpty;
         if (controllers.isEmpty && before > 0) onControllersGone?.call();
         notifyListeners();
         // A remote that just came gets the position as it is now, not as it was at the last change.
@@ -287,13 +307,36 @@ class RemoteAgent extends ChangeNotifier {
     if (name is! String) return;
     final args = msg['args'];
     String? error;
+    Map<String, Object?>? data;
     try {
-      error = await perform(name, args is Map ? args.cast<String, Object?>() : const {});
+      final answer = await perform(name, args is Map ? args.cast<String, Object?>() : const {});
+      if (answer is RemoteResult) {
+        error = answer.error;
+        data = answer.data;
+      } else if (answer is String) {
+        error = answer;
+      }
     } catch (e) {
       error = '没有做成：$e';
     }
     if (generation != _generation) return;
-    _channel?.send(jsonEncode({'type': 'result', 'to': msg['from'], 'id': msg['id'], 'ok': error == null, 'message': error ?? ''}));
+    Map<String, Object?> result(String? error, Map<String, Object?>? data) => {
+      'type': 'result',
+      'to': msg['from'],
+      'id': msg['id'],
+      'ok': error == null,
+      'message': error ?? '',
+      'data': ?data,
+    };
+    String text;
+    try {
+      text = jsonEncode(result(error, data));
+    } catch (_) {
+      text = jsonEncode(result('回答里有发不出去的内容', null));
+    }
+    // The engine would end the connection over a message this long: the remote hears why instead.
+    if (text.length > maxAnswer) text = jsonEncode(result('回答太长，发不过去', null));
+    _channel?.send(text);
     _changed();
   }
 

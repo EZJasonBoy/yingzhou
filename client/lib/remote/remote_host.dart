@@ -48,6 +48,10 @@ class RemoteHost extends ChangeNotifier {
 
   /// Something a remote shows may have changed (cheap: the agent collects the state a little later, once).
   void changed() => notifyListeners();
+
+  /// A remote is connected now (the agent says so): what costs something to find out for the state (the player's
+  /// statistics) is only looked at then.
+  bool watched = false;
 }
 
 /// Reads command arguments leniently: they come from another device.
