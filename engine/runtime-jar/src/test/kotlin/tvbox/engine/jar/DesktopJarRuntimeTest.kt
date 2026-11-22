@@ -1,5 +1,10 @@
 package tvbox.engine.jar
 
+import android.app.Application
+import android.content.Context
+import android.content.ContextWrapper
+import com.github.catvod.crawler.Spider
+import dalvik.system.DexClassLoader
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
@@ -11,6 +16,8 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -25,6 +32,7 @@ import org.objectweb.asm.Opcodes.ARETURN
 import org.objectweb.asm.Opcodes.DUP
 import org.objectweb.asm.Opcodes.INVOKESPECIAL
 import org.objectweb.asm.Opcodes.NEW
+import org.objectweb.asm.Opcodes.PUTSTATIC
 import org.objectweb.asm.Opcodes.RETURN
 import org.objectweb.asm.Opcodes.V1_6
 import tvbox.engine.core.config.ConfigLocator
@@ -32,7 +40,11 @@ import tvbox.engine.core.config.SiteBean
 import tvbox.engine.core.config.TvboxConfig
 import tvbox.engine.core.spider.JarRepository
 import tvbox.engine.core.vod.TvboxResult
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileNotFoundException
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 class DesktopJarRuntimeTest {
     private lateinit var server: MockWebServer
@@ -111,6 +123,67 @@ class DesktopJarRuntimeTest {
         assertTrue(answer.contains("\"jxFrom\":\"演示解析\""), answer)
         assertTrue(answer.contains("\"flag\":\"qq111\""), answer)
         assertNull(runtime.jsonExtMix("qq111", "Nope", "x", jxs, "u"), "unknown parser classes give null")
+    }
+
+    @Test
+    fun `wrapped spiders and their Init keep the loader and assets of each archive`() = runBlocking {
+        val initName = "com/github/catvod/spider/Init"
+        val initClass = classBytes(initName, "java/lang/Object") { writer ->
+            writer.visitField(ACC_PUBLIC or ACC_STATIC, "context", "Landroid/content/Context;", null, null).visitEnd()
+            writer.method(ACC_PUBLIC or ACC_STATIC, "init", "(Landroid/content/Context;)V") { method ->
+                method.visitVarInsn(ALOAD, 0)
+                method.visitFieldInsn(PUTSTATIC, initName, "context", "Landroid/content/Context;")
+                method.visitInsn(RETURN)
+            }
+        }
+        val probeName = "com/github/catvod/spider/ArchiveProbe"
+        val probeClass = classBytes(probeName, AssetProbe::class.java.name.replace('.', '/'))
+        val archives = listOf("first", "second").associate { marker ->
+            val bytes = ByteArrayOutputStream()
+            ZipOutputStream(bytes).use { output ->
+                for ((name, content) in mapOf("$initName.class" to initClass, "$probeName.class" to probeClass, "assets/nested/marker" to marker.toByteArray())) {
+                    output.putNextEntry(ZipEntry(name))
+                    output.write(content)
+                    output.closeEntry()
+                }
+            }
+            "/$marker.jar" to bytes.toByteArray()
+        }
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = archives[request.path]?.let { MockResponse().setBody(Buffer().write(it)) } ?: MockResponse().setResponseCode(404)
+        }
+        val runtime = runtime()
+        val spiders = archives.keys.map { path ->
+            val site = SiteBean(key = path, name = path, type = 3, api = "csp_ArchiveProbe", jar = server.url(path).toString())
+            runtime.create(site, "")
+        }
+        assertEquals("first", spiders.first().home(true))
+        assertEquals("second", spiders.last().home(true))
+        assertEquals("first", spiders.first().home(true))
+    }
+
+    open class AssetProbe : Spider() {
+        private lateinit var wrapped: ContextWrapper
+
+        override fun init(context: Context, extend: String) {
+            wrapped = ContextWrapper(context)
+        }
+
+        override fun homeContent(filter: Boolean): String {
+            val application = wrapped.baseContext as Application
+            assertSame(application, wrapped.applicationContext)
+            assertSame(application, application.baseContext.applicationContext)
+            assertSame(javaClass.classLoader, wrapped.classLoader)
+            assertSame(application, wrapped.classLoader.loadClass("com.github.catvod.spider.Init").getField("context").get(null))
+            val secondary = DexClassLoader("", "", null, wrapped.classLoader)
+            assertSame(javaClass, secondary.loadClass(javaClass.name))
+            val assets = wrapped.assets
+            assertSame(assets, application.resources.assets)
+            assertEquals(listOf("nested"), assets.list("").toList())
+            assertEquals(listOf("marker"), assets.list("nested").toList())
+            assertThrows(FileNotFoundException::class.java) { assets.open("../com/github/catvod/spider/Init.class").use { it.read() } }
+            return assets.open("nested/marker").bufferedReader().use { it.readText() }
+        }
     }
 
     @Test

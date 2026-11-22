@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
+import '../diagnostics/diagnostics_page.dart' show SourceReportButton;
 import '../engine/models.dart';
 import '../ui/device_form.dart';
 import '../ui/shell.dart' show shellUsesBottomBar;
@@ -182,7 +183,12 @@ class _HomeSwitcherState extends State<HomeSwitcher> {
     if (!mounted) return;
     setState(() => _switching = null);
     final error = state.error;
-    if (error != null && level != _Level.site) messenger?.showSnackBar(SnackBar(content: Text('没能切换：$error')));
+    if (error != null && level != _Level.site) {
+      final issue = state.actionDiagnostic;
+      messenger?.showSnackBar(SnackBar(content: Text('没能切换：$error'), action: issue == null ? null : SnackBarAction(label: '故障报告', onPressed: () {
+        if (mounted) SourceReportButton.open(context, [issue]);
+      })));
+    }
   }
 
   Future<void> _openSheet(BuildContext context) => showModalBottomSheet<void>(
@@ -429,11 +435,13 @@ class _SourceSheetState extends State<_SourceSheet> {
         children: [
           ...head,
           if (_loading) const LinearProgressIndicator(minHeight: 2),
-          if (_error != null)
+          if (_error != null) ...[
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
               child: Text('没能切换：$_error', key: const Key('sheet-error'), style: TextStyle(color: scheme.error)),
             ),
+            if (state.actionDiagnostic case final issue?) SourceReportButton(issues: [issue]),
+          ],
           Expanded(child: ListView(children: rows)),
         ],
       ),

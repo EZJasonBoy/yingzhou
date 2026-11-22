@@ -8,6 +8,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -34,6 +35,7 @@ class SpiderExtTest {
 
     /** What each spider was created with, by site key. */
     private val created = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private var recommended: () -> String? = { null }
 
     private val runtime = object : SpiderRuntime {
         override val kind = "jar"
@@ -43,7 +45,7 @@ class SpiderExtTest {
             return object : Spider {
                 override suspend fun init(ext: String) {}
                 override suspend fun home(filter: Boolean) = """{"class":[{"type_id":"1","type_name":"电影"}],"list":[]}"""
-                override suspend fun homeVod(): String? = null
+                override suspend fun homeVod(): String? = recommended()
                 override suspend fun category(tid: String, pg: String, filter: Boolean, extend: Map<String, String>): String? = null
                 override suspend fun detail(id: String): String? = null
                 override suspend fun search(key: String, quick: Boolean, pg: String): String? = null
@@ -95,6 +97,23 @@ class SpiderExtTest {
         proxyBase = "http://127.0.0.1:19978/proxy?",
         runtimes = listOf(runtime),
     )
+
+    @Test
+    fun `recommendation failures preserve home categories and distinguish errors from a legitimate empty result`() = runBlocking {
+        val site = SiteBean("app", "APP", 3, "csp_App")
+        val source = SpiderSource(site, runtime) { emptyList() }
+        assertNull(source.home().warning)
+        recommended = { """{"list":[]}""" }
+        assertNull(source.home().warning)
+
+        recommended = { "not JSON" }
+        val partial = source.home()
+        assertEquals("电影", partial.classes.single().name)
+        assertEquals("spider.recommend", partial.warning?.stage)
+        assertEquals("invalid_result", partial.warning?.kind)
+        recommended = { throw NoClassDefFoundError("android/content/ContextWrapper") }
+        assertEquals("NoClassDefFoundError: android.content.ContextWrapper", source.home().warning?.cause)
+    }
 
     @Test
     fun `spiders get their ext as written, CMS sites the text it points at`() = runBlocking {

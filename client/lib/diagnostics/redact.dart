@@ -93,6 +93,56 @@ class Redactor {
   }
 
   static final _pk = RegExp(r';pk;(?!\*\*\*)[^\s"&,;]+');
+
+  String forSharing(String text) => apply(text)
+      .replaceAll(_url, '<地址>')
+      .replaceAllMapped(_privateLine, (match) => '${match[1]}$masked')
+      .replaceAll(_absolutePath, '<路径>')
+      .replaceAll(_query, '?…')
+      .replaceAll(_email, '<账号>');
+
+  String sharedError(String text) {
+    final error = forSharing(text).trim();
+    if (error == 'FormatException: 订阅 $subscription 不是 JSON' || _engineExit.hasMatch(error)) return error;
+    return _errorType.firstMatch(error)?.group(1) ?? '未识别的错误（原文仅保存在本机）';
+  }
+
+  String sharedLog(String text) {
+    final safe = <String>[];
+    var skipped = 0;
+    for (final line in forSharing(text).split('\n').map((line) => line.trim()).where((line) => line.isNotEmpty)) {
+      if (line.startsWith('tvbox-engine listening on ')) {
+        final storage = line.endsWith(r'in ~\.tvbox-next\engine') ? r'~\.tvbox-next\engine' : line.endsWith(' in memory') ? 'memory' : '<路径>';
+        safe.add('tvbox-engine listening on <地址>, data in $storage');
+      } else if (_loadedLog.firstMatch(line) case final loaded?) {
+        safe.add('loaded $subscription: ${loaded[1]} sites, ${loaded[2]} parses, ${loaded[3]} live groups');
+      } else if (_publicFrame.hasMatch(line) || _engineExit.hasMatch(line)) {
+        safe.add(line);
+      } else if (_errorType.firstMatch(line) case final error?) {
+        safe.add(error[1]!);
+      } else {
+        skipped++;
+      }
+    }
+    if (skipped > 0) safe.add('（$skipped 行未结构化输出仅保存在本机）');
+    return safe.join('\n');
+  }
+
+  static final _loadedLog = RegExp(r'^loaded (?:<订阅地址>|<地址>): (\d{1,7}) sites, (\d{1,7}) parses, (\d{1,7}) live groups$');
+  static final _errorType = RegExp(r'\b([A-Z][a-zA-Z0-9_$]{0,70}(?:Exception|Error)|Exception|Error)\b');
+  static final _publicFrame = RegExp(
+    r'^(?:#\d+\s+[\w.$]+(?:\.<anonymous closure>)? \(package:[a-z][a-z0-9_]*(?:/[a-zA-Z0-9_]+)+\.dart:\d+(?::\d+)?\)'
+    r'|at (?:java|android|kotlin|tvbox\.engine)\.[\w.$]+\([\w$]+\.(?:java|kt):\d+\))$',
+  );
+  static final _engineExit = RegExp(r'^引擎进程退出了（退出码 -?\d{1,10}）$');
+  static final _query = RegExp(r'\?[^\s#]*=[^\s]*');
+
+  static final _privateLine = RegExp(
+    r'''((?:\b(?:cookie|set-cookie|authorization|proxy-authorization|headers?|x-api-key|account|username|e-?mail)|请求头|账号)["']?\s*[:=：]\s*)[^\r\n]*''',
+    caseSensitive: false,
+  );
+  static final _absolutePath = RegExp(r'''(?:\b[A-Za-z]:[\\/]|\\\\[^\\\s]+\\|(?<![\w.~/])/(?=[\w.-]))[^\r\n]*''');
+  static final _email = RegExp(r'\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b', caseSensitive: false);
   static final _url = RegExp(r'''\b[a-zA-Z][a-zA-Z0-9+.\-]{1,15}://[^\s"'<>()\[\]{}`，。、；）]+''');
   static final _bearer = RegExp(r'\b((?:Bearer|Basic)\s+)(?!\*\*\*)[A-Za-z0-9._~+/=\-]{6,}', caseSensitive: false);
   static final _pair = RegExp(r'''(?<![A-Za-z0-9_\-])((?:"|')?(?:''' + _keyAlternatives() + r''')(?:"|')?)(\s*[=:]\s*"?)([^\s"&,;}]*)''', caseSensitive: false);

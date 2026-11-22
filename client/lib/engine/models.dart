@@ -1,5 +1,7 @@
 // Wire types of engine protocol v1 (docs/protocol.md).
 
+import 'source_diagnostic.dart';
+
 class EngineInfo {
   const EngineInfo({
     required this.name,
@@ -144,6 +146,7 @@ class ConfigSummary {
     this.stored = false,
     this.refreshing = false,
     this.refreshError = '',
+    this.refreshDiagnostic,
   });
 
   /// When the config in use was downloaded (epoch milliseconds); 0 when unknown.
@@ -157,6 +160,7 @@ class ConfigSummary {
 
   /// Why the last download failed while the config in use was kept; empty when it did not.
   final String refreshError;
+  final SourceDiagnostic? refreshDiagnostic;
 
   final String subscriptionId;
 
@@ -189,6 +193,7 @@ class ConfigSummary {
         stored: json['stored'] as bool? ?? false,
         refreshing: json['refreshing'] as bool? ?? false,
         refreshError: json['refreshError'] as String? ?? '',
+        refreshDiagnostic: SourceDiagnostic.tryParse(json['refreshDiagnostic']),
       );
 }
 
@@ -246,11 +251,12 @@ class SiteInfo {
 
 /// An error reported by the engine (`{"error": {"code", "message"}}`) or a transport failure.
 class EngineException implements Exception {
-  const EngineException(this.code, this.message, {this.statusCode});
+  const EngineException(this.code, this.message, {this.statusCode, this.diagnostic});
 
   final String code;
   final String message;
   final int? statusCode;
+  final SourceDiagnostic? diagnostic;
 
   @override
   String toString() => '$code: $message';

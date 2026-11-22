@@ -34,11 +34,13 @@ class _FakeLocalEngine implements LocalEngine {
 
   final List<String> output;
   int? startedOnPort;
+  bool? startedWithAndroidJni;
   bool get started => startedOnPort != null && output.isEmpty;
 
   @override
-  Future<bool> start(int port) async {
+  Future<bool> start(int port, {bool androidJni = false}) async {
     startedOnPort = port;
+    startedWithAndroidJni = androidJni;
     return true;
   }
 
@@ -84,9 +86,35 @@ void main() {
     );
     await state.start();
     expect(local.startedOnPort, 9978);
+    expect(local.startedWithAndroidJni, isFalse);
     expect(state.connected, isTrue);
     expect(state.startingEngine, isFalse);
     expect(state.error, isNull);
+  });
+
+  test('applies the local JNI preference to the next bundled engine launch', () async {
+    final settings = MemorySettings();
+    final engine = fakeEngine(hasConfig: true);
+    AppState createState(_FakeLocalEngine? local) => AppState(
+      settings: settings,
+      localEngine: local,
+      clientFactory: (url) => EngineClient(url, httpClient: _Gate(engine, () => local?.started == true)),
+      waitStep: const Duration(milliseconds: 1),
+    );
+
+    final running = _FakeLocalEngine();
+    final state = createState(running);
+    expect(state.canConfigureLocalJni, isTrue);
+    expect(createState(null).canConfigureLocalJni, isFalse);
+    await state.start();
+    await state.setLocalAndroidJni(true);
+    expect(running.startedWithAndroidJni, isFalse);
+
+    final next = _FakeLocalEngine();
+    final restarted = createState(next);
+    await restarted.start();
+    expect(restarted.localAndroidJni, isTrue);
+    expect(next.startedWithAndroidJni, isTrue);
   });
 
   test('does not start anything for a remote engine', () async {
@@ -98,6 +126,7 @@ void main() {
       waitStep: const Duration(milliseconds: 1),
     );
     await state.start();
+    expect(state.canConfigureLocalJni, isFalse);
     expect(local.startedOnPort, isNull);
     expect(state.connected, isFalse);
   });

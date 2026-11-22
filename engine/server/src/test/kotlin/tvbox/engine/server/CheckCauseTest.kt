@@ -1,7 +1,12 @@
 package tvbox.engine.server
 
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import tvbox.engine.core.model.SpiderDiagnostic
 
 /** Messages taken from real check reports: only what is the engine's goes in the 引擎兼容 column. */
 class CheckCauseTest {
@@ -35,5 +40,30 @@ class CheckCauseTest {
     @Test
     fun `a script that throws a linkage error is still the engine's`() {
         assertEquals("compat", cause("SPIDER_ERROR", "x: java.lang.NoClassDefFoundError: android/webkit/WebView"))
+    }
+
+    @Test
+    fun `current cause is classified independently from an earlier failure in shared Init`() {
+        val diagnostic = SpiderDiagnostic("spider.create", "source", "missing_spider", "ClassNotFoundException", "64ec3885f822", "UnsatisfiedLinkError")
+        assertEquals("site", Checker.cause("SPIDER_LOAD_FAILED", "UnsatisfiedLinkError", diagnostic))
+        assertEquals("compat", Checker.cause("SITE_ERROR", "", diagnostic.copy(kind = "missing_class")))
+        assertEquals("network", Checker.cause("SPIDER_LOAD_FAILED", "", diagnostic.copy(kind = "network")))
+        assertEquals("site", Checker.cause("SITE_ERROR", "UnsatisfiedLinkError", diagnostic.copy(kind = "other", cause = "IllegalArgumentException")))
+    }
+
+    @Test
+    fun `reports count partial recommendations separately and serialize the actual stage`() {
+        val warning = SpiderDiagnostic("spider.recommend", "source", "invalid_result", "SiteResultException")
+        val diagnostic = warning.copy(stage = "jar.fetch", kind = "network", cause = "IllegalStateException: HTTP 502")
+        val checks = listOf(Checker.ConfigCheck("sub", "sub", "sub", sites = listOf(
+            Checker.SiteCheck("source", "source", "jar", "pass", warning = warning),
+            Checker.SiteCheck("offline", "offline", "jar", "fail", "network", "home", diagnostic = diagnostic),
+        )))
+        val sites = Checker.json(checks).single().jsonObject.getValue("sites").jsonArray
+        assertEquals("spider.recommend", sites[0].jsonObject.getValue("warning").jsonObject.getValue("stage").jsonPrimitive.content)
+        assertEquals("jar.fetch", sites[1].jsonObject.getValue("diagnostic").jsonObject.getValue("stage").jsonPrimitive.content)
+        val report = Checker.markdown(checks, emptyList())
+        assertTrue("| jar.fetch | 1 | 0 |" in report)
+        assertTrue("| spider.recommend | 0 | 1 |" in report)
     }
 }

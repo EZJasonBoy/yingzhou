@@ -140,6 +140,21 @@ class SettingsPage extends StatelessWidget {
                   ),
                 ],
               ),
+              if (state.canConfigureLocalJni)
+                _card(
+                  context,
+                  title: '本机内置引擎',
+                  children: [
+                    SwitchListTile(
+                      key: const Key('local-android-jni'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('实验性 Android 原生库兼容（JNI）'),
+                      subtitle: const Text('供需要 Android 原生库的可信蜘蛛使用。重启映舟的内置引擎后生效。关闭时沿用系统环境变量；远程 NAS 请在引擎进程中设置 YINGZHOU_ANDROID_JNI。'),
+                      value: state.localAndroidJni,
+                      onChanged: state.setLocalAndroidJni,
+                    ),
+                  ],
+                ),
             ],
           ),
       ],

@@ -128,6 +128,8 @@ class DataCacheTest {
         val after = settled(second)
         assertTrue(after.stored, "still the copy")
         assertTrue(after.refreshError.contains("500"), after.refreshError)
+        assertEquals("config.fetch", after.refreshDiagnostic?.stage)
+        assertEquals("IOException: HTTP 500", after.refreshDiagnostic?.cause)
         assertThrows(EngineException::class.java) { runBlocking { second.reloadConfig() } }
         assertEquals(listOf("甲", "乙"), second.sites().map { it.name }, "a failed reload keeps the config in use")
     }

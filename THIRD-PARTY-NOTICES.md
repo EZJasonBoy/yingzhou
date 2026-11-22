@@ -76,6 +76,8 @@ SOFTWARE.
 ## Libraries
 
 - dex2jar (`de.femtopedia.dex2jar`) — Apache-2.0
+- [unidbg](https://github.com/zhkl0228/unidbg/tree/v0.9.8) (`unidbg-android`, `unidbg-api`, `unidbg-unicorn2` 0.9.8) — Apache-2.0 for unidbg's code. Used by the desktop engine for ARM Android JNI. The upstream artifacts also carry Android runtime libraries and the native [Unicorn](https://github.com/unicorn-engine/unicorn) emulator, which retain their upstream licences.
+- The unidbg runtime dependencies include `com.github.zhkl0228:unicorn:1.0.14`, `keystone:0.9.7`, `demumble:1.0.4` (their published POMs declare GPL v2) and `capstone:3.1.8` (BSD). Their native components retain their own notices. See [the upstream dependency declarations](https://repo.maven.apache.org/maven2/com/github/zhkl0228/).
 - android-json (`com.vaadin.external.google:android-json`, AOSP's org.json) — Apache-2.0
 - AndroidX Collection — Apache-2.0
 - ASM — BSD-3-Clause

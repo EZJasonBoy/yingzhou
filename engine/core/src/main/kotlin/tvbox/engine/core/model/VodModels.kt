@@ -45,6 +45,7 @@ data class HomeResult(
     /** Keyed by class id. */
     val filters: Map<String, List<VodFilter>> = emptyMap(),
     val list: List<VodCard> = emptyList(),
+    val warning: SpiderDiagnostic? = null,
 )
 
 @Serializable
@@ -161,6 +162,7 @@ data class SearchSiteEvent(
     val ms: Long = 0,
     val code: String? = null,
     val message: String? = null,
+    val diagnostic: SpiderDiagnostic? = null,
 )
 
 @Serializable

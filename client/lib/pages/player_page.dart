@@ -14,6 +14,7 @@ import '../engine/episode_names.dart';
 import '../engine/library_models.dart';
 import '../engine/media_extras_api.dart';
 import '../engine/models.dart' show EngineException;
+import '../engine/source_diagnostic.dart';
 import '../engine/source_finder.dart';
 import '../engine/vod_models.dart';
 import '../player_backend.dart';
@@ -200,7 +201,8 @@ class _PlayerPageState extends State<PlayerPage> {
   int? _resolveMs;
   int? _firstFrameMs;
   Stopwatch? _sinceOpen;
-  final _failedNotes = <String>[];
+  final _failedNotes = <({String detail, String shareSummary})>[];
+  String? _resolveFailure;
 
   bool get _anyPanelOpen => _panelOpen || _tracksOpen || _danmakuOpen || _chainOpen;
 
@@ -473,7 +475,7 @@ class _PlayerPageState extends State<PlayerPage> {
   /// The current line cannot play the episode ([why] in two words for the notice, [reason] in full for the error).
   /// Moves on to the next line, unless the user chose this one by hand or every line has had its turn: then the
   /// error is shown and the page is back on the line the round began on, ready to go again.
-  void _lineFailed(String why, String reason) {
+  void _lineFailed(String why, String reason, {SourceDiagnostic? issue}) {
     final played = _played;
     if (played != null && played.relay.isNotEmpty && !_onRelay) {
       unawaited(_toRelay(played));
@@ -487,12 +489,14 @@ class _PlayerPageState extends State<PlayerPage> {
     final resume = _reached();
     final failed = _lineLabel(_line);
     _failedLines.add(_line);
-    _failedNotes.add('${_currentLine.name.isEmpty ? '线路 ${_line + 1}' : _currentLine.name}：$reason');
+    final diagnostic = issue == null ? '' : '\n${issue.report}';
+    final shareSummary = '第 ${_line + 1} 条 · $why$diagnostic';
+    _failedNotes.add((detail: '${_currentLine.name.isEmpty ? '线路 ${_line + 1}' : _currentLine.name}：$reason$diagnostic', shareSummary: shareSummary));
     final next = _autoLine ? _nextLine() : null;
-    _log(DevLevel.warn, '线路', '$failed$why：$reason', {'站点': _detail.site, '选集': _currentEpisode.name, '选集地址': _currentEpisode.id});
+    _log(DevLevel.warn, '线路', '$failed$why：$reason', shareSummary: shareSummary, detail: {'站点': _detail.site, '选集': _currentEpisode.name, '选集地址': _currentEpisode.id});
     if (next != null) {
       final from = resume != null && resume > Duration.zero ? '，从 ${_TimeLabel.format(resume)} 接着播' : '';
-      _log(DevLevel.info, '线路', '换到${_lineLabel(next.$1)}$from');
+      _log(DevLevel.info, '线路', '换到${_lineLabel(next.$1)}$from', shareSummary: '切换到第 ${next.$1 + 1} 条线路');
       // Simple mode says what happened without naming lines, which it does not show anywhere.
       _showOsd(_simple ? '这条线路打不开，已换到下一条$from' : '$failed$why，已切到${_lineLabel(next.$1)}', const Duration(seconds: 4));
       _open(next.$1, next.$2, resume: resume, automatic: true);
@@ -519,7 +523,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
   /// Nothing more to try: [text] is shown, and the page is back on the line the round began on, ready to go again.
   void _giveUp(String text, Duration? resume) {
-    _log(DevLevel.error, '播放器', text.split('\n').first, {'经过': text});
+    _log(DevLevel.error, '播放器', text.split('\n').first, shareSummary: '尝试 ${_failedLines.length} 条线路后停止播放', detail: {'经过': text});
     _saveProgress();
     // Nothing that was under way counts any more, and nothing keeps loading behind the error.
     ++_requestSeq;
@@ -584,7 +588,7 @@ class _PlayerPageState extends State<PlayerPage> {
       });
       final from = resume != null && resume > Duration.zero ? '，从 ${_TimeLabel.format(resume)} 接着播' : '';
       _failedNotes.clear();
-      _log(DevLevel.info, '站点', '所有线路都没能播放，已换到「$site」$from', {'站点': card.site, 'vod_id': card.id});
+      _log(DevLevel.info, '站点', '所有线路都没能播放，已换到「$site」$from', shareSummary: '已换到另一站点', detail: {'站点': card.site, 'vod_id': card.id});
       _showOsd('已换到「$site」$from', const Duration(seconds: 5));
       sources.onSwitched(card, d);
       unawaited(_open(at.$1, at.$2, resume: resume, automatic: true));
@@ -629,6 +633,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _buffered.value = const [];
     _played = null;
     _onRelay = false;
+    _resolveFailure = null;
     _resolveMs = null;
     _firstFrameMs = null;
     _sinceOpen = null;
@@ -656,12 +661,17 @@ class _PlayerPageState extends State<PlayerPage> {
     try {
       info = await client.resolvePlay(_detail.site, _currentLine.name, _currentEpisode.id, direct: fetchDirect);
     } catch (e) {
-      if (mounted && seq == _requestSeq) _lineFailed('解析失败', '解析失败：${errorText(e)}');
+      if (mounted && seq == _requestSeq) {
+        final issue = e is EngineException ? e.diagnostic : null;
+        _resolveFailure = issue?.summary ?? '解析播放地址失败';
+        _resolveMs = asked.elapsedMilliseconds;
+        _lineFailed('解析失败', '解析失败：${errorText(e)}', issue: issue);
+      }
       return;
     }
     if (!mounted || seq != _requestSeq) return;
     _resolveMs = asked.elapsedMilliseconds;
-    _log(DevLevel.info, '解析', '${_lineLabel(line)} ${_currentEpisode.name} → ${info.isDirect ? (info.parsedBy.isEmpty ? '直链' : _parserLabel(info.parsedBy)) : '需要网页嗅探'} · $_resolveMs ms', {
+    _log(DevLevel.info, '解析', '${_lineLabel(line)} ${_currentEpisode.name} → ${info.isDirect ? (info.parsedBy.isEmpty ? '直链' : _parserLabel(info.parsedBy)) : '需要网页嗅探'} · $_resolveMs ms', shareSummary: '第 ${line + 1} 条 · ${info.isDirect ? '取得播放地址' : '需要网页嗅探'} · $_resolveMs ms', detail: {
       '站点': _detail.site,
       '选集地址': _currentEpisode.id,
       if (info.url.isNotEmpty) '播放地址': info.url,
@@ -726,7 +736,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _cacheKey = info.cache;
     _engineRanges = const [];
     _buffered.value = const [];
-    _log(DevLevel.warn, '播放器', '直连片源没能播放，改为经引擎播放', {'经引擎的地址': info.relay});
+    _log(DevLevel.warn, '播放器', '直连片源没能播放，改为经引擎播放', shareSummary: '改为经引擎播放', detail: {'经引擎的地址': info.relay});
     _showOsd('直连片源没能播放，改为经引擎播放', const Duration(seconds: 4));
     setState(() => _status = '正在缓冲…');
     await _player.stop();
@@ -734,15 +744,15 @@ class _PlayerPageState extends State<PlayerPage> {
     await _startPlayer(seq, info.relay, info.headers, engineCached: info.cache.isNotEmpty);
   }
 
-  void _log(DevLevel level, String module, String message, [Map<String, String> detail = const {}]) =>
-      DevLog.instance.add(level, module, message, detail: {'片名': _detail.name, ...detail});
+  void _log(DevLevel level, String module, String message, {required String shareSummary, Map<String, String> detail = const {}}) =>
+      DevLog.instance.add(level, module, message, detail: {'片名': _detail.name, ...detail}, shareSummary: shareSummary);
 
   /// The first picture of what was opened: how long it took, for the log and 链路.
   void _firstPicture() {
     final ms = _sinceOpen?.elapsedMilliseconds;
     if (ms == null) return;
     _firstFrameMs = ms;
-    _log(DevLevel.info, '播放器', '${_lineLabel(_line)} 出画面 · $ms ms');
+    _log(DevLevel.info, '播放器', '${_lineLabel(_line)} 出画面 · $ms ms', shareSummary: '第 ${_line + 1} 条 · 首帧 $ms ms');
     if (_chainOpen && mounted) setState(() {});
   }
 
@@ -758,6 +768,7 @@ class _PlayerPageState extends State<PlayerPage> {
       title: _detail.name,
       vodId: _detail.id,
       lineName: _currentLine.name,
+      lineNumber: _line + 1,
       lineCount: _detail.lines.length,
       episodeName: _currentEpisode.name,
       episodeId: _currentEpisode.id,
@@ -765,6 +776,7 @@ class _PlayerPageState extends State<PlayerPage> {
       onRelay: _onRelay,
       parser: played == null || _parsedBy.isEmpty ? '直链，不用解析' : _parserLabel(_parsedBy),
       resolveMs: _resolveMs,
+      resolveFailed: _resolveFailure != null,
       firstFrameMs: _firstFrameMs,
       failed: List.of(_failedNotes),
     );
@@ -1116,7 +1128,7 @@ class _PlayerPageState extends State<PlayerPage> {
                     ),
                   ),
                 // Developer mode: the statistics, under the top bar; clicks go through to the picture.
-                if (_statsOpen && !pip) Positioned(left: 16, top: 64, child: IgnorePointer(child: PlayerStatsOverlay(player: _player))),
+                if (_statsOpen && !pip) Positioned(left: 16, top: 64, child: IgnorePointer(child: PlayerStatsOverlay(player: _player, sourceFailure: _resolveFailure))),
                 if (!pip) _buildStatus(),
                 if (_osd != null && !pip)
                   IgnorePointer(

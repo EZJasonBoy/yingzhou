@@ -36,33 +36,48 @@ class SpiderSource(
         spider ?: runtime.create(bean, bean.ext).also { spider = it }
     }
 
-    override suspend fun home(): HomeResult {
-        val sp = spider()
-        val home = TvboxResult.parseHome(bean.key, sp.home(true).orEmptyObject())
-        if (home.list.isNotEmpty()) return home
-        // Like TVBox: when home has no videos, ask homeVideoContent for the "推荐" list.
-        val vod = runCatching { sp.homeVod() }.getOrNull()
-        val list = if (vod.isNullOrBlank()) emptyList() else runCatching { TvboxResult.parseList(bean.key, vod).list }.getOrDefault(emptyList())
-        return home.copy(list = list)
+    private inline fun <T> Spider.readResult(stage: String, read: () -> T): T = try {
+        read()
+    } catch (error: SiteResultException) {
+        val diagnostic = diagnostic(bean.key, stage, error)
+        System.err.println(diagnostic.summary())
+        throw SpiderLoadException(diagnostic.summary(), error, "SITE_BAD_RESULT", diagnostic)
     }
 
-    override suspend fun category(classId: String, page: Int, filters: Map<String, String>): VodPage =
-        TvboxResult.parseList(bean.key, spider().category(classId, page.toString(), true, filters).orEmptyObject())
+    override suspend fun home(): HomeResult {
+        val sp = spider()
+        val home = sp.readResult("spider.home") { TvboxResult.parseHome(bean.key, sp.home(true).orEmptyObject()) }
+        if (home.list.isNotEmpty()) return home
+        // Like TVBox: when home has no videos, ask homeVideoContent for the "推荐" list.
+        return try {
+            val vod = sp.homeVod()
+            if (vod.isNullOrBlank()) home else home.copy(list = TvboxResult.parseList(bean.key, vod).list)
+        } catch (error: Throwable) {
+            val warning = (error as? SpiderLoadException)?.diagnostic ?: sp.diagnostic(bean.key, "spider.recommend", error).also { System.err.println(it.summary()) }
+            home.copy(warning = warning)
+        }
+    }
 
-    override suspend fun detail(id: String): VodDetail =
-        TvboxResult.parseDetail(bean.key, spider().detail(id) ?: throw SiteResultException("detail is empty"))
+    override suspend fun category(classId: String, page: Int, filters: Map<String, String>): VodPage = spider().run {
+        readResult("spider.category") { TvboxResult.parseList(bean.key, category(classId, page.toString(), true, filters).orEmptyObject()) }
+    }
 
-    override suspend fun search(keyword: String, quick: Boolean, page: Int): VodPage =
-        TvboxResult.parseList(bean.key, spider().search(keyword, quick, page.toString()).orEmptyObject())
+    override suspend fun detail(id: String): VodDetail = spider().run {
+        readResult("spider.detail") { TvboxResult.parseDetail(bean.key, detail(id) ?: throw SiteResultException("detail is empty")) }
+    }
 
-    override suspend fun play(line: String, episodeId: String): RawPlay {
-        val text = spider().play(line, episodeId, vipFlags())
-        if (text.isNullOrBlank()) {
+    override suspend fun search(keyword: String, quick: Boolean, page: Int): VodPage = spider().run {
+        readResult("spider.search") { TvboxResult.parseList(bean.key, search(keyword, quick, page.toString()).orEmptyObject()) }
+    }
+
+    override suspend fun play(line: String, episodeId: String): RawPlay = spider().run {
+        val text = play(line, episodeId, vipFlags())
+        readResult("spider.play") {
+            if (!text.isNullOrBlank()) return@readResult PlayerResult.parse(text, defaultUrl = if (episodeId.startsWith("http")) episodeId else "", flag = line)
             // TVBox plays an http id directly when the spider has no answer.
-            if (episodeId.startsWith("http://") || episodeId.startsWith("https://")) return RawPlay(url = episodeId, flag = line)
+            if (episodeId.startsWith("http://") || episodeId.startsWith("https://")) return@readResult RawPlay(url = episodeId, flag = line)
             throw SiteResultException("spider returned no play info")
         }
-        return PlayerResult.parse(text, defaultUrl = if (episodeId.startsWith("http")) episodeId else "", flag = line)
     }
 
     suspend fun proxy(params: Map<String, String>): ProxyResponse? = spider().proxy(params)

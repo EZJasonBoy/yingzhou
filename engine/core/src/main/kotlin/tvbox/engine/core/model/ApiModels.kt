@@ -124,6 +124,7 @@ data class ConfigSummary(
     val refreshing: Boolean = false,
     /** Why the last download failed while the config in use was kept; empty when it did not fail. */
     val refreshError: String = "",
+    val refreshDiagnostic: SpiderDiagnostic? = null,
 )
 
 @Serializable
@@ -147,6 +148,17 @@ data class SiteInfo(
 data class ApiError(
     val code: String,
     val message: String,
+    val diagnostic: SpiderDiagnostic? = null,
+)
+
+@Serializable
+data class SpiderDiagnostic(
+    val stage: String,
+    val site: String,
+    val kind: String,
+    val cause: String,
+    val archive: String? = null,
+    val initCause: String? = null,
 )
 
 @Serializable

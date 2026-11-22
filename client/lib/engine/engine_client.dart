@@ -6,6 +6,7 @@ import 'library_models.dart';
 import 'live_models.dart';
 import 'models.dart';
 import 'network_models.dart';
+import 'source_diagnostic.dart';
 import 'stream_cache_models.dart';
 import 'vod_models.dart';
 
@@ -21,6 +22,7 @@ class EngineClient {
 
   /// Called when the engine refuses the token (none, wrong or revoked): the app goes back to pairing.
   void Function(EngineException error)? onUnauthorized;
+  void Function(SourceDiagnostic issue, {required bool warning})? onSourceIssue;
   final http.Client _http;
 
   static const timeout = Duration(seconds: 60);
@@ -44,9 +46,20 @@ class EngineClient {
 
   /// Loads a subscription. For a multi-repository subscription, [repo] picks the entry (default: first).
   Future<ConfigSummary> activate(String id, {String? repo}) async =>
-      ConfigSummary.fromJson(await _send('POST', 'subscriptions/$id/activate', body: {'repo': ?repo}));
+      _configResult(await _send('POST', 'subscriptions/$id/activate', body: {'repo': ?repo}));
 
-  Future<ConfigSummary> config() async => ConfigSummary.fromJson(await _send('GET', 'config'));
+  Future<ConfigSummary> config() async => _configResult(await _send('GET', 'config'));
+
+  (String, String, String)? _lastRefreshWarning;
+
+  ConfigSummary _configResult(Map<String, dynamic> json) {
+    final result = ConfigSummary.fromJson(json);
+    final warning = result.refreshDiagnostic;
+    final key = warning == null ? null : (result.subscriptionId, result.url, warning.report);
+    if (warning != null && key != _lastRefreshWarning) onSourceIssue?.call(warning, warning: true);
+    _lastRefreshWarning = key;
+    return result;
+  }
 
   Future<EngineSettings> settings() async => EngineSettings.fromJson(await _send('GET', 'settings'));
 
@@ -73,8 +86,11 @@ class EngineClient {
 
   // With [refresh] the engine asks the site now instead of answering from what it kept.
 
-  Future<HomeResult> home(String site, {bool refresh = false}) async =>
-      HomeResult.fromJson(await _send('GET', 'sites/${_seg(site)}/home', query: {if (refresh) 'refresh': '1'}));
+  Future<HomeResult> home(String site, {bool refresh = false}) async {
+    final home = HomeResult.fromJson(await _send('GET', 'sites/${_seg(site)}/home', query: {if (refresh) 'refresh': '1'}));
+    if (home.warning case final issue?) onSourceIssue?.call(issue, warning: true);
+    return home;
+  }
 
   Future<VodPage> category(String site, String classId, {int page = 1, Map<String, String> filters = const {}, bool refresh = false}) async =>
       VodPage.fromJson(
@@ -89,7 +105,7 @@ class EngineClient {
       VodDetail.fromJson(await _send('GET', 'sites/${_seg(site)}/detail', query: {'id': id, if (refresh) 'refresh': '1'}));
 
   /// Downloads the active config again; throws when that fails (the config in use stays).
-  Future<ConfigSummary> reloadConfig() async => ConfigSummary.fromJson(await _send('POST', 'config/reload'));
+  Future<ConfigSummary> reloadConfig() async => _configResult(await _send('POST', 'config/reload'));
 
   Future<CacheInfo> cacheInfo() async => CacheInfo.fromJson(await _send('GET', 'cache'));
 
@@ -193,7 +209,9 @@ class EngineClient {
           final json = jsonDecode(data.toString()) as Map<String, dynamic>;
           switch (event) {
             case 'site':
-              yield SearchSiteStatus.fromJson(json);
+              final status = SearchSiteStatus.fromJson(json);
+              if (status.status == 'error' && status.diagnostic != null) onSourceIssue?.call(status.diagnostic!, warning: false);
+              yield status;
             case 'results':
               yield SearchResults.fromJson(json);
             case 'end':
@@ -253,6 +271,7 @@ class EngineClient {
 
   EngineException _error(int status, String text) {
     final e = _parseError(status, text);
+    if (e.diagnostic case final issue?) onSourceIssue?.call(issue, warning: false);
     if (status == 401) onUnauthorized?.call(e);
     return e;
   }
@@ -260,7 +279,7 @@ class EngineClient {
   EngineException _parseError(int status, String text) {
     try {
       final error = (jsonDecode(text) as Map<String, dynamic>)['error'] as Map<String, dynamic>;
-      return EngineException(error['code'] as String, error['message'] as String, statusCode: status);
+      return EngineException(error['code'] as String, error['message'] as String, statusCode: status, diagnostic: SourceDiagnostic.tryParse(error['diagnostic']));
     } catch (_) {
       return EngineException('HTTP_$status', text, statusCode: status);
     }

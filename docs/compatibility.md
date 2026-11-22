@@ -114,11 +114,15 @@ Web 版浏览器不允许设置 Referer / Cookie / User-Agent，这些封面在 
 | `api` 的样子 | 运行时 | Windows / macOS | Android | 说明 |
 |---|---|---|---|---|
 | `csp_Xxx` | jar | ✅ | ✅ | 桌面上把 dex 转成 JVM 字节码，配安卓桩类运行 |
-| `csp_Xxx`，jar 带 native 壳（加固） | jar | ⬜ | ✅ | 桌面计划用 unidbg |
+| `csp_Xxx`，jar 带 Android 原生库 | jar | 🟡 实验性 | ✅ | 桌面引擎可用 unidbg 调用包内 ARM32 / ARM64 JNI，支持范围见下 |
 | `….js` | js | ✅ | ✅ | QuickJS，含 drpy 用到的宿主函数 |
 | `….py`（`api` 里含 `.py`） | py | ✅（要有 Python 3.8+） | ⬜ | 引擎另起一个 Python 进程运行，见下面"Python 蜘蛛"；安卓内置引擎没有 Python，「源」页标"需要 Python" |
 
 jar 蜘蛛在桌面上依赖的安卓类是桩类，覆盖了常见用法（`Context`、`SharedPreferences`、`Base64`、`Log`、`Looper`、`Bitmap` 等）。用到没有桩的类时会在引擎日志里列出来。
+
+桌面引擎为每个蜘蛛包提供自己的类加载器和 `assets/` 资源。在开发者模式的「设置 → 开发者 → 本机内置引擎」打开 **实验性 Android 原生库兼容（JNI）**，退出并重开映舟。独立桌面或 NAS 引擎在启动进程前设置 `YINGZHOU_ANDROID_JNI=1`。默认关闭，只对自己信任的蜘蛛开启。蜘蛛的 Java 代码仍以引擎进程的权限运行。
+
+此路径可以调用随包提供、每个不超过 32 MiB 的 Android ARM 共享库。已在 Windows x64 用自建 `armeabi-v7a`、`arm64-v8a` 样例验证 JNI 初始化和方法调用。依赖完整 Android 系统服务、额外可执行文件、未随包提供的库或尚未支持的 JNI 签名时仍可能失败。某个站点能否播放还取决于订阅下载、站点返回和播放解析。可在出错处打开「查看故障报告」区分这些环节。
 
 ### Python 蜘蛛
 

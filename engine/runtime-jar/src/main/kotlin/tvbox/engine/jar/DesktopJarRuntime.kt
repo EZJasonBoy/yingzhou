@@ -2,6 +2,8 @@ package tvbox.engine.jar
 
 import android.app.Application
 import android.content.Context
+import android.content.res.AssetManager
+import android.content.res.Resources
 import dalvik.system.BaseDexClassLoader
 import tvbox.engine.core.spider.JarRepository
 import tvbox.engine.jarhost.HostBridge
@@ -18,7 +20,7 @@ import java.net.URLClassLoader
  * @param cacheDir where converted jars are cached
  */
 class DesktopJarRuntime(
-    dataDir: File,
+    private val dataDir: File,
     jars: JarRepository,
     port: () -> Int,
     cacheDir: File,
@@ -31,8 +33,18 @@ class DesktopJarRuntime(
         BaseDexClassLoader.converter = BaseDexClassLoader.Converter { converter.convert(it) }
     }
 
-    override fun classLoader(jar: File): ClassLoader =
-        URLClassLoader(arrayOf(converter.convert(jar).toURI().toURL()), DesktopJarRuntime::class.java.classLoader)
+    override fun classLoader(jar: File): ClassLoader = AndroidJniLoader.open(converter.convert(jar), dataDir)
+
+    override val retireUnusedLoaders = System.getenv("YINGZHOU_ANDROID_JNI") == "1"
+
+    override fun releaseLoader(loader: ClassLoader) {
+        if (loader is AndroidJniLoader) java.util.concurrent.CompletableFuture.runAsync { loader.close() }
+    }
+
+    override fun contextFor(loader: ClassLoader, archive: File): Context {
+        val converted = File((loader as URLClassLoader).urLs.single().toURI())
+        return Application(loader, Resources(AssetManager(converted)))
+    }
 
     private companion object {
         fun desktopApplication(dataDir: File, port: () -> Int): Context {

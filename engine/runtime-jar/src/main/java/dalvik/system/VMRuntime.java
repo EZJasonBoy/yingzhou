@@ -9,8 +9,6 @@ package dalvik.system;
  *   宿主没有这个类 → 反射链拿不到 Method → 壳内 VM {@code invoke(null)} → NPE（message 为 null），
  *   现象即 `[FishSoLoader] prepare failed: NullPointerException: null` + `prepare returned empty`。
  *
- * 语义选择：宿主用 unidbg 执行的是 **AArch64** .so（见 resources/jvm/native-bridge 的 ELF 判位），
- * 因此指令集固定报 {@code arm64}、is64Bit 报 true —— 与桥实际加载的 .so 保持一致。
  */
 public final class VMRuntime {
 
@@ -29,14 +27,12 @@ public final class VMRuntime {
         return INSTANCE;
     }
 
-    /** 当前进程指令集：arm64 / arm / x86_64 / x86 / none。宿主桥跑 AArch64 → arm64。 */
     public String vmInstructionSet() {
-        return "arm64";
+        return getCurrentInstructionSet();
     }
 
-    /** 静态版（API 23+）：返回「设备首选指令集」，同样按 arm64。 */
     public static String getCurrentInstructionSet() {
-        return "arm64";
+        return tvbox.engine.jar.AndroidJniLoader.callerIs64Bit() ? "arm64" : "arm";
     }
 
     public String vmLibrary() {
@@ -48,7 +44,7 @@ public final class VMRuntime {
     }
 
     public boolean is64Bit() {
-        return true;
+        return tvbox.engine.jar.AndroidJniLoader.callerIs64Bit();
     }
 
     public boolean isJavaDebuggable() {
@@ -134,6 +130,6 @@ public final class VMRuntime {
     }
 
     public String toString() {
-        return "VMRuntime[arm64, targetSdk=" + targetSdkVersion + "]";
+        return "VMRuntime[" + vmInstructionSet() + ", targetSdk=" + targetSdkVersion + "]";
     }
 }

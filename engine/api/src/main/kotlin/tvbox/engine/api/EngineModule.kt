@@ -94,7 +94,7 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
                 is EngineException.Unsupported -> HttpStatusCode.NotImplemented
                 is EngineException.SiteFailed -> HttpStatusCode.BadGateway
             }
-            call.respond(status, ErrorBody(ApiError(e.code, e.message ?: "")))
+            call.respond(status, ErrorBody(ApiError(e.code, e.message ?: "", e.diagnostic)))
         }
         exception<BadRequestException> { call, e ->
             call.respond(HttpStatusCode.BadRequest, ErrorBody(ApiError("BAD_REQUEST", e.message ?: "bad request")))

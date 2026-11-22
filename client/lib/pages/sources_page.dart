@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
+import '../diagnostics/diagnostics_page.dart' show SourceReportButton;
 import '../engine/models.dart';
 import '../ui/device_form.dart';
 import '../ui/phone_input.dart';
@@ -39,6 +40,8 @@ class _SourcesPageState extends State<SourcesPage> {
     final scheme = Theme.of(context).colorScheme;
     final info = state.info;
     final summary = state.summary;
+    final loadError = state.error ?? (summary == null ? state.configError : null);
+    final issue = state.error != null ? state.actionDiagnostic : state.configDiagnostic;
 
     final engine = _card(
       context,
@@ -120,11 +123,12 @@ class _SourcesPageState extends State<SourcesPage> {
           ),
         ),
         if (state.busy) const Padding(padding: EdgeInsets.only(top: 12), child: LinearProgressIndicator()),
-        if (state.error != null) ...[
+        if (loadError != null) ...[
           Padding(
             padding: const EdgeInsets.only(top: 12),
-            child: Text(state.error!, style: TextStyle(color: scheme.error)),
+            child: Text(loadError, style: TextStyle(color: scheme.error)),
           ),
+          if (issue != null) SourceReportButton(issues: [issue]),
           // A subscription that does not load is often a network matter: the way there is right here.
           const _NetworkRoute(failed: true),
         ],

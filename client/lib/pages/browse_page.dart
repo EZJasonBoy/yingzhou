@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
+import '../diagnostics/diagnostics_page.dart' show SourceReportButton;
 import '../engine/engine_client.dart';
 import '../engine/models.dart';
 import '../engine/vod_models.dart';
@@ -58,7 +59,8 @@ class _BrowsePageState extends State<BrowsePage> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [CircularProgressIndicator(), SizedBox(height: 16), Text('正在加载订阅…')]),
       );
     } else if (!state.hasConfig && state.configError != null) {
-      body = StatusView(icon: Icons.cloud_off, message: '订阅加载失败\n${state.configError}', actionLabel: '重试', onAction: state.reloadConfig);
+      final issue = state.configDiagnostic;
+      body = StatusView(icon: Icons.cloud_off, message: '订阅加载失败\n${state.configError}', actionLabel: '重试', onAction: state.reloadConfig, extraAction: issue == null ? null : SourceReportButton(issues: [issue]));
     } else if (!state.hasConfig) {
       body = StatusView(icon: Icons.playlist_add, message: '还没有导入订阅', actionLabel: '导入订阅', onAction: onOpenSources);
     } else if (site == null) {
@@ -175,6 +177,7 @@ class _SiteBrowserState extends State<_SiteBrowser> {
             message: '${widget.site.name} 加载失败\n${errorText(snap.error)}',
             actionLabel: '重试',
             onAction: () => setState(_load),
+            extraAction: sourceReportFor(snap.error),
           );
         }
         final (home, watched) = snap.data!;
@@ -182,6 +185,9 @@ class _SiteBrowserState extends State<_SiteBrowser> {
         final hasRecommend = home.list.isNotEmpty;
         final tabs = [if (simple) '继续看', if (hasRecommend) '推荐', for (final c in home.classes) c.name];
         if (tabs.isEmpty) {
+          if (home.warning case final issue?) {
+            return StatusView(icon: Icons.warning_amber_rounded, message: issue.summary, extraAction: SourceReportButton(issues: [issue]));
+          }
           return const StatusView(icon: Icons.inbox, message: '这个站点没有返回分类');
         }
         return DefaultTabController(
@@ -190,6 +196,11 @@ class _SiteBrowserState extends State<_SiteBrowser> {
           initialIndex: simple && !watched && tabs.length > 1 ? 1 : 0,
           child: Column(
             children: [
+              if (home.warning case final issue?)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(children: [Expanded(child: Text(issue.summary)), SourceReportButton(issues: [issue])]),
+                ),
               Align(
                 alignment: Alignment.centerLeft,
                 child: Builder(
@@ -527,7 +538,7 @@ class _VodGridState extends State<_VodGrid> {
   Widget build(BuildContext context) {
     if (widget.items.isEmpty) {
       if (widget.error != null) {
-        return StatusView(icon: Icons.cloud_off, message: '加载失败\n${errorText(widget.error)}', actionLabel: '重试', onAction: widget.onLoadMore);
+        return StatusView(icon: Icons.cloud_off, message: '加载失败\n${errorText(widget.error)}', actionLabel: '重试', onAction: widget.onLoadMore, extraAction: sourceReportFor(widget.error));
       }
       if (widget.loading) return const LoadingView();
       return const StatusView(icon: Icons.inbox_outlined, message: '这里还没有内容');
@@ -567,4 +578,9 @@ class _VodGridState extends State<_VodGrid> {
   }
 }
 
-String errorText(Object? error) => error is EngineException ? error.message : '$error';
+String errorText(Object? error) => error is EngineException ? error.diagnostic?.summary ?? error.message : '$error';
+
+Widget? sourceReportFor(Object? error) => switch (error) {
+  EngineException(diagnostic: final issue?) => SourceReportButton(issues: [issue]),
+  _ => null,
+};

@@ -8,14 +8,18 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
 import tvbox.engine.core.Engine
 import tvbox.engine.core.EngineException
 import tvbox.engine.core.model.PlayRequest
 import tvbox.engine.core.model.SiteInfo
+import tvbox.engine.core.model.SpiderDiagnostic
+import tvbox.engine.core.spider.summary
 import java.text.SimpleDateFormat
 import java.util.Date
 
@@ -70,6 +74,8 @@ class Checker(private val engine: Engine, private val options: Options, private 
         val episodes: Int = 0,
         val play: String = "",
         val ms: Long = 0,
+        val diagnostic: SpiderDiagnostic? = null,
+        val warning: SpiderDiagnostic? = null,
     )
 
     data class LiveCheck(
@@ -80,6 +86,7 @@ class Checker(private val engine: Engine, private val options: Options, private 
         val groups: Int = 0,
         val channels: Int = 0,
         val epg: String = "",
+        val diagnostic: SpiderDiagnostic? = null,
     )
 
     data class ConfigCheck(
@@ -91,6 +98,7 @@ class Checker(private val engine: Engine, private val options: Options, private 
         val sameAs: String = "",
         val sites: List<SiteCheck> = emptyList(),
         val lives: List<LiveCheck> = emptyList(),
+        val diagnostic: SpiderDiagnostic? = null,
     )
 
     /** Configs already checked, by their sites: mirrors of one config are checked once. */
@@ -112,7 +120,7 @@ class Checker(private val engine: Engine, private val options: Options, private 
                 engine.activate(id)
             } catch (e: EngineException) {
                 log("[配置失败] $input: ${e.message}")
-                out += ConfigCheck(input, input, input, error = e.message ?: e.code)
+                out += ConfigCheck(input, input, input, error = e.message ?: e.code, diagnostic = e.diagnostic)
                 continue
             }
             if (first.repos.isEmpty()) {
@@ -131,7 +139,7 @@ class Checker(private val engine: Engine, private val options: Options, private 
                     engine.activate(id, url)
                 } catch (e: EngineException) {
                     log("[配置失败] ${names[url]}: ${e.message}")
-                    out += ConfigCheck(input, names[url] ?: url, url, error = e.message ?: e.code)
+                    out += ConfigCheck(input, names[url] ?: url, url, error = e.message ?: e.code, diagnostic = e.diagnostic)
                     // A list that opened but had no working entry still told us its entries.
                     runCatching { engine.summary().repos }.getOrDefault(emptyList()).forEach { names.putIfAbsent(it.url, it.name) }
                     continue
@@ -188,14 +196,17 @@ class Checker(private val engine: Engine, private val options: Options, private 
         try {
             val home = withTimeout(options.stepTimeoutMs) { engine.home(site.key) }
             var items = home.list
-            check = check.copy(classes = home.classes.size, items = items.size)
+            check = check.copy(classes = home.classes.size, items = items.size, warning = home.warning)
+            if (home.classes.isEmpty() && items.isEmpty()) {
+                val warning = home.warning ?: return done().copy(verdict = "empty", step = "home", message = "首页没有分类也没有影片")
+                return done().copy(verdict = "fail", cause = cause("SITE_ERROR", warning.summary(), warning), step = "home", message = warning.summary(), diagnostic = warning, warning = null)
+            }
             if (home.classes.isNotEmpty()) {
                 step = "category"
                 val page = withTimeout(options.stepTimeoutMs) { engine.category(site.key, home.classes.first().id, 1, emptyMap()) }
                 if (page.list.isNotEmpty()) items = page.list
                 check = check.copy(items = maxOf(check.items, page.list.size))
             }
-            if (home.classes.isEmpty() && items.isEmpty()) return done().copy(verdict = "empty", step = "home", message = "首页没有分类也没有影片")
             if (items.isEmpty()) return done().copy(verdict = "empty", step = step, message = "第一个分类下没有影片")
             // A recommendation site (Douban) lists videos that are found by their title on the other sites.
             var item = firstToOpen(items.map { it.id })?.let { i -> items[i] } ?: return done().copy(message = RECOMMENDATION)
@@ -234,7 +245,8 @@ class Checker(private val engine: Engine, private val options: Options, private 
                 log("  [跳过] ${site.name} (${site.runtime}) $code: ${message.take(200)}")
                 return done().copy(verdict = "skipped", step = step, message = "$code: ${message.take(300)}")
             }
-            return done().copy(verdict = "fail", cause = cause(code, message), step = step, message = "$code: ${message.replace(Regex("\\s+"), " ").take(300)}")
+            val diagnostic = (e as? EngineException.SiteFailed)?.diagnostic
+            return done().copy(verdict = "fail", cause = cause(code, message, diagnostic), step = step, message = "$code: ${message.replace(Regex("\\s+"), " ").take(300)}", diagnostic = diagnostic)
         }
     }
 
@@ -274,8 +286,9 @@ class Checker(private val engine: Engine, private val options: Options, private 
                 if (e is CancellationException && e !is TimeoutCancellationException) throw e
                 val code = (e as? EngineException)?.code ?: if (e is TimeoutCancellationException) "SITE_TIMEOUT" else "SITE_ERROR"
                 val message = e.message ?: e.javaClass.simpleName
+                val diagnostic = (e as? EngineException.SiteFailed)?.diagnostic
                 if (code in MACHINE_GAPS) LiveCheck(source.name, "skipped", message = "$code: ${message.take(300)}")
-                else LiveCheck(source.name, "fail", if (code == "UNSUPPORTED_SITE") "unsupported" else cause(code, message), "$code: ${message.take(300)}")
+                else LiveCheck(source.name, "fail", cause(code, message, diagnostic), "$code: ${message.take(300)}", diagnostic = diagnostic)
             }
             log("  [直播 ${label(check.verdict, check.cause)}] ${check.name}: " + if (check.verdict == "pass") "${check.groups} 组 ${check.channels} 个频道，${check.epg}" else check.message)
             check
@@ -288,7 +301,8 @@ class Checker(private val engine: Engine, private val options: Options, private 
                 (if (c.message.isNotEmpty()) c.message else "详情 ${c.lines} 条线路 ${c.episodes} 集") + (if (c.play.isEmpty()) "" else "，播放 ${c.play}")
             else -> "${c.step}: ${c.message}"
         }
-        return "  [${label(c.verdict, c.cause)}] ${c.name} (${c.runtime}) $what  ${c.ms}ms"
+        val warning = c.warning?.let { "，推荐异常 ${it.summary()}" }.orEmpty()
+        return "  [${label(c.verdict, c.cause)}] ${c.name} (${c.runtime}) $what$warning  ${c.ms}ms"
     }
 
     companion object {
@@ -324,6 +338,13 @@ class Checker(private val engine: Engine, private val options: Options, private 
         private val NOT_IN_JAR = Regex("is not in the jar")
 
         /** Whose failure it is, from the engine's error code and message. */
+        fun cause(code: String, message: String, diagnostic: SpiderDiagnostic?): String = when (diagnostic?.kind) {
+            "network" -> "network"
+            "native", "command", "missing_class", "missing_member" -> "compat"
+            "missing_spider", "invalid_result" -> "site"
+            else -> cause(code, diagnostic?.cause ?: message)
+        }
+
         fun cause(code: String, message: String): String = when {
             code == "UNSUPPORTED_SITE" -> "unsupported"
             NOT_IN_JAR.containsMatchIn(message) -> "site"
@@ -386,6 +407,16 @@ class Checker(private val engine: Engine, private val options: Options, private 
                         "${c.lives.count { it.verdict == "pass" }}/${c.lives.count { it.verdict != "skipped" }} |",
                 )
             }
+            val stages = configs.flatMap { config ->
+                listOfNotNull(config.diagnostic) + config.sites.mapNotNull { it.diagnostic } + config.lives.mapNotNull { it.diagnostic }
+            }.groupingBy { it.stage }.eachCount()
+            val warnings = configs.flatMap { config -> config.sites.mapNotNull { it.warning } }.groupingBy { it.stage }.eachCount()
+            if (stages.isNotEmpty() || warnings.isNotEmpty()) {
+                appendLine()
+                appendLine("| 故障阶段 | 故障 | 警告 |")
+                appendLine("|---|---|---|")
+                for (stage in (stages.keys + warnings.keys).sorted()) appendLine("| ${cell(stage)} | ${stages[stage] ?: 0} | ${warnings[stage] ?: 0} |")
+            }
             for (c in configs) {
                 appendLine()
                 appendLine("## ${c.name}")
@@ -425,6 +456,9 @@ class Checker(private val engine: Engine, private val options: Options, private 
                     passed.forEach { appendLine("| ${cell(it.name)} | ${it.runtime} | ${it.classes} | ${it.items} | ${it.lines} | ${it.episodes} | ${cell(it.play.ifEmpty { it.message })} | ${it.ms}ms |") }
                     appendLine()
                 }
+                c.sites.forEach { site ->
+                    site.warning?.let { appendLine("- ${cell(site.name)} 的首页推荐异常：${cell(it.summary())}") }
+                }
                 if (c.lives.isNotEmpty()) {
                     appendLine("### 直播源（${c.lives.size}）")
                     appendLine()
@@ -443,6 +477,7 @@ class Checker(private val engine: Engine, private val options: Options, private 
                     put("name", c.name)
                     put("url", c.url)
                     put("error", c.error)
+                    c.diagnostic?.let { put("diagnostic", Json.encodeToJsonElement(it)) }
                     put("sameAs", c.sameAs)
                     put("sites", JsonArray(c.sites.map { site(it) }))
                     put(
@@ -452,6 +487,7 @@ class Checker(private val engine: Engine, private val options: Options, private 
                                 buildJsonObject {
                                     put("name", it.name); put("verdict", it.verdict); put("cause", it.cause); put("message", it.message)
                                     put("groups", it.groups); put("channels", it.channels); put("epg", it.epg)
+                                    it.diagnostic?.let { diagnostic -> put("diagnostic", Json.encodeToJsonElement(diagnostic)) }
                                 }
                             },
                         ),
@@ -464,6 +500,8 @@ class Checker(private val engine: Engine, private val options: Options, private 
             put("key", s.key); put("name", s.name); put("runtime", s.runtime); put("verdict", s.verdict); put("cause", s.cause)
             put("step", s.step); put("message", s.message); put("classes", s.classes); put("items", s.items)
             put("lines", s.lines); put("episodes", s.episodes); put("play", s.play); put("ms", s.ms)
+            s.diagnostic?.let { put("diagnostic", Json.encodeToJsonElement(it)) }
+            s.warning?.let { put("warning", Json.encodeToJsonElement(it)) }
         }
     }
 }

@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
+import '../diagnostics/diagnostics_page.dart' show SourceReportButton;
 import '../engine/models.dart';
 import '../ui/poster_cache.dart';
 
@@ -34,12 +35,13 @@ class ConfigFreshness extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final when = summary.fetchedAt > 0 ? formatFetchedAt(summary.fetchedAt) : null;
-    final failed = summary.refreshError.isNotEmpty;
+    final issue = summary.refreshDiagnostic;
+    final failed = summary.refreshError.isNotEmpty || issue != null;
     final String text;
     if (summary.refreshing) {
       text = '先用着${when == null ? '' : ' $when '}保存的副本，正在后台获取最新的…';
     } else if (failed) {
-      text = '没能获取到最新的订阅，用的是${when == null ? '之前' : ' $when '}保存的副本\n${summary.refreshError}';
+      text = '没能获取到最新的订阅，用的是${when == null ? '之前' : ' $when '}保存的副本\n${issue?.summary ?? summary.refreshError}';
     } else if (summary.stored) {
       text = '用的是${when == null ? '之前' : ' $when '}保存的副本';
     } else {
@@ -50,12 +52,12 @@ class ConfigFreshness extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: Text(
-              text,
-              key: const Key('config-freshness'),
-              style: theme.textTheme.bodySmall?.copyWith(color: failed ? scheme.error : scheme.onSurfaceVariant),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(text, key: const Key('config-freshness'), style: theme.textTheme.bodySmall?.copyWith(color: failed ? scheme.error : scheme.onSurfaceVariant), maxLines: 3, overflow: TextOverflow.ellipsis),
+                if (issue != null && !summary.refreshing) SourceReportButton(issues: [issue]),
+              ],
             ),
           ),
           const SizedBox(width: 12),

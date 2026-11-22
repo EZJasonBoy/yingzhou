@@ -7,8 +7,10 @@ import 'package:media_kit/media_kit.dart';
 
 import '../app_state.dart';
 import '../desktop/desktop_window.dart';
+import '../diagnostics/diagnostics_page.dart' show SourceReportButton;
 import '../engine/engine_client.dart';
 import '../engine/live_models.dart';
+import '../engine/source_diagnostic.dart';
 import '../player_backend.dart';
 import '../remote/remote_host.dart';
 import '../settings.dart';
@@ -635,7 +637,7 @@ class _LivePageState extends State<LivePage> {
     if (!state.hasConfig && state.loadingConfig) {
       body = const Center(child: CircularProgressIndicator());
     } else if (!state.hasConfig && state.configError != null) {
-      body = _message(Icons.cloud_off_rounded, '订阅加载失败\n${state.configError}', retry: state.reloadConfig);
+      body = _message(Icons.cloud_off_rounded, '订阅加载失败\n${state.configError}', retry: state.reloadConfig, issue: state.configDiagnostic);
     } else if (!state.hasConfig) {
       body = _message(Icons.live_tv_rounded, '先在"源"里导入订阅');
     } else if (_loading && _list == null) {
@@ -674,7 +676,7 @@ class _LivePageState extends State<LivePage> {
     );
   }
 
-  Widget _message(IconData icon, String text, {VoidCallback? retry}) {
+  Widget _message(IconData icon, String text, {VoidCallback? retry, SourceDiagnostic? issue}) {
     final scheme = Theme.of(context).colorScheme;
     return Center(
       child: Column(
@@ -688,6 +690,7 @@ class _LivePageState extends State<LivePage> {
             style: TextStyle(color: scheme.onSurfaceVariant),
           ),
           if (retry != null) ...[const SizedBox(height: 16), FilledButton.tonal(onPressed: retry, child: const Text('重试'))],
+          if (issue != null) SourceReportButton(issues: [issue]),
         ],
       ),
     );

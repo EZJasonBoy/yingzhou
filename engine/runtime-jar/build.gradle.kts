@@ -20,7 +20,10 @@ dependencies {
     api(libs.android.json)
     api(libs.androidx.collection)
     implementation(libs.dex2jar)
+    implementation(libs.unidbg.android)
+    implementation(libs.unidbg.unicorn)
     implementation(libs.asm)
+    implementation(libs.asm.commons)
     implementation(libs.asm.tree)
 
     testImplementation(platform(libs.junit.bom))

@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
+import '../diagnostics/diagnostics_page.dart' show SourceReportButton;
+import '../engine/source_diagnostic.dart';
 import '../engine/vod_models.dart';
 import '../ui/common.dart';
 import '../ui/device_form.dart';
@@ -33,6 +35,7 @@ class _SearchPageState extends State<SearchPage> {
   final _started = <String>{};
   final _finished = <String>{};
   final _failed = <String, String>{};
+  final _issues = <String, SourceDiagnostic>{};
   String? _query;
   String? _siteFilter;
   String? _error;
@@ -57,6 +60,7 @@ class _SearchPageState extends State<SearchPage> {
       _started.clear();
       _finished.clear();
       _failed.clear();
+      _issues.clear();
       _siteFilter = null;
       _error = null;
       _searching = true;
@@ -67,12 +71,13 @@ class _SearchPageState extends State<SearchPage> {
           (event) {
             setState(() {
               switch (event) {
-                case SearchSiteStatus(:final site, :final status, :final message):
+                case SearchSiteStatus(:final site, :final status, :final message, :final diagnostic):
                   _started.add(site);
                   if (status == 'done') _finished.add(site);
                   if (status == 'error') {
                     _finished.add(site);
                     _failed[site] = message ?? '失败';
+                    if (diagnostic != null) _issues[site] = diagnostic;
                   }
                 case SearchResults(:final site, :final items):
                   _results.addAll(items);
@@ -135,6 +140,7 @@ class _SearchPageState extends State<SearchPage> {
                         style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
                       ),
                     ),
+                    if (_issues.isNotEmpty) SourceReportButton(issues: _issues.values),
                   ],
                 ),
               ),
@@ -176,6 +182,9 @@ class _SearchPageState extends State<SearchPage> {
     if (_error != null) return StatusView(icon: Icons.cloud_off, message: '搜索失败\n$_error', actionLabel: '重试', onAction: _search);
     if (_query == null) return const StatusView(icon: Icons.travel_explore, message: '输入片名后回车');
     if (visible.isEmpty) {
+      if (!_searching && _failed.isNotEmpty && _failed.length == _finished.length) {
+        return StatusView(icon: Icons.cloud_off, message: '这次搜索的 ${_failed.length} 个站点都失败了', actionLabel: '重试', onAction: _search);
+      }
       return _searching ? const LoadingView() : StatusView(icon: Icons.search_off, message: '没有找到"$_query"');
     }
     return GridView.builder(
@@ -267,6 +276,7 @@ class _SearchPageState extends State<SearchPage> {
                         style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 14),
                       ),
                     ),
+                  if (_issues.isNotEmpty) Align(alignment: Alignment.centerLeft, child: SourceReportButton(issues: _issues.values)),
                   if (_perSite.length > 1)
                     SizedBox(
                       height: 52,
