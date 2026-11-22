@@ -311,18 +311,28 @@ class TvShellState extends State<TvShell> {
                   ],
                 ),
               ),
-              for (var i = 0; i < widget.destinations.length; i++)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
-                  child: _RailItem(
-                    key: Key('tv-rail-$i'),
-                    focusNode: _items[i],
-                    destination: widget.destinations[i],
-                    selected: i == widget.index,
-                    open: _railOpen,
-                    onTap: () => _select(i),
+              // Eight entries (the developer mode's) are taller than a 540-high screen: the list scrolls with the focus.
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var i = 0; i < widget.destinations.length; i++)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
+                          child: _RailItem(
+                            key: Key('tv-rail-$i'),
+                            focusNode: _items[i],
+                            destination: widget.destinations[i],
+                            selected: i == widget.index,
+                            open: _railOpen,
+                            onTap: () => _select(i),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
+              ),
             ],
           ),
         ),

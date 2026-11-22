@@ -41,7 +41,8 @@ extension _PlayerTv on _PlayerPageState {
       return KeyEventResult.handled;
     }
     if (TvKeys.isMenu(key)) {
-      if (down) _tvToggleSettings();
+      // Simple mode has no settings panel: the bar's buttons are all there is.
+      if (down && !_simple) _tvToggleSettings();
       return KeyEventResult.handled;
     }
     // Keys that mean the same wherever the focus is.
@@ -141,6 +142,7 @@ extension _PlayerTv on _PlayerPageState {
         _panelOpen = false;
         _tracksOpen = false;
         _danmakuOpen = false;
+        _chainOpen = false;
       });
       _focus.requestFocus();
     } else if (_controlsVisible && _player.state.playing) {
@@ -160,18 +162,20 @@ extension _PlayerTv on _PlayerPageState {
       _panelOpen = false;
       _tracksOpen = false;
       _danmakuOpen = false;
+      _chainOpen = false;
       _tvUi.settingsOpen = open;
     });
     if (!open) _focus.requestFocus();
   }
 
   /// Opens one of the other panels from the settings.
-  void _tvOpen({bool tracks = false, bool danmaku = false, bool episodes = false}) {
+  void _tvOpen({bool tracks = false, bool danmaku = false, bool episodes = false, bool chain = false}) {
     _tvSet(() {
       _tvUi.settingsOpen = false;
       _tracksOpen = tracks;
       _danmakuOpen = danmaku;
       _panelOpen = episodes;
+      _chainOpen = chain;
     });
   }
 
@@ -189,7 +193,7 @@ extension _PlayerTv on _PlayerPageState {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
         children: [
-          if (lines.length > 1) ...[
+          if (lines.length > 1 && _linesOffered) ...[
             Text('线路', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 15)),
             const SizedBox(height: 10),
             Wrap(
@@ -214,29 +218,26 @@ extension _PlayerTv on _PlayerPageState {
           ],
           Text('选集（${episodes.length}）', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 15)),
           const SizedBox(height: 10),
-          Wrap(
+          EpisodeButtons(
+            naming: EpisodeNaming.of(lines, _line, title: _detail.name),
+            buttonWidth: 120,
             spacing: 10,
-            runSpacing: 10,
-            children: [
-              for (var i = 0; i < episodes.length; i++)
-                SizedBox(
-                  width: 120,
-                  child: TvAutofocus(
-                    enabled: i == _episode,
-                    child: _tvChip(
-                      context,
-                      episodes[i].name,
-                      selected: i == _episode,
-                      key: Key('tv-episode-$i'),
-                      onTap: () {
-                        _tvSet(() => _panelOpen = false);
-                        _focus.requestFocus();
-                        if (i != _episode) _playEpisode(i);
-                      },
-                    ),
-                  ),
-                ),
-            ],
+            maxColumns: 1,
+            button: (context, i, label, row) => TvAutofocus(
+              enabled: i == _episode,
+              child: _tvChip(
+                context,
+                '',
+                child: label,
+                selected: i == _episode,
+                key: Key('tv-episode-$i'),
+                onTap: () {
+                  _tvSet(() => _panelOpen = false);
+                  _focus.requestFocus();
+                  if (i != _episode) _playEpisode(i);
+                },
+              ),
+            ),
           ),
         ],
       ),
@@ -319,11 +320,22 @@ extension _PlayerTv on _PlayerPageState {
           heading('选集'),
           _tvChip(
             context,
-            '${_currentEpisode.name}  ·  共 ${_currentLine.episodes.length} 集',
+            '${EpisodeNaming.brief(EpisodeNaming.clean(_currentEpisode.name), columns: 24)}  ·  共 ${_currentLine.episodes.length} 集',
             icon: Icons.playlist_play_rounded,
             key: const Key('tv-set-episodes'),
             onTap: () => _tvOpen(episodes: true),
           ),
+          if (_dev) ...[
+            heading('开发者'),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _tvChip(context, _statsOpen ? '播放统计：开' : '播放统计：关', icon: Icons.query_stats_rounded, selected: _statsOpen, key: const Key('tv-set-stats'), onTap: _toggleStats),
+                _tvChip(context, '片源从哪来', icon: Icons.account_tree_outlined, key: const Key('tv-set-chain'), onTap: () => _tvOpen(chain: true)),
+              ],
+            ),
+          ],
           const SizedBox(height: 18),
           Text('遥控器：OK 暂停 / 继续，← → 快退快进（按住加速），↑ 选集，↓ 控制栏，菜单键 设置，返回键 收起 / 退出', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
         ],
@@ -331,7 +343,8 @@ extension _PlayerTv on _PlayerPageState {
     );
   }
 
-  Widget _tvChip(BuildContext context, String label, {required VoidCallback onTap, bool selected = false, IconData? icon, Key? key}) {
+  /// A chip of the remote's panels: [label], or [child] in its place (an episode, laid out by [EpisodeButtons]).
+  Widget _tvChip(BuildContext context, String label, {required VoidCallback onTap, bool selected = false, IconData? icon, Key? key, Widget? child}) {
     final scheme = Theme.of(context).colorScheme;
     final fg = selected ? scheme.onPrimary : scheme.onSurface;
     return TvFocusable(
@@ -343,20 +356,22 @@ extension _PlayerTv on _PlayerPageState {
         constraints: const BoxConstraints(minHeight: 48),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(color: selected ? scheme.primary : scheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (icon != null) ...[Icon(icon, size: 20, color: fg), const SizedBox(width: 8)],
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 16, color: fg),
+        child: child != null
+            ? Align(alignment: Alignment.centerLeft, child: DefaultTextStyle.merge(style: TextStyle(fontSize: 16, color: fg), child: child))
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (icon != null) ...[Icon(icon, size: 20, color: fg), const SizedBox(width: 8)],
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 16, color: fg),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
     );
   }

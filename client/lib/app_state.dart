@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
 
+import 'diagnostics/dev_log.dart';
 import 'engine/discovery.dart';
 import 'engine/engine_client.dart';
 import 'engine/lan.dart';
@@ -10,6 +11,7 @@ import 'engine/models.dart';
 import 'player_backend.dart';
 import 'settings.dart';
 import 'ui/theme.dart';
+import 'ui/user_mode.dart';
 
 typedef EngineClientFactory = EngineClient Function(Uri baseUrl);
 
@@ -24,7 +26,10 @@ class AppState extends ChangeNotifier {
     this._localEngine,
     this.waitStep = const Duration(milliseconds: 500),
     this.playerBackend = mediaKitBackend,
-  }) : _settings = settings ?? MemorySettings();
+  }) : _settings = settings ?? MemorySettings() {
+    // Read before the first connect writes the engine's address: that is how a first start is told.
+    userMode = UserModeController(_settings)..addListener(notifyListeners);
+  }
 
   final EngineClientFactory clientFactory;
 
@@ -37,7 +42,14 @@ class AppState extends ChangeNotifier {
 
   /// Light or dark, as chosen in 设置 → 外观.
   late final ThemeChoice themeChoice = ThemeChoice(_settings);
+
+  /// Simple, standard or developer, as chosen in 设置 → 外观 (ui/user_mode.dart); pages that ask [AppScope.of]
+  /// follow a change.
+  late final UserModeController userMode;
   final LocalEngine? _localEngine;
+
+  /// The last lines the bundled engine printed (desktop); empty where the engine is not this app's child.
+  List<String> get engineOutput => _localEngine?.recentOutput ?? const [];
   final Duration waitStep;
   String engineUrl;
 
@@ -226,6 +238,7 @@ class AppState extends ChangeNotifier {
     configError = null;
     info = await client.info();
     error = null;
+    DevLog.instance.info('引擎', '已连接 ${info!.name} ${info!.version}（${info!.platform}，协议 v${info!.protocol}）', detail: {'地址': engineUrl});
     await _settings.setString(_engineUrlKey, engineUrl);
     try {
       engineSettings = await client.settings();
@@ -513,6 +526,8 @@ class AppState extends ChangeNotifier {
   Future<void> _loadSites() async {
     sites = await client.sites();
     configVersion++;
+    final s = summary;
+    if (s != null) DevLog.instance.info('订阅', '${s.sites} 个站点 · ${s.parses} 个解析 · ${s.lives} 组直播', detail: {'配置': s.url});
     final browsable = browsableSites;
     // The site last chosen in this config, else the current one if this config has it, else its first.
     final perConfig = _configSiteKey;
@@ -532,6 +547,7 @@ class AppState extends ChangeNotifier {
       await action();
     } on EngineException catch (e) {
       error = e.message;
+      DevLog.instance.error('引擎', e.message, detail: {'代码': e.code, if (e.statusCode != null) '状态': '${e.statusCode}'});
     } finally {
       busy = false;
       notifyListeners();
