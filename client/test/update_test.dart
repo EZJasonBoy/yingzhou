@@ -116,7 +116,7 @@ void main() {
       expect(compareVersions('0.4.0', '0.3.14'), 1);
       expect(compareVersions('0.10.0', '0.9.0'), 1, reason: 'the first two are whole numbers');
       // Every version released so far, in order.
-      const released = ['0.3.0', '0.3.14', '0.4.0', '0.4.14', '0.4.1421', '0.4.14213', '0.4.1421356', '0.4.1468'];
+      const released = ['0.3.0', '0.3.14', '0.4.0', '0.4.14', '0.4.1421', '0.4.14213', '0.4.1421356', '0.4.1468', '0.4.1468250'];
       for (var i = 1; i < released.length; i++) {
         expect(compareVersions(released[i], released[i - 1]), 1, reason: '${released[i]} after ${released[i - 1]}');
       }
