@@ -330,7 +330,9 @@ class AccessTest {
         assertNull(check(url.replace("url=", "url=https%3A%2F%2Fevil.test%2F&url=")))
         assertNull(check("$url&tvsig=$sig"))
         assertNull(check(url.substringBefore("&tvsig=")))
-        assertNull(check(url.replace(sig, sig.dropLast(2) + "AA")))
+        val mac = sig.substringAfterLast('.')
+        val changedFirst = if (mac.first() == 'A') 'B' else 'A'
+        assertNull(check(url.removeSuffix(mac) + changedFirst + mac.drop(1)))
         // Expired.
         clock.now = exp
         assertNull(check(url))

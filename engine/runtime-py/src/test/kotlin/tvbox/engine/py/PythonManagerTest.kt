@@ -142,8 +142,8 @@ class PythonManagerTest {
     /** pip reads no config file of the user's (it could name another index). */
     private val pipEnv = mapOf("PIP_CONFIG_FILE" to if (System.getProperty("os.name").lowercase().startsWith("windows")) "nul" else "/dev/null")
 
-    private fun managerWithPython(): PythonManager {
-        val manager = PythonManager(File(dir, "python"), OkHttpClient(), embedded = null, pipEnv = pipEnv)
+    private fun managerWithPython(networkProxy: tvbox.engine.core.net.NetworkProxy? = null): PythonManager {
+        val manager = PythonManager(File(dir, "python"), OkHttpClient(), embedded = null, pipEnv = pipEnv, networkProxy = networkProxy)
         manager.relocate()
         assumeTrue(manager.current() != null, "no Python 3.8+ found (set TVBOX_PYTHON): skipped")
         return manager
@@ -165,6 +165,25 @@ class PythonManagerTest {
         assertTrue(manager.importable("ymdemo_pkg"))
         assertTrue("/files/ymdemo_pkg-1.0-py3-none-any.whl" in requests)
         assertTrue(task.log.any { it.startsWith("$ pip install ymdemo-pkg") })
+    }
+
+    @Test
+    fun `the module proxy carries the pip subprocess index and wheel requests`() {
+        val routing = tvbox.engine.core.net.NetworkProxy()
+        val manager = managerWithPython(routing)
+        assumeTrue(manager.current()!!.pip, "this Python has no pip")
+        val wheelName = "ymdemo_pkg-1.0-py3-none-any.whl"
+        val wheel = wheel()
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/html").setBody(Buffer().write(index("ymdemo-pkg", wheelName, wheel))))
+        server.enqueue(MockResponse().setBody(Buffer().write(wheel)))
+        server.start()
+        routing.apply(tvbox.engine.core.model.EngineSettings(httpProxy = "127.0.0.1:${server.port}", proxyScopes = listOf("modules")))
+        manager.updateSettings(PythonSettingsUpdate(indexUrl = "http://index.example.invalid/simple/"))
+        manager.startInstall(listOf("ymdemo-pkg"))
+        val result = awaitTask(manager)
+        assertEquals("done", result.state, result.log.joinToString("\n"))
+        assertTrue(server.takeRequest().requestLine.contains("http://index.example.invalid/simple/ymdemo-pkg/"))
+        assertTrue(server.takeRequest().requestLine.contains("http://index.example.invalid/files/$wheelName"))
     }
 
     @Test

@@ -336,13 +336,11 @@ jobs:
           pattern: yingzhou-*
           merge-multiple: true
 
-      - name: Publish
+      - name: Prepare release notes
         env:
-          GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
           ls -la packages
-          notes="$(mktemp)"
           {
             echo "映舟（Yingzhou）${TAG}，自动构建。"
             echo
@@ -352,21 +350,15 @@ jobs:
             echo "- Android（手机、平板、电视盒子）：\`yingzhou-android-arm64-v8a.apk\` 适合绝大多数手机和较新的盒子，\`armeabi-v7a\` 给 32 位的老电视盒子，\`x86_64\` 给模拟器。没有这些文件说明这次 Android 构建失败了。"
             echo
             echo "本应用不带任何订阅或影视内容。改动见 [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/CHANGELOG.md)，已知问题见 [docs/status.md](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/docs/status.md)。"
-          } > "$notes"
-          # A rerun of a failed job (say Android) reruns this job too: add the files to the release it already made.
-          if gh release view "$TAG" > /dev/null 2>&1; then
-            gh release upload "$TAG" packages/* --clobber
-          else
-            gh release create "$TAG" packages/* --title "映舟 ${TAG}" --notes-file "$notes" --prerelease --verify-tag
-          fi
+          } > release-notes.md
 
       # What the app's update check reads (client/lib/update): latest.json on the rolling pre-release `channel`, a
       # plain download at a fixed address. No GitHub API (rate limits; accelerating proxies do not pass it), and
       # /releases/latest skips pre-releases, which all of them are so far.
-      - name: Update channel
+      - name: Build and sign update manifest
         env:
-          GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          UPDATE_MANIFEST_ED25519: ${{ secrets.UPDATE_MANIFEST_ED25519 }}
         run: |
           version="${TAG#v}"
           # Installed copies compare with the version they were built as; a tag that says otherwise would have
@@ -375,15 +367,6 @@ jobs:
           if [ "$app" != "$version" ]; then
             echo "::error::client/pubspec.yaml is $app but the tag is $TAG; latest.json left as it was"
             exit 1
-          fi
-          # A rerun of an older tag does not take the channel back.
-          tmp="$(mktemp -d)"
-          if gh release download channel --pattern latest.json --dir "$tmp" 2> /dev/null; then
-            current="$(jq -r '.version // empty' "$tmp/latest.json" 2> /dev/null || true)"
-            if [ -n "$current" ] && [ "$current" != "$version" ] && [ "$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -n 1)" = "$current" ]; then
-              echo "channel already announces $current, newer than $version; left as it was"
-              exit 0
-            fi
           fi
           # What changed: this version's section of CHANGELOG.md (from "## v0.4.0…" to the next "## ").
           notes="$(awk -v h="## $TAG" '
@@ -403,7 +386,8 @@ jobs:
               *linux*) key="${name#yingzhou-}" ;;
               *) continue ;;
             esac
-            assets="$(jq -c --arg k "$key" --arg n "$name" --argjson s "$(stat -c %s "$f")" '. + {($k): {name: $n, size: $s}}' <<< "$assets")"
+            digest="$(sha256sum "$f" | cut -d' ' -f1)"
+            assets="$(jq -c --arg k "$key" --arg n "$name" --argjson s "$(stat -c %s "$f")" --arg hash "$digest" '. + {($k): {name: $n, size: $s, sha256: $hash}}' <<< "$assets")"
           done
           jq -n \
             --arg version "$version" --arg tag "$TAG" --arg date "$(date -u +%F)" --arg notes "$notes" \
@@ -411,7 +395,27 @@ jobs:
             --arg download "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/" \
             --argjson assets "$assets" \
             '{version: $version, tag: $tag, date: $date, notes: $notes, page: $page, download: $download, assets: $assets}' > latest.json
-          cat latest.json
+          node tools/sign-update.mjs latest.json
+
+      - name: Publish packages and update channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          jq -r '"\n" + .notes' latest.json >> release-notes.md
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" packages/* --clobber
+          else
+            gh release create "$TAG" packages/* --title "映舟 ${TAG}" --notes-file release-notes.md --prerelease --verify-tag
+          fi
+          version="${TAG#v}"
+          tmp="$(mktemp -d)"
+          if gh release download channel --pattern latest.json --dir "$tmp" 2> /dev/null; then
+            current="$(jq -er '.version' "$tmp/latest.json")"
+            if [ "$current" != "$version" ] && [ "$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -n 1)" = "$current" ]; then
+              exit 0
+            fi
+          fi
           if ! gh release view channel > /dev/null 2>&1; then
             gh release create channel --target "$GITHUB_SHA" --prerelease --title "更新通道" \
               --notes "映舟「检查更新」读取的 latest.json，每次发布新版本时自动更新。安装包请到各版本自己的发布页下载。"

@@ -2,6 +2,7 @@
     <!-- The client talks to an engine over HTTP: the built-in one on 127.0.0.1 or one on the LAN. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- The engine keeps running in a foreground service while it downloads or shares itself with the LAN
          (EngineService), with a notification (asked for on Android 13+ when first needed), CPU and Wi-Fi awake. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

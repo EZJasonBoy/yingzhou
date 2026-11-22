@@ -36,7 +36,7 @@ class PageSection {
 ///
 /// A group whose cards all have nothing to show on this engine is left out: no heading, no entry.
 class SectionedPage extends StatefulWidget {
-  const SectionedPage({super.key, required this.title, required this.sections, this.listKey, this.standalone = false});
+  const SectionedPage({super.key, required this.title, required this.sections, this.listKey, this.standalone = false, this.initialSection});
 
   final String title;
   final List<PageSection> sections;
@@ -46,6 +46,9 @@ class SectionedPage extends StatefulWidget {
 
   /// Opened as a page of its own, with a bar to go back.
   final bool standalone;
+
+  /// The group the page opens on, once it is laid out; the top when null.
+  final String? initialSection;
 
   /// The list of groups shows from this page width on. A TV shows it sooner: its screen is 960 wide with a margin
   /// all round, and a remote needs the list more than it needs room.
@@ -72,6 +75,18 @@ class _SectionedPageState extends State<SectionedPage> {
 
   /// The group an entry sent the page to: the mark stays on it while the page scrolls there.
   String? _goingTo;
+
+  @override
+  void initState() {
+    super.initState();
+    final first = widget.initialSection;
+    if (first != null) {
+      // Two frames: the first lays the page out, the second has the heading's place.
+      WidgetsBinding.instance.addPostFrameCallback((_) => WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _go(first);
+      }));
+    }
+  }
 
   @override
   void dispose() {

@@ -36,6 +36,7 @@ class JsEnvironment(
     /** The engine's spider proxy, e.g. `http://127.0.0.1:9978/proxy`. */
     val proxyUrl: String,
     val log: (String) -> Unit = {},
+    val playbackHttp: JsHttp = http,
 )
 
 /**
@@ -54,6 +55,7 @@ class JsSpider private constructor(
     private val qjs: QuickJs,
 ) : Spider {
     private val lock = Mutex()
+    @Volatile private var callHttp = env.http
 
     override suspend fun init(ext: String) {
         call("await globalThis.__tvbox_init(${json(ext)}, ${json(site.key)})")
@@ -135,10 +137,11 @@ class JsSpider private constructor(
 
     private suspend fun invoke(method: String, vararg args: Any?): String? {
         onUse?.invoke()
-        return call("await globalThis.__tvbox_invoke(${json(method)}, ${gson.toJson(args.toList())})") as? String
+        return call("await globalThis.__tvbox_invoke(${json(method)}, ${gson.toJson(args.toList())})", method == "play") as? String
     }
 
-    private suspend fun call(code: String): Any? = lock.withLock {
+    private suspend fun call(code: String, playback: Boolean = false): Any? = lock.withLock {
+        callHttp = if (playback) env.playbackHttp else env.http
         try {
             qjs.evaluate<Any?>(code, "tvbox_call.js")
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -146,6 +149,8 @@ class JsSpider private constructor(
         } catch (e: Exception) {
             env.log("js ${site.key}: ${e.message}")
             throw SpiderLoadException("${site.name}: ${e.message ?: "script error"}", e, SPIDER_ERROR)
+        } finally {
+            callHttp = env.http
         }
     }
 
@@ -218,7 +223,7 @@ class JsSpider private constructor(
             }
             val spider = JsSpider(site, env, executor, qjs)
             try {
-                installHost(qjs, site, env)
+                installHost(qjs, site, env) { spider.callHttp }
                 qjs.evaluate<Any?>(bootstrap(), "tvbox_bootstrap.js")
                 env.modules.bundled("net.js")?.let { qjs.evaluate<Any?>(it, "net.js") }
                 runCatching {
@@ -251,7 +256,7 @@ class JsSpider private constructor(
             JsSpider::class.java.getResourceAsStream("/tvbox/js/bootstrap.js")!!.use { String(it.readBytes(), Charsets.UTF_8) }
 
         /** The TVBox JS host API (`Global`, `local`, console), minus what bootstrap.js builds on top of it. */
-        private fun installHost(qjs: QuickJs, site: SiteBean, env: JsEnvironment) {
+        private fun installHost(qjs: QuickJs, site: SiteBean, env: JsEnvironment, http: () -> JsHttp) {
             val parser = HtmlParser()
             val proxy = env.proxyUrl + "?do=js"
 
@@ -273,8 +278,11 @@ class JsSpider private constructor(
             qjs.function("aesX") { a -> Crypto.aes(a.s(0), a.b(1), a.s(2), a.b(3), a.s(4), a.s(5), a.b(6)) ?: "" }
             qjs.function("rsaX") { a -> Crypto.rsa(a.b(1), a.b(2), a.s(3), a.b(4), a.s(5), a.b(6)) ?: "" }
             qjs.function("__host_rsa") { a -> rsa(a.b(0), a.s(1), a.s(2), a.s(3)) }
-            qjs.function("__host_http") { a -> env.http.request(a.s(0), a.s(1)) }
-            qjs.asyncFunction("__host_http_async") { a -> withContext(Dispatchers.IO) { env.http.request(a.s(0), a.s(1)) } }
+            qjs.function("__host_http") { a -> http().request(a.s(0), a.s(1)) }
+            qjs.asyncFunction("__host_http_async") { a ->
+                val client = http()
+                withContext(Dispatchers.IO) { client.request(a.s(0), a.s(1)) }
+            }
             qjs.asyncFunction("__host_sleep") { a -> delay((a.getOrNull(0) as? Number)?.toLong() ?: 0L) }
             // The engine serves local and LAN clients from the same address, so `dynamic` makes no difference here.
             // The key is encoded: a live source's spider is keyed by the source's name, which is seldom plain ASCII.

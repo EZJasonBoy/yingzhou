@@ -8,6 +8,7 @@ import '../ui/sectioned_page.dart';
 import 'cache_settings.dart';
 import 'lan_section.dart';
 import 'saved_subscriptions.dart';
+import 'settings_page.dart';
 
 /// 源：where the content comes from. The engine's address, importing and switching subscriptions, the repository
 /// switch and the site list. How the client and the engine behave is 设置 (settings_page.dart).
@@ -119,11 +120,14 @@ class _SourcesPageState extends State<SourcesPage> {
           ),
         ),
         if (state.busy) const Padding(padding: EdgeInsets.only(top: 12), child: LinearProgressIndicator()),
-        if (state.error != null)
+        if (state.error != null) ...[
           Padding(
             padding: const EdgeInsets.only(top: 12),
             child: Text(state.error!, style: TextStyle(color: scheme.error)),
           ),
+          // A subscription that does not load is often a network matter: the way there is right here.
+          const _NetworkRoute(failed: true),
+        ],
       ],
     );
     // The groups, their list on the left, and the sites in a column of their own on a wide window: SectionedPage.
@@ -161,6 +165,7 @@ class _SourcesPageState extends State<SourcesPage> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     const ConfigFreshness(),
+                    const _NetworkRoute(),
                     if (summary.repos.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       DropdownButton<String>(
@@ -192,6 +197,46 @@ class _SourcesPageState extends State<SourcesPage> {
   }
 
   Widget _card(BuildContext context, {required Widget child}) => Card(child: Padding(padding: const EdgeInsets.all(16), child: child));
+}
+
+/// How configs are fetched (设置 → 网络: the GitHub mirror, the HTTP proxy when it is used for configs), with a
+/// button that opens 设置 on its 网络 group. Under the current config, and under an import that failed.
+class _NetworkRoute extends StatelessWidget {
+  const _NetworkRoute({this.failed = false});
+
+  /// Shown under an error: says what can be tried.
+  final bool failed;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final engine = state.engineSettings;
+    final github = engine ?? state.network.githubSettings;
+    final proxy = engine != null && engine.proxyScopes.contains('config') ? engine.httpProxy : '';
+    final parts = [
+      if (github.githubProxy) 'GitHub 上的经镜像 ${Uri.tryParse(github.githubProxyPrefix)?.host ?? github.githubProxyPrefix}',
+      if (proxy.isNotEmpty) '经 HTTP 代理 $proxy',
+    ];
+    final route = parts.isEmpty ? '直连' : parts.join('，');
+    final text = failed ? '获取配置：$route。打不开时可以换 GitHub 镜像或设 HTTP 代理' : '获取配置：$route';
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 4,
+        children: [
+          Text(text, key: Key(failed ? 'network-route-failed' : 'network-route'), style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
+          TextButton(
+            key: Key(failed ? 'open-network-failed' : 'open-network'),
+            style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 8)),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage(standalone: true, initialSection: 'network'))),
+            child: const Text('网络设置'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// The sites of the config in use; the one browsed on 首页 is marked, and a tap chooses another. A config with many

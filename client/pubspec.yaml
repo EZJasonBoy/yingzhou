@@ -1,13 +1,15 @@
 name: tvbox_client
 description: "A new Flutter project."
 publish_to: 'none'
-version: 0.4.14213+8
+version: 0.4.1421356+10
 
 environment:
   sdk: ^3.14.0
 
 dependencies:
   bonsoir: 7.1.6
+  crypto: ^3.0.8
+  cryptography: ^2.7.0
   file_selector: ^1.1.0
   flutter:
     sdk: flutter
@@ -30,3 +32,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/update-ed25519.hex

@@ -19,6 +19,8 @@ class _PythonEngine extends http.BaseClient {
   final List<String> installed;
   List<Map<String, Object>> missing;
   String pythonPath = '';
+  String indexUrl = '';
+  String downloadMirror = '';
   Map<String, Object>? task;
   final sent = <String>[];
   final http.Client _inner = fakeEngine(hasConfig: true);
@@ -44,7 +46,7 @@ class _PythonEngine extends http.BaseClient {
       'available': available,
       if (available) 'python': {'path': r'C:\data\python\runtime\python.exe', 'version': '3.14.10', 'source': 'downloaded', 'pip': false},
       'problem': available ? '' : '没有找到 Python 3.8 或更新的版本',
-      'settings': {'path': pythonPath, 'indexUrl': '', 'downloadMirror': ''},
+      'settings': {'path': pythonPath, 'indexUrl': indexUrl, 'downloadMirror': downloadMirror},
       'packagesDir': available ? r'C:\data\python\packages\cp314-win_amd64' : '',
       'packages': [
         for (final p in common) {'name': p, 'module': p, 'installed': installed.contains(p), 'where': installed.contains(p) ? 'engine' : ''},
@@ -92,7 +94,10 @@ class _PythonEngine extends http.BaseClient {
       case ('GET', '/api/v1/python'):
         return _json(_status());
       case ('PUT', '/api/v1/python'):
-        pythonPath = (jsonDecode(body) as Map<String, dynamic>)['path'] as String? ?? pythonPath;
+        final settings = jsonDecode(body) as Map<String, dynamic>;
+        pythonPath = settings['path'] as String? ?? pythonPath;
+        indexUrl = settings['indexUrl'] as String? ?? indexUrl;
+        downloadMirror = settings['downloadMirror'] as String? ?? downloadMirror;
         return _json(_status());
       case ('POST', '/api/v1/python/download'):
         task = {'kind': 'download', 'state': 'running', 'message': '正在下载 Python 3.14.10', 'progress': 0.4, 'log': <String>[]};
@@ -237,5 +242,41 @@ void main() {
     await openSources(tester, _PythonEngine(supported: false));
     expect(find.text('Python 蜘蛛'), findsNothing);
     expect(find.byKey(const Key('github-proxy-switch')), findsOneWidget);
+  });
+
+  testWidgets('Python mirrors include presets, custom addresses and a return to the default', (tester) async {
+    final engine = await openSources(tester, _PythonEngine());
+    await tester.ensureVisible(find.text('镜像'));
+    await tester.tap(find.text('镜像'));
+    await tester.pumpAndSettle();
+    final index = find.byKey(const Key('python-index-choice'));
+    final runtime = find.byKey(const Key('python-mirror-choice'));
+    await tester.ensureVisible(index);
+    await tester.tap(index);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('清华 TUNA').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(runtime);
+    await tester.tap(runtime);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('自定义地址…').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('python-mirror')), 'https://mirror.example/python/');
+    final save = find.descendant(of: find.byKey(const Key('python-settings')), matching: find.text('保存'));
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    expect(engine.indexUrl, 'https://pypi.tuna.tsinghua.edu.cn/simple/');
+    expect(engine.downloadMirror, 'https://mirror.example/python/');
+    await tester.ensureVisible(runtime);
+    await tester.tap(runtime);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Python 官方（python.org）').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(save);
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    expect(engine.downloadMirror, '');
+    expect(engine.indexUrl, 'https://pypi.tuna.tsinghua.edu.cn/simple/');
   });
 }

@@ -35,6 +35,8 @@ class Spider(Spider):
         return {'list': [{'vod_id': 's1', 'vod_name': key + ' 搜索结果'}], 'page': int(pg)}
 
     def playerContent(self, flag, id, vipFlags):
+        if 'resolve' in self.conf:
+            return {'parse': 0, 'url': self.fetch(self.conf['resolve']).text}
         if flag == '代理':
             return {'parse': 0, 'url': self.getProxyUrl() + '&id=' + id}
         return {'parse': 0, 'url': 'http://media.test/%s.mp4' % id, 'header': {'Referer': 'http://media.test/'}}

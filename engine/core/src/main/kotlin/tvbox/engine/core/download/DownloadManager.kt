@@ -1,6 +1,7 @@
 package tvbox.engine.core.download
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,9 +34,7 @@ import tvbox.engine.core.model.PlayRequest
 import tvbox.engine.core.play.HlsRewriter
 import tvbox.engine.core.play.HlsRewriter.Kind
 import tvbox.engine.core.play.HlsRewriter.Resource
-import tvbox.engine.core.play.M3u8Cleaner
 import tvbox.engine.core.util.Base64Compat
-import tvbox.engine.core.util.UriUtil
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -93,6 +92,7 @@ class DownloadManager(
      */
     private val publish: ((Export) -> DownloadExportResult)? = null,
     private val now: () -> Long = System::currentTimeMillis,
+    dispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val log: (String) -> Unit = {},
 ) {
     private val http: OkHttpClient = client.newBuilder()
@@ -102,7 +102,7 @@ class DownloadManager(
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val lock = Any()
     private val entries = LinkedHashMap<String, Entry>()
     private val stores = HashMap<String, StreamStore>()
@@ -264,9 +264,11 @@ class DownloadManager(
     }
 
     /** The playlist of a downloaded HLS episode whose files a player reaches under [base] (`http://<engine>/dl/<id>/`). */
-    fun offlinePlaylist(id: String, base: String): String? {
+    fun offlinePlaylist(id: String, base: String, name: String = "index.m3u8"): String? {
         val e = synchronized(lock) { entries[id] } ?: return null
-        return note(e)?.playlist?.replace(DownloadExport.BASE, base)
+        val note = note(e) ?: return null
+        val playlist = if (name == "index.m3u8") note.playlist else note.tracks[name]
+        return playlist?.replace(DownloadExport.BASE, base)
     }
 
     /** A file of a download as the player asks for it: `<number>.<ext>` of an HLS episode, or the direct file. */
@@ -296,6 +298,7 @@ class DownloadManager(
             return Export("$name.$ext", ext) { out -> (store.file(r.stream, r.file) ?: throw IOException("下载的文件不见了，请重新下载")).inputStream().use { it.copyTo(out, 256 * 1024) } }
         }
         val note = note(e) ?: throw IOException("下载的文件不见了，请重新下载")
+        if (note.tracks.isNotEmpty()) throw EngineException.Unsupported("这一集可在映舟里离线播放，独立音轨导出为单个文件需要 ffmpeg 合并")
         val file = { n: Int -> note.resources.getOrNull(n)?.let { store.file(r.stream, it.n) } }
         val plan = try {
             DownloadExport.plan(note.playlist).also { DownloadExport.check(it, file) }
@@ -350,7 +353,7 @@ class DownloadManager(
     private class Refused(message: String, val status: Int) : IOException(message)
 
     /** A direct address that turned out to be an HLS playlist. */
-    private class IsPlaylist : Exception()
+    private class IsPlaylist(val source: Source.Hls, val refreshed: Boolean) : Exception()
 
     private sealed class Source {
         class Hls(val url: String, val headers: Map<String, String>, val key: String) : Source()
@@ -358,8 +361,8 @@ class DownloadManager(
     }
 
     private fun pump() {
-        if (!started || closed) return
         synchronized(lock) {
+            if (!started || closed) return
             var running = entries.values.count { it.r.state == RUNNING }
             for (e in entries.values) {
                 if (running >= concurrency) break
@@ -368,7 +371,12 @@ class DownloadManager(
                 e.stopped = false
                 e.aborted = false
                 running++
-                e.job = scope.launch { run(e) }
+                val job = scope.launch { run(e) }
+                e.job = job
+                job.invokeOnCompletion {
+                    synchronized(lock) { e.job = null }
+                    pump()
+                }
             }
         }
         changed(save = false)
@@ -384,7 +392,7 @@ class DownloadManager(
                 is Source.Plain -> try {
                     runFile(e, source)
                 } catch (x: IsPlaylist) {
-                    runHls(e, Source.Hls(source.url, source.headers, ""))
+                    runHls(e, x.source, x.refreshed)
                 }
             }
             synchronized(lock) {
@@ -405,12 +413,10 @@ class DownloadManager(
             // Anything else that ended it without a reason must not leave it "running" for ever.
             if (!ended && failure == null && !e.stopped && !closed) failure = "下载意外中断，请重试"
             synchronized(lock) {
-                e.job = null
                 if (failure != null && e.r.state == RUNNING && !e.stopped) e.r = e.r.copy(state = FAILED, error = failure)
             }
             if (failure != null) log("download ${e.r.id}: $failure")
             changed(save = true)
-            if (!closed) pump()
         }
     }
 
@@ -439,35 +445,12 @@ class DownloadManager(
 
     // -- HLS --
 
-    private suspend fun runHls(e: Entry, first: Source.Hls) {
+    private suspend fun runHls(e: Entry, first: Source.Hls, refreshed: Boolean = false) {
         var source = first
-        var resolvedAgain = false
+        var resolvedAgain = refreshed
         while (true) {
-            val (mediaUrl, text, finalUrl) = mediaPlaylist(e, source)
-            val rewritten = HlsRewriter.rewrite(text, finalUrl)
-                ?: throw Failure(if (text.lines().none { it.trim() == "#EXT-X-ENDLIST" }) "这是直播流（播放列表没有结尾），不能下载" else "播放列表里没有分片")
-            val store = storeFor(e)
-            val stream = e.r.stream.ifEmpty {
-                // The folder the stream cache keeps this episode in, so that both use the same files.
-                HlsRewriter.sha1(if (source.key.isNotEmpty()) "${source.key}|${HlsRewriter.path(mediaUrl)}" else "dl|${e.r.site}|${e.r.line}|${e.r.episodeId}").take(20)
-            }
-            val resources = rewritten.resources
-            store.pin(stream, true)
-            val note = Note(rewritten.render(DownloadExport.BASE), resources.map { NotedResource(it.kind.name, it.name, it.ext, it.startMs, it.durationMs) })
-            store.writeNote(stream, NOTE, json.encodeToString(Note.serializer(), note))
-            val present = store.names(stream)
-            val missing = resources.indices.filter { resources[it].name !in present }
-            e.note = note
-            e.bytes.set(resources.filter { it.name in present }.distinctBy { it.name }.sumOf { store.file(stream, it.name)?.length() ?: 0L })
-            e.doneMs.set(resources.filter { it.kind == Kind.SEGMENT && it.name in present }.sumOf { it.durationMs })
-            e.partsDone.set(resources.size - missing.size)
-            synchronized(lock) {
-                e.r = e.r.copy(kind = HLS, root = store.root.absolutePath, stream = stream, parts = resources.size, durationMs = rewritten.durationMs, totalBytes = -1)
-            }
-            changed(save = true)
-            checkSpace(store.root)
             try {
-                fetchAll(e, store, stream, resources, missing, source.headers)
+                downloadHls(e, source)
                 return
             } catch (x: Refused) {
                 // Play addresses expire (tokens): the episode is resolved once more, and what is there stays.
@@ -482,16 +465,28 @@ class DownloadManager(
         }
     }
 
-    /** The media playlist: the one the address names, or the best variant of a master playlist. Cleaned of ads like playing does. */
-    private suspend fun mediaPlaylist(e: Entry, source: Source.Hls): Triple<String, String, String> = withContext(Dispatchers.IO) {
-        var url = source.url
-        repeat(3) {
-            val (text, finalUrl) = text(e, url, source.headers)
-            if (!text.removePrefix("﻿").trimStart().startsWith("#EXTM3U")) throw Failure("播放地址给的不是 HLS 播放列表")
-            if (!M3u8Cleaner.isMaster(text)) return@withContext Triple(url, cleaner(text, url, finalUrl), finalUrl)
-            url = bestVariant(text, finalUrl) ?: throw Failure("主播放列表里没有能下载的码率")
+    private suspend fun downloadHls(e: Entry, source: Source.Hls) {
+        val playlists = withContext(Dispatchers.IO) { DownloadPlaylists.read(source.url, { text(e, it, source.headers) }, cleaner) }
+        val store = storeFor(e)
+        val stream = e.r.stream.ifEmpty {
+            HlsRewriter.sha1(if (source.key.isNotEmpty()) "${source.key}|${HlsRewriter.path(playlists.videoUrl)}" else "dl|${e.r.site}|${e.r.line}|${e.r.episodeId}").take(20)
         }
-        throw Failure("主播放列表套了太多层")
+        val resources = playlists.resources
+        store.pin(stream, true)
+        val note = Note(playlists.index, resources.map { NotedResource(it.kind.name, it.name, it.ext, it.startMs, it.durationMs) }, playlists.tracks)
+        store.writeNote(stream, NOTE, json.encodeToString(Note.serializer(), note))
+        val present = store.names(stream)
+        val missing = resources.indices.filter { resources[it].name !in present }
+        e.note = note
+        e.bytes.set(resources.filter { it.name in present }.distinctBy { it.name }.sumOf { store.file(stream, it.name)?.length() ?: 0L })
+        e.doneMs.set(resources.filter { it.kind == Kind.SEGMENT && it.name in present }.sumOf { it.durationMs })
+        e.partsDone.set(resources.size - missing.size)
+        synchronized(lock) {
+            e.r = e.r.copy(kind = HLS, root = store.root.absolutePath, stream = stream, parts = resources.size, durationMs = playlists.durationMs, workDurationMs = playlists.workDurationMs, totalBytes = -1)
+        }
+        changed(save = true)
+        checkSpace(store.root)
+        fetchAll(e, store, stream, resources, missing, source.headers)
     }
 
     private fun text(e: Entry, url: String, headers: Map<String, String>): Pair<String, String> =
@@ -499,27 +494,6 @@ class DownloadManager(
             if (!response.isSuccessful) throw Refused("片源拒绝了播放列表（HTTP ${response.code}）", response.code)
             (response.body?.string() ?: "") to response.request.url.toString()
         }
-
-    /**
-     * The variant with the most bandwidth. Variants whose audio is a separate rendition are passed over when there
-     * are others: only the video playlist is downloaded.
-     */
-    private fun bestVariant(text: String, baseUrl: String): String? {
-        val lines = text.replace("\r\n", "\n").split('\n').map { it.trim() }
-        val audioWithUri = lines.filter { it.startsWith("#EXT-X-MEDIA") && it.contains("TYPE=AUDIO") && it.contains("URI=") }
-            .mapNotNull { Regex("GROUP-ID=\"([^\"]*)\"").find(it)?.groupValues?.get(1) }.toSet()
-        class Variant(val url: String, val bandwidth: Long, val separateAudio: Boolean)
-        val variants = ArrayList<Variant>()
-        for ((i, line) in lines.withIndex()) {
-            if (!line.startsWith("#EXT-X-STREAM-INF")) continue
-            val uri = lines.drop(i + 1).firstOrNull { it.isNotEmpty() && !it.startsWith("#") } ?: continue
-            val bandwidth = Regex("(?:^|[:,])BANDWIDTH=(\\d+)").find(line)?.groupValues?.get(1)?.toLongOrNull() ?: 0
-            val audio = Regex("AUDIO=\"([^\"]*)\"").find(line)?.groupValues?.get(1)
-            variants += Variant(if (uri.startsWith("http://") || uri.startsWith("https://")) uri else UriUtil.resolve(baseUrl, uri), bandwidth, audio != null && audio in audioWithUri)
-        }
-        val candidates = variants.filter { !it.separateAudio }.ifEmpty { variants }
-        return candidates.maxByOrNull { it.bandwidth }?.url
-    }
 
     /** Fetches the [missing] resources, [CONNECTIONS] at a time, in playing order. */
     private suspend fun fetchAll(e: Entry, store: StreamStore, stream: String, resources: List<Resource>, missing: List<Int>, headers: Map<String, String>) {
@@ -633,7 +607,7 @@ class DownloadManager(
     /** Once a few segments are there: will the rest fit? */
     private fun checkEstimate(e: Entry, store: StreamStore, segments: Int) {
         val doneMs = e.doneMs.get()
-        val duration = e.r.durationMs
+        val duration = e.r.workDurationMs
         if (e.estimated || duration <= 0 || doneMs <= 0 || e.partsDone.get() < minOf(4, segments)) return
         e.estimated = true
         val remaining = (e.bytes.get().toDouble() / doneMs * (duration - doneMs)).toLong()
@@ -688,7 +662,9 @@ class DownloadManager(
                     var n = input.read(buffer)
                     if (n < 0) throw IOException("the source sent nothing")
                     if (have == 0L) {
-                        if (String(buffer, 0, minOf(n, 16), Charsets.ISO_8859_1).removePrefix("﻿").trimStart().startsWith("#EXTM3U")) throw IsPlaylist()
+                        if (String(buffer, 0, minOf(n, 16), Charsets.UTF_8).removePrefix("﻿").trimStart().startsWith("#EXTM3U")) {
+                            throw IsPlaylist(Source.Hls(source.url, source.headers, ""), resolvedAgain)
+                        }
                         if (looksLikeText(buffer, 0, n)) throw Refused("片源给的是网页，不是视频（地址可能过期了）", 200)
                     }
                     if (whole < 0) throw Failure("片源没说文件有多大，可能是直播流，不能下载")
@@ -735,7 +711,10 @@ class DownloadManager(
                 log("download ${e.r.id}: ${x.message}; resolving the episode again")
                 source = when (val again = resolve(e)) {
                     is Source.Plain -> again
-                    is Source.Hls -> throw IsPlaylist()
+                    is Source.Hls -> {
+                        work.delete()
+                        throw IsPlaylist(again, resolvedAgain)
+                    }
                 }
                 continue
             } catch (x: IOException) {
@@ -942,7 +921,7 @@ class DownloadManager(
             val bytes = bytes.get()
             val progress = when {
                 r.state == DONE -> 1.0
-                r.kind == HLS && r.durationMs > 0 -> doneMs.get().toDouble() / r.durationMs
+                r.kind == HLS && r.workDurationMs > 0 -> doneMs.get().toDouble() / r.workDurationMs
                 r.kind == HLS && r.parts > 0 -> partsDone.get().toDouble() / r.parts
                 r.kind == FILE && r.totalBytes > 0 -> bytes.toDouble() / r.totalBytes
                 else -> 0.0
@@ -980,6 +959,7 @@ class DownloadManager(
         val parts: Int = 0,
         val partsDone: Int = 0,
         val durationMs: Long = 0,
+        val workDurationMs: Long = durationMs,
         val doneMs: Long = 0,
         val error: String = "",
         val createdAt: Long = 0,
@@ -991,7 +971,7 @@ class DownloadManager(
 
     /** What a downloaded HLS episode keeps next to its files: its playlist (addresses as [DownloadExport.BASE] + number) and its files. */
     @Serializable
-    private class Note(val playlist: String, val resources: List<NotedResource>)
+    private class Note(val playlist: String, val resources: List<NotedResource>, val tracks: Map<String, String> = emptyMap())
 
     @Serializable
     private class NotedResource(val k: String, val n: String, val e: String, val t: Long = 0, val d: Long = 0)

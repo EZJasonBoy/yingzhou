@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../app_state.dart';
+import '../network_preferences.dart';
 import '../settings.dart';
 import 'release_info.dart';
 import 'update_backend.dart';
@@ -35,11 +36,12 @@ class UpdateDownload {
 /// result, and a package being downloaded. One per [AppState] ([of]), shared by the settings card, the dialog and
 /// the watcher that checks after start.
 class UpdateService extends ChangeNotifier {
-  UpdateService({required this._settings, UpdateBackend? backend, DateTime Function()? clock})
+  UpdateService({required this._settings, required this.network, UpdateBackend? backend, DateTime Function()? clock})
     : backend = backend ?? UpdateBackend(),
       _clock = clock ?? DateTime.now;
 
   final SettingsStore _settings;
+  final ClientNetworkPreferences network;
   final UpdateBackend backend;
   final DateTime Function() _clock;
 
@@ -48,7 +50,7 @@ class UpdateService extends ChangeNotifier {
   /// The service of the app [context] is in.
   static UpdateService of(BuildContext context) {
     final state = AppScope.read(context);
-    return _byState[state] ??= UpdateService(settings: state.settings);
+    return _byState[state] ??= UpdateService(settings: state.settings, network: state.network);
   }
 
   /// Puts [service] in place for [state] (tests: a fake backend).
@@ -56,7 +58,6 @@ class UpdateService extends ChangeNotifier {
   static void debugUse(AppState state, UpdateService service) => _byState[state] = service;
 
   static const _autoKey = 'update.auto';
-  static const _proxyKey = 'update.proxy';
   static const _lastCheckKey = 'update.lastCheck';
   static const _notifiedKey = 'update.notified';
 
@@ -71,18 +72,6 @@ class UpdateService extends ChangeNotifier {
   Future<void> setAutoCheck(bool on) async {
     await _settings.setString(_autoKey, on ? '1' : '');
     notifyListeners();
-  }
-
-  /// `host:port` of the HTTP proxy update checks and downloads go through; '' for none.
-  String get proxy => _settings.getString(_proxyKey) ?? '';
-
-  /// Saves [text] as the proxy; false (nothing saved) when it is not `host:port`.
-  Future<bool> setProxy(String text) async {
-    final normalized = normalizeProxy(text);
-    if (normalized == null) return false;
-    await _settings.setString(_proxyKey, normalized);
-    notifyListeners();
-    return true;
   }
 
   DateTime? get lastCheckAt => DateTime.tryParse(_settings.getString(_lastCheckKey) ?? '');
@@ -107,19 +96,13 @@ class UpdateService extends ChangeNotifier {
   /// A package being downloaded, or downloaded.
   UpdateDownload? download;
 
-  /// The GitHub accelerating prefix of the engine [state] is connected to, when its switch is on.
-  static String mirrorOf(AppState state) {
-    final s = state.engineSettings;
-    return s != null && s.githubProxy ? s.githubProxyPrefix : '';
-  }
-
   /// Asks for `latest.json` now; null when a check is already running.
-  Future<UpdateCheckResult?> check({String mirror = ''}) async {
+  Future<UpdateCheckResult?> check() async {
     if (checking) return null;
     checking = true;
     notifyListeners();
     try {
-      final result = await backend.check(mirror: mirror, proxy: proxy);
+      final result = await backend.check(mirror: network.updateMirror, proxy: network.updateProxy);
       last = result;
       // A check that got nothing (offline at start) is tried again at the next chance, not a day later.
       if (result.ok) await _settings.setString(_lastCheckKey, _clock().toIso8601String());
@@ -133,25 +116,19 @@ class UpdateService extends ChangeNotifier {
   /// The package of [release] for this device; null when it has none.
   ReleaseAsset? assetOf(ReleaseInfo release) => assetFor(release, backend.assetKeys);
 
-  /// The address [asset] is downloaded from: the way the last check got through.
-  String urlOf(ReleaseInfo release, ReleaseAsset asset) {
-    final url = release.urlOf(asset);
-    final result = last;
-    return result != null && identical(result.release, release) ? result.routed(url) : url;
-  }
-
-  /// Saves [asset] in the downloads folder (desktop), through the proxy and the way the check got through.
   Future<void> startDownload(ReleaseInfo release, ReleaseAsset asset) async {
     if (download?.running ?? false) return;
-    final d = download = UpdateDownload(asset, urlOf(release, asset));
+    final d = download = UpdateDownload(asset, release.urlOf(asset));
     notifyListeners();
     var lastShown = 0;
     try {
       d.path = await backend.download(
         d.url,
         asset.name,
-        proxy: proxy,
+        mirror: network.updateMirror,
+        proxy: network.updateProxy,
         expectedSize: asset.size,
+        expectedSha256: asset.sha256,
         cancelled: () => d.cancelled,
         progress: (received, total) {
           d

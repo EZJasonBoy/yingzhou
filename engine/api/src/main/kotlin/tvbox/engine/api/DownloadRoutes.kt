@@ -55,8 +55,8 @@ fun Route.downloadRoutes(engine: Engine) {
             return@get
         }
         when {
-            name == "index.m3u8" -> {
-                val text = downloads.offlinePlaylist(id, call.origin() + "/dl/$id/")
+            name.endsWith(".m3u8") -> {
+                val text = downloads.offlinePlaylist(id, call.origin() + "/dl/$id/", name)
                 if (text == null) call.respond(HttpStatusCode.NotFound, ErrorBody(ApiError("NOT_FOUND", "no such download")))
                 else call.respondText(text, ContentType("application", "vnd.apple.mpegurl"))
             }

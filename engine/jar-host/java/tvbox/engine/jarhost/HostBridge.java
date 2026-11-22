@@ -19,4 +19,6 @@ public final class HostBridge {
      * names with its DNS. When null, that class builds TVBox's lenient client (30 s timeouts, trust-all TLS).
      */
     public static volatile OkHttpClient baseClient;
+    public static volatile OkHttpClient playbackClient;
+    public static final ThreadLocal<Boolean> resolvingPlayback = new ThreadLocal<>();
 }

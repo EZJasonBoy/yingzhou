@@ -3,6 +3,7 @@ package tvbox.engine.core.net
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 import okhttp3.Response
 import tvbox.engine.core.model.GithubProxyPreset
@@ -34,25 +35,29 @@ class GithubProxy(
         }
 
     /** The address [url] is fetched from first: itself, unless it is a GitHub address (plain or behind a proxy). */
-    fun route(url: String): String {
-        val direct = direct(url) ?: return url
-        return if (enabled && prefix.isNotEmpty()) prefix + direct else direct
+    fun route(url: String, headers: Map<String, String> = emptyMap()): String {
+        val direct = unwrapped(url) ?: return url
+        return if (enabled && prefix.isNotEmpty() && publicUrl(direct) && headers.keys.none(::sensitiveHeader)) prefix + direct else direct
     }
+
+    private fun unwrapped(url: String): String? =
+        direct(url) ?: prefix.takeIf { it.isNotEmpty() && url.startsWith(it) }?.let { direct(url.removePrefix(it)) }
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         if (request.tag(AsWritten::class.java) != null) return chain.proceed(request)
         val url = request.url.toString()
-        val direct = direct(url) ?: return chain.proceed(request)
+        val direct = unwrapped(url) ?: return chain.proceed(request)
         fun to(target: String) = if (target == url) request else request.newBuilder().url(target).build()
-        if (!enabled || prefix.isEmpty()) return chain.proceed(to(direct))
+        if (!enabled || prefix.isEmpty() || request.method !in listOf("GET", "HEAD") || !publicUrl(direct) ||
+            request.headers.names().any(::sensitiveHeader)) return chain.proceed(to(direct))
         // Through the proxy; when it is down or does not have the file, GitHub itself gets a try.
         val response = try {
             chain.proceed(to(prefix + direct))
         } catch (e: IOException) {
             return chain.proceed(to(direct))
         }
-        if (response.isSuccessful || request.method != "GET") return response
+        if (response.isSuccessful) return response
         response.close()
         return chain.proceed(to(direct))
     }
@@ -121,11 +126,24 @@ class GithubProxy(
             }.awaitAll()
         }
 
-        private const val GITHUB_HOST = "(?:(?:raw|gist|objects|media|release-assets)\\.githubusercontent\\.com|(?:gist\\.|codeload\\.)?github\\.com)"
+        private const val GITHUB_HOST = "(?:[a-z0-9-]+\\.githubusercontent\\.com|(?:(?:api|gist|codeload)\\.)?github\\.com)"
+        private const val GITHUB_AUTHORITY = "(?:[^/?#@]*@)?$GITHUB_HOST"
+
+        private fun sensitiveHeader(name: String) = name.lowercase() in setOf("authorization", "cookie", "x-api-key", "x-auth-token")
+
+        private fun publicUrl(value: String): Boolean {
+            val url = value.toHttpUrlOrNull() ?: return false
+            if (url.username.isNotEmpty() || url.password.isNotEmpty()) return false
+            return url.queryParameterNames.none { name ->
+                val key = name.lowercase()
+                key.contains("token") || key.contains("signature") || key.startsWith("x-amz-") || key.startsWith("x-goog-") ||
+                    key in setOf("sig", "jwt", "auth", "authorization", "api_key", "apikey", "key", "credential", "policy", "key-pair-id", "awsaccesskeyid")
+            }
+        }
 
         /** `https://<proxy>/[https://]<github host>/...`: the usual shape of a gh-proxy address. */
-        private val WRAPPED = Regex("^https?://([^/?#]+)/(?:(https?):/{1,2})?($GITHUB_HOST/.*)$", RegexOption.IGNORE_CASE)
-        private val PLAIN = Regex("^https?://$GITHUB_HOST/.*$", RegexOption.IGNORE_CASE)
+        private val WRAPPED = Regex("^https?://([^/?#]+)/(?:(https?):/{1,2})?($GITHUB_AUTHORITY/.*)$", RegexOption.IGNORE_CASE)
+        private val PLAIN = Regex("^https?://$GITHUB_AUTHORITY/.*$", RegexOption.IGNORE_CASE)
         private val HOST_ONLY = Regex("^$GITHUB_HOST$", RegexOption.IGNORE_CASE)
 
         /** The GitHub address [url] stands for: itself when it is one, what a proxy address wraps, else null. */

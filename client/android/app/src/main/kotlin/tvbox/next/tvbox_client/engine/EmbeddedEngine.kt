@@ -14,6 +14,7 @@ import tvbox.engine.core.config.ConfigLocator
 import tvbox.engine.core.model.Capabilities
 import tvbox.engine.core.model.EngineInfo
 import tvbox.engine.core.net.SiteHttp
+import tvbox.engine.core.net.NetworkProxy
 import tvbox.engine.core.spider.JarRepository
 import tvbox.engine.core.store.JsonFileStore
 import tvbox.engine.jarhost.HostBridge
@@ -42,12 +43,13 @@ object EmbeddedEngine {
         HostBridge.context = app
         HostBridge.port = PORT
         // Created on the main thread, before any activity resumes, so it knows which activity can host its WebView.
-        val sniffer = WebViewSniffer(app as android.app.Application)
+        val networkProxy = NetworkProxy()
+        val sniffer = WebViewSniffer(app as android.app.Application, networkProxy)
         // The same goes for the foreground service's keeper (it asks for the notification permission in an activity).
         EngineKeeper.init(app)
         thread(name = "embedded-engine", isDaemon = true) {
             try {
-                run(app, sniffer)
+                run(app, sniffer, networkProxy)
             } catch (e: Throwable) {
                 Log.e(TAG, "engine failed to start", e)
                 tvbox.next.tvbox_client.CrashRecorder.record(app, "内置引擎没能启动", e)
@@ -55,7 +57,7 @@ object EmbeddedEngine {
         }
     }
 
-    private fun run(app: Context, sniffer: WebViewSniffer) {
+    private fun run(app: Context, sniffer: WebViewSniffer, networkProxy: NetworkProxy) {
         val local = "http://127.0.0.1:$PORT"
         val data = File(app.filesDir, "engine")
         val githubProxy = tvbox.engine.core.net.GithubProxy()
@@ -67,31 +69,39 @@ object EmbeddedEngine {
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS),
         ).build()
+        val configClient = networkProxy.client(client, NetworkProxy.CONFIG)
+        val moduleClient = networkProxy.client(client, NetworkProxy.MODULES)
+        val playbackClient = networkProxy.client(client, NetworkProxy.PLAYBACK)
         HostBridge.baseClient = client
+        HostBridge.playbackClient = playbackClient
         // Copies of configs and site answers, so a start does not wait for the network.
         val dataCache = tvbox.engine.core.cache.DataCache(File(data, "cache/data"))
         val locator = ConfigLocator("$local/file/")
         val js = JsRuntime(
             JsEnvironment(
-                modules = JsModules(client, locator, cacheDir = File(app.cacheDir, "js"), log = { Log.w(TAG, it) }),
+                modules = JsModules(moduleClient, locator, cacheDir = File(app.cacheDir, "js"), log = { Log.w(TAG, it) }),
                 http = JsHttp(client),
+                playbackHttp = JsHttp(playbackClient),
                 local = FileJsLocalStore(File(data, "js-local.json")),
                 proxyUrl = "$local/proxy",
                 log = { Log.i(TAG, it) },
             ),
         )
-        val jar = DexSpiderRuntime(app, JarRepository(client, locator, File(app.cacheDir, "jar")), port = { PORT })
+        val jar = DexSpiderRuntime(app, JarRepository(moduleClient, locator, File(app.cacheDir, "jar")), port = { PORT })
         // The HLS stream cache, in the app's cache folder: 1 GB by default, and it gives way when the device runs low.
         val streamCache = AndroidStorage.streamCache(app, client, data)
         val engine = Engine(
             info = EngineInfo(
                 name = "tvbox-engine",
-                version = "0.4.14213",
+                version = "0.4.1421356",
                 platform = "android-${android.os.Build.VERSION.SDK_INT}",
                 capabilities = Capabilities(jar = false, js = false, py = false, sniff = false),
             ),
-            loader = ConfigLoader(client, locator, dataCache),
+            loader = ConfigLoader(configClient, locator, dataCache),
             http = SiteHttp(client),
+            configHttp = SiteHttp(configClient),
+            playbackHttp = SiteHttp(playbackClient),
+            networkProxy = networkProxy,
             cache = dataCache,
             proxyBase = "$local/proxy?",
             store = JsonFileStore(data),

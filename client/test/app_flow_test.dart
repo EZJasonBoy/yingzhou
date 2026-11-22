@@ -128,7 +128,7 @@ void main() {
 
     final toggle = find.byKey(const Key('github-proxy-switch'));
     expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
-    expect(find.textContaining('已关闭：直连 GitHub'), findsOneWidget);
+    expect(find.textContaining('用于 GitHub 上的配置源、组件和应用更新'), findsOneWidget);
     expect(find.widgetWithText(TextField, '代理地址'), findsNothing);
     // 源 (kept alive behind 设置) shows what the subscription was loaded from.
     expect(find.textContaining('实际访问', skipOffstage: false), findsNothing);
@@ -136,7 +136,7 @@ void main() {
     await tester.tap(toggle);
     await tester.pumpAndSettle();
     expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
-    expect(find.textContaining('代理失败时再直连'), findsOneWidget);
+    expect(find.textContaining('开启后优先使用镜像，失败时尝试直连'), findsOneWidget);
     expect(tester.widget<TextField>(find.widgetWithText(TextField, '代理地址')).controller!.text, 'https://ghfast.top/');
     expect(find.text('实际访问：https://ghfast.top/http://example.test/tv.json', skipOffstage: false), findsOneWidget, reason: 'loaded again through the proxy');
 

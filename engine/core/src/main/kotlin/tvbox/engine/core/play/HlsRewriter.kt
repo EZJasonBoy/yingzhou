@@ -44,8 +44,8 @@ object HlsRewriter {
         val durationMs: Long = segments.lastOrNull()?.let { resources[it].startMs + resources[it].durationMs } ?: 0
 
         /** The playlist for a player that reaches the engine's resources under [base], e.g. `http://127.0.0.1:9978/hls/3fa9c2/`. */
-        fun render(base: String): String = buildString {
-            for (part in parts) if (part is Int) append(base).append(part).append('.').append(resources[part].ext) else append(part as String)
+        fun render(base: String, firstNumber: Int = 0): String = buildString {
+            for (part in parts) if (part is Int) append(base).append(firstNumber + part).append('.').append(resources[part].ext) else append(part as String)
         }
 
         /** Changes whenever the list of resources does: a player holding an older playlist must not get other files under its numbers. */

@@ -9,6 +9,7 @@ import 'cache_settings.dart';
 import 'danmaku_service_settings.dart';
 import 'download_settings.dart';
 import 'github_proxy_settings.dart';
+import 'http_proxy_settings.dart';
 import 'lan_section.dart';
 import 'network_settings.dart';
 import 'python_settings.dart';
@@ -22,11 +23,14 @@ import 'user_mode_settings.dart';
 /// address, the subscriptions, the sites). Each card looks after itself and hides when its engine has no such thing.
 /// The groups, their list on the left and the two columns of cards are [SectionedPage]'s.
 class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key, this.standalone = false});
+  const SettingsPage({super.key, this.standalone = false, this.initialSection});
 
   /// Opened as a page of its own (from 我的 on a phone held upright, whose bottom bar has no room for a 设置 tab):
   /// with a bar to go back.
   final bool standalone;
+
+  /// The group to show first (`network` from 源's 「网络设置」); the top of the page when null.
+  final String? initialSection;
 
   @override
   Widget build(BuildContext context) {
@@ -62,6 +66,7 @@ class SettingsPage extends StatelessWidget {
     return SectionedPage(
       title: '设置',
       standalone: standalone,
+      initialSection: initialSection,
       listKey: const Key('settings-list'),
       sections: [
         // Simple mode has no 源 entry: the subscriptions and sites are reached from here (behind the lock, if set).
@@ -92,14 +97,19 @@ class SettingsPage extends StatelessWidget {
           ),
         const PageSection(id: 'look', title: '外观', icon: Icons.palette_outlined, children: [UserModeSettings(), UiModeSettings(), ThemeModeSettings()]),
         const PageSection(id: 'play', title: '播放', icon: Icons.play_circle_outline_rounded, gap: 0, children: [StreamCacheSettings(), DanmakuServiceSettings()]),
-        if (state.engineSettings != null)
-          PageSection(
-            id: 'network',
-            title: '网络',
-            icon: Icons.public_rounded,
-            gap: 0,
-            children: [_card(context, title: '代理与 DNS', children: const [GithubProxySettings(), NetworkSettings()])],
-          ),
+        // Always there: the GitHub mirror and the proxy for updates are this device's own and work without an engine.
+        // One card per kind of route, so on a wide window they stand side by side.
+        PageSection(
+          id: 'network',
+          title: '网络',
+          icon: Icons.public_rounded,
+          gap: 0,
+          children: [
+            _card(context, title: 'GitHub 镜像', children: const [GithubProxySettings()]),
+            _card(context, title: 'HTTP 代理', children: const [HttpProxySettings()]),
+            if (state.engineSettings != null) _card(context, title: '安全 DNS 与订阅的网络规则', children: const [NetworkSettings()]),
+          ],
+        ),
         const PageSection(
           id: 'lan',
           title: '局域网',

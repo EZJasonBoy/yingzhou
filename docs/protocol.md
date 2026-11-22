@@ -100,7 +100,7 @@ tvsig=<过期时间，秒，36 进制>.<设备 id 或 local>.<HMAC-SHA256 前 16
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/settings` | `{githubProxy, githubProxyPrefix, doh, streamCache, streamCacheMaxMB, danmakuConfigApi, danmakuApi}` |
+| GET | `/settings` | `{githubProxy, githubProxyPrefix, httpProxy, proxyScopes, doh, streamCache, streamCacheMaxMB, danmakuConfigApi, danmakuApi}` |
 | PUT | `/settings` | 同样的对象，**可以只带要改的字段**，没带的保持原值；保存并立即生效，返回规整后的完整对象。改 GitHub 代理后当前配置不会自动重新加载，客户端随后重新 `activate` |
 | GET | `/network` | 当前配置的网络项和 DNS 选择，见下 |
 | GET | `/github-proxy` | 可选的 GitHub 加速代理：`{presets: [{name, prefix}], probeUrl}` |
@@ -127,7 +127,9 @@ tvsig=<过期时间，秒，36 进制>.<设备 id 或 local>.<HMAC-SHA256 前 16
 
 `streamCache`（默认 `true`）和 `streamCacheMaxMB`（默认 2048，引擎会限制在 200 到 1048576 之间）控制播放缓存，见下面"播放缓存"一节；改它们不需要重新加载配置。
 
-`githubProxy` 为 `false`（默认）时，GitHub 上的文件（`raw.githubusercontent.com`、`github.com` 等）直接向 GitHub 取，地址前面被订阅写上的代理（`https://<代理>/https://raw.githubusercontent.com/…`，带不带内层的 `https://` 都认）会被去掉；为 `true` 时改经 `githubProxyPrefix` 取，失败再直连。`/config` 的 `url` 始终是订阅里写的原样，`fetchedUrl` 是实际访问的地址。
+`githubProxy` 为 `false`（默认）时，GitHub 上的文件（`raw.githubusercontent.com`、`github.com` 等）直接向 GitHub 取，地址前面被订阅写上的代理（`https://<代理>/https://raw.githubusercontent.com/…`，带不带内层的 `https://` 都认）会被去掉。开启后，公开下载优先经 `githubProxyPrefix` 取，失败再直连。`/config` 的 `url` 始终是订阅里写的原样，`fetchedUrl` 是优先使用的地址。
+
+`httpProxy` 是引擎所在设备可达的 HTTP 代理，格式为 `主机:端口` 或 `[IPv6]:端口`。`proxyScopes` 可多选 `config`（订阅、多仓、站点扩展配置和直播列表）、`modules`（蜘蛛脚本、JAR、Python 运行时和 pip 依赖）以及 `playback`（播放地址解析请求和网页嗅探）。默认地址为空，范围为 `[]`。引擎按用途选择 HTTP 代理，回环和常用局域网地址直连。播放器自行发送的媒体数据与引擎发送的解析请求是两条独立链路。本机更新的选择由客户端保存，引擎和客户端都能同时使用 GitHub 加速和所选的 HTTP 代理。
 
 `/github-proxy` 的 `presets` 是引擎内置的公共加速代理（`prefix` 以 `/` 结尾，GitHub 地址直接接在后面），`githubProxyPrefix` 可以是其中之一，也可以是别的。`/github-proxy/probe` 同时取 `probeUrl`（本项目公开仓库里固定提交下的一个约 100 字节的文件）：先直连 GitHub（结果里 `prefix` 为空串、排第一），再经每个前缀各一次，不受 `githubProxy` 设置影响、不会改道，除这一个 GET 外不发送任何东西。前缀会被规整（补 `https://` 和结尾的 `/`）、去重，最多 20 个；每个最多等 8 秒，所以整个请求最长约 8 秒。`ok` 表示取回的内容确实是那个文件（有的代理对任何地址都回答 200 和一个自己的页面，算作失败）；`ms` 是从发出到读完（或失败）的毫秒数；`error` 是失败原因，如 `HTTP 503 from <host>`、`timeout talking to <host>`、`answered, but not with the file`。旧引擎没有这两个接口（404），客户端这时只显示开关和地址输入框。
 

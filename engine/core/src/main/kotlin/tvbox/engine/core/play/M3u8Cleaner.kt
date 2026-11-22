@@ -89,12 +89,14 @@ object M3u8Cleaner {
 
     private fun abs(base: String, ref: String) = if (ref.startsWith("http://") || ref.startsWith("https://")) ref else UriUtil.resolve(base, ref)
 
-    private fun resolve(text: String, base: String): String = text.split('\n').joinToString("\n") { line ->
+    private fun resolve(text: String, base: String): String = routeResources(text) { abs(base, it) }
+
+    fun routeResources(text: String, route: (String) -> String): String = text.lineSequence().joinToString("\n") { line ->
         when {
             line.isBlank() -> line
-            line.startsWith("#EXT-X-KEY") || line.startsWith("#EXT-X-MAP") -> URI_ATTR.replace(line) { m -> "URI=\"${abs(base, m.groupValues[1])}\"" }
+            line.startsWith("#EXT-X-KEY") || line.startsWith("#EXT-X-MAP") -> URI_ATTR.replace(line) { m -> "URI=\"${route(m.groupValues[1])}\"" }
             line.startsWith("#") -> line
-            else -> abs(base, line.trim())
+            else -> route(line.trim())
         }
     }
 

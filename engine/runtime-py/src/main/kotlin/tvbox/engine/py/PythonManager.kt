@@ -7,6 +7,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import tvbox.engine.core.net.NetworkProxy
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
@@ -43,6 +44,7 @@ class PythonManager(
     private val pipEnv: Map<String, String> = emptyMap(),
     /** False: do not look for a Python on the machine, only the user's, TVBOX_PYTHON and the downloaded one (tests). */
     searchMachine: Boolean = true,
+    private val networkProxy: NetworkProxy? = null,
 ) {
     private val gson = Gson()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -315,6 +317,13 @@ class PythonManager(
         val pb = ProcessBuilder(args).redirectErrorStream(true).directory(home)
         pb.environment()["PIP_NO_INPUT"] = "1"
         pb.environment().putAll(pipEnv)
+        networkProxy?.endpoint(NetworkProxy.MODULES)?.takeIf { it.isNotEmpty() }?.let { endpoint ->
+            val env = pb.environment()
+            for (key in listOf("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")) env[key] = "http://$endpoint"
+            val bypass = listOfNotNull(env["no_proxy"] ?: env["NO_PROXY"], "localhost,.localhost,.local,.lan,127.0.0.0/8,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16").joinToString(",")
+            env["no_proxy"] = bypass
+            env["NO_PROXY"] = bypass
+        }
         val p = pb.start()
         p.outputStream.close()
         p.inputStream.bufferedReader(Charsets.UTF_8).useLines { lines -> lines.forEach { appendLog(it) } }

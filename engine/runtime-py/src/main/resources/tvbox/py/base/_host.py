@@ -12,6 +12,7 @@
 # Nothing here uses the config's DoH: Python resolves names with the system's DNS, after `hosts`.
 
 import importlib.util
+import ipaddress
 import json
 import os
 import re
@@ -21,7 +22,7 @@ import sys
 import threading
 import urllib.error
 import urllib.request
-from urllib.parse import quote, urlencode, urlsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit
 
 __all__ = ['quote', 'urlencode']
 
@@ -88,10 +89,35 @@ class _Rules(object):
         self.github_enabled = bool(github.get('enabled'))
         self.github_prefix = github.get('prefix') or ''
         self.strict_tls = bool(spec.get('strictTls'))
+        self.playback_proxy = spec.get('playbackProxy') or ''
         self.empty = not (self.hosts.exact or self.hosts.patterns)
 
 
 _rules = _Rules()
+_request_context = threading.local()
+
+
+def resolve_playback(function, args):
+    _request_context.playback = True
+    try:
+        return function(*args)
+    finally:
+        _request_context.playback = False
+
+
+def _playback_proxies(url):
+    proxy = _rules.playback_proxy
+    if not proxy or not getattr(_request_context, 'playback', False):
+        return None
+    host = (urlsplit(url).hostname or '').lower().rstrip('.')
+    try:
+        address = ipaddress.ip_address(host)
+        local = address.is_loopback or address.is_private or address.is_link_local
+    except ValueError:
+        local = '.' not in host or host.endswith(('.localhost', '.local', '.lan', '.internal', '.home'))
+    if local:
+        return {'http': None, 'https': None, 'all': None}
+    return {'http': 'http://' + proxy, 'https': 'http://' + proxy}
 
 
 def set_rules(spec):
@@ -134,9 +160,10 @@ def headers_for(url):
     return _rules.headers.find(host) or {}
 
 
-_GITHUB_HOST = r'(?:(?:raw|gist|objects|media|release-assets)\.githubusercontent\.com|(?:gist\.|codeload\.)?github\.com)'
-_WRAPPED = re.compile(r'^https?://([^/?#]+)/(?:(https?):/{1,2})?(' + _GITHUB_HOST + r'/.*)$', re.I)
-_PLAIN = re.compile(r'^https?://' + _GITHUB_HOST + r'/.*$', re.I)
+_GITHUB_HOST = r'(?:[a-z0-9-]+\.githubusercontent\.com|(?:(?:api|gist|codeload)\.)?github\.com)'
+_GITHUB_AUTHORITY = r'(?:[^/?#@]*@)?' + _GITHUB_HOST
+_WRAPPED = re.compile(r'^https?://([^/?#]+)/(?:(https?):/{1,2})?(' + _GITHUB_AUTHORITY + r'/.*)$', re.I)
+_PLAIN = re.compile(r'^https?://' + _GITHUB_AUTHORITY + r'/.*$', re.I)
 _HOST_ONLY = re.compile('^' + _GITHUB_HOST + '$', re.I)
 
 
@@ -150,14 +177,31 @@ def github_direct(url):
     return (m.group(2) or 'https').lower() + '://' + m.group(3)
 
 
-def routes(url):
+def _private_params(params):
+    if not params:
+        return False
+    if isinstance(params, str):
+        params = parse_qsl(params, keep_blank_values=True)
+    names = params.keys() if isinstance(params, dict) else (entry[0] for entry in params)
+    for name in names:
+        key = str(name).lower()
+        if ('token' in key or 'signature' in key or key.startswith(('x-amz-', 'x-goog-')) or
+                key in ('sig', 'jwt', 'auth', 'authorization', 'api_key', 'apikey', 'key', 'credential', 'policy', 'key-pair-id', 'awsaccesskeyid')):
+            return True
+    return False
+
+
+def routes(url, public_read=True):
     """The addresses to try for [url], in order: the engine's GitHub proxy setting applies (see GithubProxy.kt)."""
     url = str(url)
     direct = github_direct(url)
+    rules = _rules
+    if direct is None and rules.github_prefix and url.startswith(rules.github_prefix):
+        direct = github_direct(url[len(rules.github_prefix):])
     if direct is None:
         return [url]
-    rules = _rules
-    if rules.github_enabled and rules.github_prefix:
+    origin = urlsplit(direct)
+    if public_read and rules.github_enabled and rules.github_prefix and not (origin.username or origin.password or _private_params(origin.query)):
         return [rules.github_prefix + direct, direct]
     return [direct]
 
@@ -192,7 +236,20 @@ def _install_requests():
         return
 
     def request(self, method, url, *args, **kwargs):
-        targets = routes(url)
+        headers = kwargs.get('headers') or (args[2] if len(args) > 2 else {}) or {}
+        public_read = str(method).upper() in ('GET', 'HEAD') and not (self.auth or self.cookies or kwargs.get('auth') or kwargs.get('cookies') or len(args) > 3)
+        config_headers = headers_for(github_direct(str(url)) or url)
+        params = kwargs.get('params') or (args[0] if args else None)
+        public_read = public_read and not _private_params(params) and not _private_params(self.params)
+        public_read = public_read and not any(str(key).lower() in ('authorization', 'cookie', 'x-api-key', 'x-auth-token') for group in (headers, self.headers, config_headers) for key in group)
+        targets = routes(url, public_read)
+        def send(target):
+            options = dict(kwargs)
+            proxies = _playback_proxies(target)
+            if proxies is not None and len(args) < 9:
+                options['proxies'] = proxies
+            return session_request(self, method, target, *args, **options)
+
         extra = headers_for(targets[-1])
         # headers is the third argument after method and url; a call that passes it positionally keeps its own.
         if extra and len(args) < 3:
@@ -203,16 +260,16 @@ def _install_requests():
         if not _state['strict_tls'] and kwargs.get('verify') is None and len(args) < 12:
             kwargs['verify'] = False
         if len(targets) == 1:
-            return session_request(self, method, targets[0], *args, **kwargs)
+            return send(targets[0])
         # Through the proxy first; GitHub itself when the proxy fails.
         try:
-            rsp = session_request(self, method, targets[0], *args, **kwargs)
-            if rsp.ok or str(method).upper() != 'GET':
+            rsp = send(targets[0])
+            if rsp.ok:
                 return rsp
             rsp.close()
         except requests.RequestException:
             pass
-        return session_request(self, method, targets[1], *args, **kwargs)
+        return send(targets[1])
 
     request._yingzhou = True
     requests.sessions.Session.request = request
@@ -336,7 +393,9 @@ def _std_request(method, url, params=None, data=None, json=None, cookies=None, h
     if cookies:
         sent['Cookie'] = '; '.join('%s=%s' % (k, v) for k, v in dict(cookies).items())
     sent.setdefault('User-Agent', 'okhttp/4.12.0')
-    targets = routes(url)
+    config_headers = headers_for(github_direct(str(url)) or url)
+    public_read = str(method).upper() in ('GET', 'HEAD') and not any(str(key).lower() in ('authorization', 'cookie', 'x-api-key', 'x-auth-token') for group in (sent, config_headers) for key in group)
+    targets = routes(url, public_read)
     for k, v in headers_for(targets[-1]).items():
         for existing in [h for h in sent if h.lower() == k.lower()]:
             del sent[existing]
@@ -349,9 +408,11 @@ def _std_request(method, url, params=None, data=None, json=None, cookies=None, h
     handlers = [urllib.request.HTTPSHandler(context=context)]
     if not allow_redirects:
         handlers.append(_NoRedirect())
-    opener = urllib.request.build_opener(*handlers)
     error = None
     for i, target in enumerate(targets):
+        proxies = _playback_proxies(target)
+        handlers_for_target = handlers if proxies is None else handlers + [urllib.request.ProxyHandler({key: value for key, value in proxies.items() if value})]
+        opener = urllib.request.build_opener(*handlers_for_target)
         req = urllib.request.Request(target, data=body, headers=sent, method=str(method).upper())
         try:
             res = opener.open(req, timeout=timeout)

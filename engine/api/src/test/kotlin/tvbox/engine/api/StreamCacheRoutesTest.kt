@@ -221,8 +221,9 @@ class StreamCacheRoutesTest {
         val media = client.get(local(variant)).bodyAsText()
         assertTrue(segments(media).all { it.contains("/hls/") }, media)
         client.get(local(segments(media).first())).readRawBytes()
-        repeat(250) { if (cache.store.stats().files < 1) delay(20) }
-        assertEquals("[[0,10000]]", json("/api/v1/stream-cache/coverage?key=abc123")["ranges"].toString())
+        kotlinx.coroutines.withTimeout(5_000) {
+            while (json("/api/v1/stream-cache/coverage?key=abc123")["ranges"].toString() != "[[0,10000]]") delay(20)
+        }
 
         val live = client.get("/m3u8?url=" + URLEncoder.encode(site.url("/ads/live.m3u8").toString(), "UTF-8")).bodyAsText()
         assertTrue(segments(live).all { it.startsWith(site.url("/ads/").toString()) }, live)
@@ -231,12 +232,13 @@ class StreamCacheRoutesTest {
     @Test
     fun `settings are changed one at a time, and switching the cache off leaves the source's own addresses`() = withEngine {
         val before = json("/api/v1/settings")
+        assertEquals("[]", before["proxyScopes"].toString())
         assertEquals("true", before["streamCache"]!!.jsonPrimitive.content)
         assertEquals("2048", before["streamCacheMaxMB"]!!.jsonPrimitive.content)
 
         val sized = EngineJson.parseToJsonElement(client.put("/api/v1/settings") {
             contentType(ContentType.Application.Json)
-            setBody("""{"streamCacheMaxMB":5120}""")
+            setBody("""{"streamCacheMaxMB":5120,"httpProxy":"http://localhost:7890/","proxyScopes":["config"]}""")
         }.bodyAsText()).jsonObject
         assertEquals("5120", sized["streamCacheMaxMB"]!!.jsonPrimitive.content)
         assertEquals(before["githubProxyPrefix"], sized["githubProxyPrefix"], "what was not sent stays")
@@ -248,6 +250,8 @@ class StreamCacheRoutesTest {
         }.bodyAsText()).jsonObject
         assertEquals("5120", other["streamCacheMaxMB"]!!.jsonPrimitive.content)
         assertEquals("true", other["githubProxy"]!!.jsonPrimitive.content)
+        assertEquals("localhost:7890", other["httpProxy"]!!.jsonPrimitive.content)
+        assertEquals("[\"config\"]", other["proxyScopes"].toString())
         // Sizes out of all proportion are brought back into range.
         val tiny = EngineJson.parseToJsonElement(client.put("/api/v1/settings") {
             contentType(ContentType.Application.Json)

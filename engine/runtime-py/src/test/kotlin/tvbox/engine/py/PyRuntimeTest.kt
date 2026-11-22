@@ -80,10 +80,10 @@ class PyRuntimeTest {
         return server.url("/tv.json").toString()
     }
 
-    private fun engine(manager: PythonManager, network: ConfigNetwork = ConfigNetwork()): Engine {
+    private fun engine(manager: PythonManager, network: ConfigNetwork = ConfigNetwork(), routing: tvbox.engine.core.net.NetworkProxy = tvbox.engine.core.net.NetworkProxy()): Engine {
         val client = OkHttpClient.Builder().let { network.install(it) }.build()
         val locator = ConfigLocator("http://127.0.0.1:80/file/")
-        val rt = PyRuntime(manager, PyScripts(client, locator, File(dir, "spiders")), "http://127.0.0.1:80/proxy", network = network, log = { logs += it })
+        val rt = PyRuntime(manager, PyScripts(client, locator, File(dir, "spiders")), "http://127.0.0.1:80/proxy", network = network, log = { logs += it }, networkProxy = routing)
         runtime = rt
         return Engine(
             EngineInfo("tvbox-engine", "test", platform = "test", capabilities = Capabilities(false, false, false, false)),
@@ -92,6 +92,7 @@ class PyRuntimeTest {
             proxyBase = "http://127.0.0.1:80/proxy?",
             runtimes = listOf(rt),
             network = network,
+            networkProxy = routing,
         )
     }
 
@@ -152,6 +153,24 @@ class PyRuntimeTest {
         // What the spider prints goes into the engine's log.
         assertTrue(logs.any { "hello from python, ext keys: api" in it }, logs.joinToString("\n"))
         assertTrue(runtime!!.status().worker.running)
+    }
+
+    @Test
+    fun `playback proxy reaches the running Python worker without changing its catalogue requests`() = runBlocking {
+        val manager = withPython()
+        val url = serve("""{"sites":[{"key":"py","name":"test","type":3,"api":"{base}/py/vod.py","ext":{"api":"{base}/api","resolve":"http://resolver.example.invalid/video"}}]}""")
+        val engine = engine(manager)
+        engine.load(url)
+        assertEquals("来自接口", engine.home("py").list.single().name)
+        MockWebServer().use { forwarder ->
+            forwarder.enqueue(MockResponse().setBody("http://media.test/v.mp4"))
+            forwarder.start()
+            engine.updateSettings(tvbox.engine.core.model.EngineSettings(httpProxy = "127.0.0.1:${forwarder.port}", proxyScopes = listOf("playback")))
+            assertEquals("http://media.test/v.mp4", engine.resolvePlay(PlayRequest("py", "直连", "1")).url)
+            assertTrue(forwarder.takeRequest().requestLine.contains("http://resolver.example.invalid/video"))
+            assertEquals("来自接口", engine.home("py").list.single().name)
+            assertEquals(1, forwarder.requestCount)
+        }
     }
 
     @Test

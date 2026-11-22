@@ -12,6 +12,7 @@ import tvbox.engine.core.config.SiteRuntime
 import tvbox.engine.core.config.TvboxConfig
 import tvbox.engine.core.net.ConfigNetwork
 import tvbox.engine.core.net.GithubProxy
+import tvbox.engine.core.net.NetworkProxy
 import tvbox.engine.core.spider.ProxyResponse
 import tvbox.engine.core.spider.Spider
 import tvbox.engine.core.spider.SpiderLoadException
@@ -41,6 +42,7 @@ class PyRuntime(
     private val log: (String) -> Unit = {},
     /** Started (true) and ended (false) worker processes, for whoever kills children on exit. */
     private val onProcess: (ProcessHandle, Boolean) -> Unit = { _, _ -> },
+    private val networkProxy: NetworkProxy? = null,
 ) : SpiderRuntime {
     override val kind = "py"
 
@@ -188,6 +190,7 @@ class PyRuntime(
             put("prefix", githubProxy?.prefix.orEmpty())
         })
         put("strictTls", strictTls)
+        put("playbackProxy", networkProxy?.endpoint(NetworkProxy.PLAYBACK).orEmpty())
     }
 
     /**

@@ -27,6 +27,7 @@ class RemoteSource(
     override val bean: SiteBean,
     private val http: SiteHttp,
     private val ext: ExtResolver,
+    private val playbackHttp: SiteHttp = http,
 ) : SiteSource {
 
     override suspend fun home(): HomeResult =
@@ -58,16 +59,16 @@ class RemoteSource(
     }
 
     override suspend fun play(line: String, episodeId: String): RawPlay =
-        PlayerResult.parse(call(listOf("play" to episodeId, "flag" to line)), defaultUrl = episodeId, flag = line)
+        PlayerResult.parse(call(listOf("play" to episodeId, "flag" to line), playbackHttp), defaultUrl = episodeId, flag = line)
 
     /** GET normally; POST form when the url-encoded `extend` would make the url too long (TVBox: >= 1000 chars). */
-    private suspend fun call(params: List<Pair<String, String>>): String {
+    private suspend fun call(params: List<Pair<String, String>>, client: SiteHttp = http): String {
         val extend = ext.resolve(bean.ext)
         val all = if (extend.isEmpty()) params else params + ("extend" to extend)
         return if (URLEncoder.encode(extend, "UTF-8").length >= 1000) {
-            http.postForm(bean.api, all, timeoutMs = timeoutMs)
+            client.postForm(bean.api, all, timeoutMs = timeoutMs)
         } else {
-            http.get(bean.api, all, timeoutMs = timeoutMs)
+            client.get(bean.api, all, timeoutMs = timeoutMs)
         }
     }
 

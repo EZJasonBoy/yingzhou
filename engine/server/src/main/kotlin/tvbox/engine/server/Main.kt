@@ -21,6 +21,7 @@ import tvbox.engine.core.model.Capabilities
 import tvbox.engine.core.model.EngineInfo
 import tvbox.engine.core.net.GithubProxy
 import tvbox.engine.core.net.LenientTls
+import tvbox.engine.core.net.NetworkProxy
 import tvbox.engine.core.net.SiteHttp
 import tvbox.engine.core.store.JsonFileStore
 import tvbox.engine.core.spider.JarRepository
@@ -92,14 +93,20 @@ fun main(args: Array<String>) {
         .let { if ("--strict-tls" in args) it else LenientTls.apply(it) }
         .build()
     val locator = ConfigLocator("$local/file/")
+    val networkProxy = NetworkProxy()
+    val configClient = networkProxy.client(client, NetworkProxy.CONFIG)
+    val moduleClient = networkProxy.client(client, NetworkProxy.MODULES)
+    val playbackClient = networkProxy.client(client, NetworkProxy.PLAYBACK)
     // Copies of configs and site answers: on disk with the data, in memory in demo mode; a check keeps nothing.
     val dataCache = if (check) null else tvbox.engine.core.cache.DataCache(dataDir?.let { File(it, "cache/data") })
     // What jar spiders request through the host's classes (com.github.catvod.net.OkHttp) follows the same rules.
     tvbox.engine.jarhost.HostBridge.baseClient = client
+    tvbox.engine.jarhost.HostBridge.playbackClient = playbackClient
     val jsRuntime = JsRuntime(
         JsEnvironment(
-            modules = JsModules(client, locator, cacheDir = dataDir?.let { File(it, "js-cache") }, log = { System.err.println(it) }),
+            modules = JsModules(moduleClient, locator, cacheDir = dataDir?.let { File(it, "js-cache") }, log = { System.err.println(it) }),
             http = JsHttp(client),
+            playbackHttp = JsHttp(playbackClient),
             local = dataDir?.let { FileJsLocalStore(File(it, "js-local.json")) } ?: MemoryJsLocalStore(),
             proxyUrl = "$local/proxy",
             log = { line -> if ("[log]" !in line && "[debug]" !in line && "[info]" !in line) System.err.println(line) },
@@ -109,36 +116,40 @@ fun main(args: Array<String>) {
     val work = dataDir ?: File(System.getProperty("java.io.tmpdir"), if (check) "tvbox-next-check" else "tvbox-next-engine-$port")
     val jarRuntime = DesktopJarRuntime(
         dataDir = File(work, "spider"),
-        jars = JarRepository(client, locator, File(work, "cache/jar")),
+        jars = JarRepository(moduleClient, locator, File(work, "cache/jar")),
         port = { port },
         cacheDir = File(work, "cache/d2j"),
     )
     // Python spiders run in a Python process of their own, on a Python found on this machine (or downloaded when the
     // user asks for it in the app). A check that leaves "py" out does not look for one.
     val pyRuntime = if (checkOnly != null && "py" !in checkOnly) null else tvbox.engine.py.PyRuntime(
-        manager = tvbox.engine.py.PythonManager(File(work, "python"), client, log = { System.err.println(it) }),
-        scripts = tvbox.engine.py.PyScripts(client, locator, File(work, "python/spiders"), log = { System.err.println(it) }),
+        manager = tvbox.engine.py.PythonManager(File(work, "python"), moduleClient, log = { System.err.println(it) }, networkProxy = networkProxy),
+        scripts = tvbox.engine.py.PyScripts(moduleClient, locator, File(work, "python/spiders"), log = { System.err.println(it) }),
         proxyUrl = "$local/proxy",
         network = network,
         githubProxy = githubProxy,
         strictTls = "--strict-tls" in args,
+        networkProxy = networkProxy,
         log = { System.err.println(it) },
         onProcess = { p, started -> if (started) ChildProcesses.register(p) else ChildProcesses.kill(p) },
     )
     // Web page sniffing in a headless Edge/Chrome, when one is installed.
-    val sniffer = CdpSniffer.findBrowser()?.let { CdpSniffer(it, File(work, "sniff-profile"), client, network = network) }
+    val sniffer = CdpSniffer.findBrowser()?.let { CdpSniffer(it, File(work, "sniff-profile"), client, network = network, networkProxy = networkProxy) }
     // The HLS streams players are served, kept on disk; an engine without a data folder (--demo) starts with none.
     val streamDir = File(work, "cache/stream").also { if (dataDir == null) it.deleteRecursively() }
     val streamCache = tvbox.engine.core.cache.StreamCache(client, tvbox.engine.core.cache.StreamStore(streamDir), log = { System.err.println(it) })
     val engine = Engine(
         info = EngineInfo(
             name = "tvbox-engine",
-            version = "0.4.14213",
+            version = "0.4.1421356",
             platform = "jvm-" + System.getProperty("os.name").lowercase().substringBefore(' '),
             capabilities = Capabilities(jar = false, js = false, py = false, sniff = false),
         ),
-        loader = ConfigLoader(client, locator, dataCache),
+        loader = ConfigLoader(configClient, locator, dataCache),
         http = SiteHttp(client),
+        configHttp = SiteHttp(configClient),
+        playbackHttp = SiteHttp(playbackClient),
+        networkProxy = networkProxy,
         cache = dataCache,
         proxyBase = "$local/proxy?",
         store = store,

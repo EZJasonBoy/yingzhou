@@ -3,7 +3,7 @@
 
 /// This build's version, the `version:` of pubspec.yaml without the build number. A test keeps the two the same
 /// (test/update_test.dart); `--dart-define=APP_VERSION=0.1.0` pretends to be another version (to try updating).
-const appVersion = String.fromEnvironment('APP_VERSION', defaultValue: '0.4.14213');
+const appVersion = String.fromEnvironment('APP_VERSION', defaultValue: '0.4.1421356');
 
 /// The repository the releases are published in.
 const releaseRepository = 'Sa1koro/yingzhou';
@@ -14,25 +14,18 @@ const latestJsonUrl = 'https://github.com/$releaseRepository/releases/download/c
 
 /// One file of a release.
 class ReleaseAsset {
-  const ReleaseAsset({required this.name, this.size = 0});
+  const ReleaseAsset({required this.name, this.size = 0, this.sha256 = ''});
 
   final String name;
 
   /// In bytes; 0 when not known.
   final int size;
+  final String sha256;
 }
 
 /// The newest release, as `latest.json` describes it.
 class ReleaseInfo {
-  const ReleaseInfo({
-    required this.version,
-    this.tag = '',
-    this.date = '',
-    this.notes = '',
-    this.page = '',
-    this.download = '',
-    this.assets = const {},
-  });
+  const ReleaseInfo({required this.version, this.tag = '', this.date = '', this.notes = '', this.page = '', this.download = '', this.assets = const {}});
 
   /// `0.4.0`, without a leading `v`.
   final String version;
@@ -66,7 +59,7 @@ class ReleaseInfo {
         // An asset is its file name, or {name, size}.
         if (value is String && value.isNotEmpty) assets[key] = ReleaseAsset(name: value);
         if (value is Map<String, dynamic> && value['name'] is String) {
-          assets[key] = ReleaseAsset(name: value['name'] as String, size: (value['size'] as num?)?.toInt() ?? 0);
+          assets[key] = ReleaseAsset(name: value['name'] as String, size: (value['size'] as num?)?.toInt() ?? 0, sha256: value['sha256'] as String? ?? '');
         }
       });
     }
@@ -116,7 +109,11 @@ int compareVersions(String a, String b) {
 /// copy came from the installer (it has an uninstaller next to it) rather than the zip.
 List<String> assetKeysFor({required String os, required String abi, bool installed = true}) => switch (os) {
   'windows' => installed ? ['windows-x64', 'windows-x64-zip'] : ['windows-x64-zip', 'windows-x64'],
-  'macos' => abi.endsWith('x64') ? ['macos-x86_64', 'macos-arm64'] : ['macos-arm64'],
+  'macos' => switch (abi) {
+    'macos_x64' => ['macos-x86_64'],
+    'macos_arm64' => ['macos-arm64'],
+    _ => const [],
+  },
   'android' => switch (abi) {
     'android_arm' => ['android-armeabi-v7a'],
     'android_x64' => ['android-x86_64'],

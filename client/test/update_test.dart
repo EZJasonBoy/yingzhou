@@ -1,13 +1,19 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart' show sha256;
+import 'package:cryptography/cryptography.dart' show SimplePublicKey;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tvbox_client/engine/models.dart' show EngineSettings;
+import 'package:tvbox_client/network_preferences.dart' show ClientNetworkPreferences;
 import 'package:tvbox_client/settings.dart';
 import 'package:tvbox_client/update/release_info.dart';
 import 'package:tvbox_client/update/update_backend.dart';
 import 'package:tvbox_client/update/update_client.dart';
 import 'package:tvbox_client/update/update_models.dart';
 import 'package:tvbox_client/update/update_service.dart';
+
+import 'support/update_signer.dart';
 
 /// Real sockets, whatever the test binding does to `HttpClient`.
 class _RealHttp extends HttpOverrides {}
@@ -22,12 +28,10 @@ String _manifest(String version, {String notes = '- 新功能'}) => jsonEncode({
   'page': 'https://github.com/Sa1koro/yingzhou/releases/tag/v$version',
   'download': 'https://github.com/Sa1koro/yingzhou/releases/download/v$version/',
   'assets': {
-    'windows-x64': {'name': 'yingzhou-windows-x64-setup.exe', 'size': 1234},
-    'windows-x64-zip': {'name': 'yingzhou-windows-x64.zip', 'size': 2345},
-    'macos-arm64': {'name': 'yingzhou-macos-arm64.dmg', 'size': 3456},
-    'android-arm64-v8a': 'yingzhou-android-arm64-v8a.apk',
-    'android-armeabi-v7a': 'yingzhou-android-armeabi-v7a.apk',
-    'android-x86_64': 'yingzhou-android-x86_64.apk',
+    'windows-x64': {'name': 'yingzhou-windows-x64-setup.exe', 'size': 1234, 'sha256': 'a' * 64},
+    'windows-x64-zip': {'name': 'yingzhou-windows-x64.zip', 'size': 2345, 'sha256': 'b' * 64},
+    'macos-arm64': {'name': 'yingzhou-macos-arm64.dmg', 'size': 3456, 'sha256': 'c' * 64},
+    for (final abi in ['arm64-v8a', 'armeabi-v7a', 'x86_64']) 'android-$abi': {'name': 'yingzhou-android-$abi.apk', 'sha256': 'd' * 64},
   },
 });
 
@@ -43,6 +47,7 @@ class _FakeNet {
   String latest = _manifest('0.4.0');
   int latestStatus = 200;
   bool mirrorWorks = true;
+  bool signLatest = true;
 
   /// A package to download, by path.
   final files = <String, List<int>>{};
@@ -73,7 +78,15 @@ class _FakeNet {
     } else if (uri.path.endsWith('latest.json')) {
       res.statusCode = latestStatus;
       res.headers.contentType = ContentType.json;
-      res.write(latest);
+      var text = latest;
+      if (signLatest && latestStatus == 200) {
+        try {
+          text = await signUpdateFixture(latest);
+        } on FormatException {
+          text = latest;
+        }
+      }
+      res.write(text);
     } else {
       res.statusCode = 404;
     }
@@ -116,7 +129,7 @@ void main() {
       expect(pick('windows', 'windows_x64'), 'yingzhou-windows-x64-setup.exe');
       expect(pick('windows', 'windows_x64', installed: false), 'yingzhou-windows-x64.zip', reason: 'unzipped: the zip again');
       expect(pick('macos', 'macos_arm64'), 'yingzhou-macos-arm64.dmg');
-      expect(pick('macos', 'macos_x64'), 'yingzhou-macos-arm64.dmg', reason: 'no Intel build: the one there is');
+      expect(pick('macos', 'macos_x64'), isNull, reason: 'an Intel Mac cannot run an ARM-only build');
       expect(pick('android', 'android_arm64'), 'yingzhou-android-arm64-v8a.apk');
       expect(pick('android', 'android_arm'), 'yingzhou-android-armeabi-v7a.apk', reason: 'a 32-bit install stays 32-bit');
       expect(pick('android', 'android_x64'), 'yingzhou-android-x86_64.apk');
@@ -162,12 +175,17 @@ void main() {
 
   group('checking', () {
     late _FakeNet net;
-    setUp(() async => net = await _FakeNet.start());
+    late SimplePublicKey key;
+    setUp(() async {
+      net = await _FakeNet.start();
+      key = await testUpdatePublicKey;
+    });
     tearDown(() => net.close());
 
     UpdateClient client({String? latestUrl, String current = '0.3.14'}) => UpdateClient(
       latestUrl: latestUrl ?? '${net.base}/releases/download/channel/latest.json',
       currentVersion: current,
+      verificationKey: key,
       timeout: const Duration(seconds: 5),
       httpClient: _realClient,
     );
@@ -213,35 +231,52 @@ void main() {
       expect((await client().check()).failures.single, contains('HTTP 404'));
     });
 
-    test('when GitHub cannot be reached, through the accelerating prefix', () async {
+    test('the selected mirror is preferred and GitHub is the fallback', () async {
       final dead = 'http://127.0.0.1:${await _deadPort()}/releases/download/channel/latest.json';
       final r = await client(latestUrl: dead).check(mirror: '${net.base}/mirror');
       expect(r.ok, isTrue);
       expect(r.route, UpdateRoute.mirror);
       expect(r.mirror, '${net.base}/mirror/');
-      expect(r.failures, ['直连 GitHub：连不上']);
+      expect(r.failures, isEmpty);
       expect(r.routeLabel, '经加速前缀 127.0.0.1');
       expect(net.asked, ['mirror /mirror/$dead']);
       // Downloads then take the same way.
       expect(r.routed('https://github.com/x/y.exe'), '${net.base}/mirror/https://github.com/x/y.exe');
 
-      // GitHub answering an error page counts as failing too; GitHub answering is never followed by the prefix.
       net.asked.clear();
       net.latestStatus = 503;
       final both = await client().check(mirror: '${net.base}/mirror/');
-      expect(both.failures.first, '直连 GitHub：HTTP 503');
+      expect(both.failures, ['经加速前缀 127.0.0.1：HTTP 503', '直连 GitHub：HTTP 503']);
       net.latestStatus = 200;
+      net.mirrorWorks = false;
       final direct = await client().check(mirror: '${net.base}/mirror/');
       expect(direct.route, UpdateRoute.direct);
 
       net.mirrorWorks = false;
       final none = await client(latestUrl: dead).check(mirror: '${net.base}/mirror/');
       expect(none.ok, isFalse);
-      expect(none.failures, ['直连 GitHub：连不上', '经加速前缀 127.0.0.1：HTTP 502']);
+      expect(none.failures, ['经加速前缀 127.0.0.1：HTTP 502', '直连 GitHub：连不上']);
+    });
+
+    test('unsigned or modified release manifests cannot authorize an update', () async {
+      net.signLatest = false;
+      expect((await client().check()).failures.single, contains('缺少发布签名'));
+      final envelope = jsonDecode(await signUpdateFixture(net.latest)) as Map<String, dynamic>;
+      envelope['version'] = '9.9.9';
+      net.latest = jsonEncode(envelope);
+      expect((await client().check()).release!.version, '0.4.0');
+      envelope['signed'] = base64Encode(utf8.encode(_manifest('9.9.9')));
+      net.latest = jsonEncode(envelope);
+      expect((await client().check()).failures.single, contains('签名无效'));
     });
 
     test('through the HTTP proxy: a host that does not resolve is still reached', () async {
-      final viaProxy = UpdateClient(latestUrl: 'http://update.invalid/releases/download/channel/latest.json', currentVersion: '0.3.14', httpClient: _realClient);
+      final viaProxy = UpdateClient(
+        latestUrl: 'http://update.invalid/releases/download/channel/latest.json',
+        currentVersion: '0.3.14',
+        verificationKey: key,
+        httpClient: _realClient,
+      );
       final r = await viaProxy.check(proxy: '127.0.0.1:${net._server.port}');
       expect(r.ok, isTrue);
       expect(r.proxy, '127.0.0.1:${net._server.port}');
@@ -258,10 +293,12 @@ void main() {
       final dir = await Directory.systemTemp.createTemp('yingzhou-update-test');
       addTearDown(() => dir.delete(recursive: true));
       net.files['app.exe'] = List.generate(300 * 1024, (i) => i % 251);
+      final digest = sha256.convert(net.files['app.exe']!).toString();
       final seen = <int>[];
       final file = await client().download(
         'http://downloads.invalid/v0.4.0/app.exe',
         File('${dir.path}/app.exe'),
+        expectedSha256: digest,
         proxy: '127.0.0.1:${net._server.port}',
         progress: (received, total) {
           expect(total, 300 * 1024);
@@ -275,22 +312,32 @@ void main() {
       // Cancelled half-way: neither the file nor the part is left.
       await file.delete();
       await expectLater(
-        client().download('${net.base}/v0.4.0/app.exe', File('${dir.path}/app.exe'), cancelled: () => true),
+        client().download('${net.base}/v0.4.0/app.exe', File('${dir.path}/app.exe'), expectedSha256: digest, cancelled: () => true),
         throwsA(isA<UpdateCancelled>()),
       );
       expect(dir.listSync(), isEmpty);
       // Not there at all.
-      await expectLater(client().download('${net.base}/v0.4.0/missing.exe', File('${dir.path}/m.exe')), throwsA(isA<HttpException>()));
+      await expectLater(client().download('${net.base}/v0.4.0/missing.exe', File('${dir.path}/m.exe'), expectedSha256: digest), throwsA(isA<HttpException>()));
       expect(dir.listSync(), isEmpty);
       // Not the size the manifest says (a proxy's page answered with 200): refused.
       Object? wrong;
       try {
-        await client().download('${net.base}/v0.4.0/app.exe', File('${dir.path}/app.exe'), expectedSize: 123);
+        await client().download('${net.base}/v0.4.0/app.exe', File('${dir.path}/app.exe'), expectedSha256: digest, expectedSize: 123);
       } on HttpException catch (e) {
         wrong = e;
       }
       expect(describeFailure(wrong!), contains('大小不对'));
       expect(dir.listSync(), isEmpty);
+      await file.writeAsString('existing verified package');
+      await expectLater(
+        client().download('${net.base}/v0.4.0/app.exe', file, expectedSha256: 'a' * 64, expectedSize: net.files['app.exe']!.length),
+        throwsA(predicate((error) => describeFailure(error!).contains('SHA-256'))),
+      );
+      expect(await file.readAsString(), 'existing verified package');
+      net.asked.clear();
+      net.mirrorWorks = false;
+      await client().download('${net.base}/v0.4.0/app.exe', file, expectedSha256: digest, mirror: '${net.base}/mirror');
+      expect(net.asked.map((address) => address.split(' ').first), ['mirror', 'direct']);
     });
   });
 
@@ -298,13 +345,16 @@ void main() {
     test('the automatic check is off until turned on, then asks once a day', () async {
       var now = DateTime(2026, 11, 20, 12);
       final backend = FakeUpdateBackend();
-      final service = UpdateService(settings: MemorySettings(), backend: backend, clock: () => now);
+      final settings = MemorySettings();
+      final network = ClientNetworkPreferences(settings, () => 'http://localhost:9978');
+      final service = UpdateService(settings: settings, network: network, backend: backend, clock: () => now);
       expect(service.autoCheck, isFalse);
       expect(service.due, isFalse);
 
       await service.setAutoCheck(true);
       expect(service.due, isTrue);
-      await service.check(mirror: 'https://ghfast.top/');
+      await network.rememberGithub(const EngineSettings(githubProxy: true, githubProxyPrefix: 'https://ghfast.top/'));
+      await service.check();
       expect(backend.checks, [('https://ghfast.top/', '')]);
       expect(service.due, isFalse);
       now = now.add(const Duration(hours: 23));
@@ -318,25 +368,46 @@ void main() {
       expect(service.due, isTrue);
       backend.result = null;
 
-      expect(await service.setProxy('nonsense'), isFalse);
-      expect(service.proxy, '');
-      expect(await service.setProxy('http://127.0.0.1:7890'), isTrue);
+      await network.saveHttp('127.0.0.1:7890', updates: false);
+      expect(network.updateProxy, '');
+      await network.saveHttp('127.0.0.1:7890', updates: true);
+      await network.rememberGithub(const EngineSettings());
       await service.check();
       expect(backend.checks.last, ('', '127.0.0.1:7890'));
+    });
+
+    test('remember routes for each engine and migrate the existing update proxy exactly once', () async {
+      final settings = MemorySettings();
+      await settings.setString('update.proxy', '127.0.0.1:7890');
+      var origin = 'http://localhost:9978';
+      final network = ClientNetworkPreferences(settings, () => origin);
+      await network.migrateUpdateProxy();
+      await network.rememberGithub(const EngineSettings(githubProxy: true, githubProxyPrefix: 'https://fast.test/'));
+      final backend = FakeUpdateBackend();
+      final service = UpdateService(settings: settings, network: network, backend: backend);
+      await service.check();
+      expect(backend.checks.last, ('https://fast.test/', '127.0.0.1:7890'));
+      origin = 'http://nas.lan:9978';
+      await network.migrateUpdateProxy();
+      await service.check();
+      expect(backend.checks.last, ('', ''));
+      origin = 'http://localhost:9978';
+      await service.check();
+      expect(backend.checks.last, ('https://fast.test/', '127.0.0.1:7890'));
     });
   });
 }
 
 /// An [UpdateBackend] answering what the test sets, recording what it was asked.
 class FakeUpdateBackend implements UpdateBackend {
-  FakeUpdateBackend({this.result, this.inApp = true, this.keys = const ['windows-x64']});
+  FakeUpdateBackend({this.result, this.keys = const ['windows-x64']});
 
   UpdateCheckResult? result;
-  final bool inApp;
   final List<String> keys;
   final checks = <(String, String)>[];
   final downloads = <(String, String, String)>[];
   final expectedSizes = <int>[];
+  final downloadMirrors = <String>[];
   final opened = <String>[];
   final revealed = <String>[];
   bool canOpen = true;
@@ -348,7 +419,9 @@ class FakeUpdateBackend implements UpdateBackend {
   @override
   Future<UpdateCheckResult> check({String mirror = '', String proxy = ''}) async {
     checks.add((mirror, proxy));
-    final r = result ?? UpdateCheckResult(current: '0.3.14', at: DateTime.now(), release: ReleaseInfo.fromJson(jsonDecode(_manifest('0.3.14'))), route: UpdateRoute.direct);
+    final r =
+        result ??
+        UpdateCheckResult(current: '0.3.14', at: DateTime.now(), release: ReleaseInfo.fromJson(jsonDecode(_manifest('0.3.14'))), route: UpdateRoute.direct);
     return UpdateCheckResult(current: r.current, at: r.at, release: r.release, route: r.route, mirror: r.mirror, proxy: proxy, failures: r.failures);
   }
 
@@ -356,11 +429,18 @@ class FakeUpdateBackend implements UpdateBackend {
   List<String> get assetKeys => keys;
 
   @override
-  bool get downloadsInApp => inApp;
-
-  @override
-  Future<String> download(String url, String fileName, {String proxy = '', int expectedSize = 0, void Function(int, int)? progress, bool Function()? cancelled}) async {
+  Future<String> download(
+    String url,
+    String fileName, {
+    required String expectedSha256,
+    String mirror = '',
+    String proxy = '',
+    int expectedSize = 0,
+    void Function(int, int)? progress,
+    bool Function()? cancelled,
+  }) async {
     downloads.add((url, fileName, proxy));
+    downloadMirrors.add(mirror);
     expectedSizes.add(expectedSize);
     progress?.call(512, 1024);
     await Future<void>.delayed(Duration.zero);
@@ -383,12 +463,16 @@ class FakeUpdateBackend implements UpdateBackend {
 }
 
 /// A newer release as a check through [route] finds it.
-UpdateCheckResult newerRelease({UpdateRoute route = UpdateRoute.direct, String mirror = '', List<String> failures = const [], String notes = '### 新功能\n- **自动更新**：检查新版本\n- 修复了 `bug`'}) =>
-    UpdateCheckResult(
-      current: '0.3.14',
-      at: DateTime.now(),
-      release: ReleaseInfo.fromJson(jsonDecode(_manifest('0.4.0', notes: notes))),
-      route: route,
-      mirror: mirror,
-      failures: failures,
-    );
+UpdateCheckResult newerRelease({
+  UpdateRoute route = UpdateRoute.direct,
+  String mirror = '',
+  List<String> failures = const [],
+  String notes = '### 新功能\n- **自动更新**：检查新版本\n- 修复了 `bug`',
+}) => UpdateCheckResult(
+  current: '0.3.14',
+  at: DateTime.now(),
+  release: ReleaseInfo.fromJson(jsonDecode(_manifest('0.4.0', notes: notes))),
+  route: route,
+  mirror: mirror,
+  failures: failures,
+);
