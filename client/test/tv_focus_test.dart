@@ -276,7 +276,9 @@ void main() {
     await key(tester, LogicalKeyboardKey.arrowDown, times: 4);
     await key(tester, LogicalKeyboardKey.select);
     final field = find.widgetWithText(TextField, '引擎地址');
-    expect(focusIsIn(field), isTrue, reason: '源 starts on the engine address');
+    expect(focusIsIn(find.byKey(const Key('section-index-engine'))), isTrue, reason: '源 starts on its list of groups');
+    await key(tester, LogicalKeyboardKey.arrowRight);
+    expect(focusIsIn(field), isTrue, reason: '→ goes into the group: the engine address');
     final editable = tester.state<EditableTextState>(find.descendant(of: field, matching: find.byType(EditableText)));
     editable.userUpdateTextEditingValue(
       editable.textEditingValue.copyWith(selection: const TextSelection.collapsed(offset: 4)),

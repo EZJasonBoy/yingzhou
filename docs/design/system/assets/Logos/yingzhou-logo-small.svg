@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>映舟 Yingzhou (16-32 px)</title>
+  <!-- The small sizes drop the wave and enlarge sail and hull so they stay readable in a taskbar. -->
+  <rect width="1024" height="1024" rx="200" fill="#2F2C55"/>
+  <polygon points="396,170 396,600 750,385" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="70" stroke-linejoin="round"/>
+  <path d="M150 680 H874 Q830 890 512 890 Q194 890 150 680 Z" fill="#F4A08A"/>
+</svg>

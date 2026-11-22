@@ -5,6 +5,7 @@ import '../engine/vod_models.dart';
 import 'common.dart';
 import 'device_form.dart';
 import 'tv/tv_focus.dart';
+import 'yz_tokens.dart';
 
 /// Grid delegate shared by every poster wall: ~160px wide cards, poster ratio 0.7 plus a two-line title; three to a
 /// row on a phone held upright ([PosterGridDelegate]).
@@ -113,7 +114,7 @@ class _PosterCardState extends State<PosterCard> {
                 curve: Curves.easeOut,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(Yz.radiusPoster),
                     border: _focus && tv ? Border.all(color: TvColors.coral, width: 3, strokeAlign: BorderSide.strokeAlignOutside) : null,
                     boxShadow: _focus && tv
                         ? [BoxShadow(color: TvColors.yellow.withValues(alpha: 0.4), blurRadius: 18, spreadRadius: 2)]
@@ -122,7 +123,7 @@ class _PosterCardState extends State<PosterCard> {
                         : const [],
                   ),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(Yz.radiusPoster),
                     child: Stack(
                       fit: StackFit.expand,
                       children: [

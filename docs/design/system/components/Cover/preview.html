@@ -1,0 +1,50 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>映舟设计系统</title>
+<style>
+  html, body { margin: 0; background: var(--bg); }
+  .cover { position: relative; width: 960px; height: 288px; overflow: hidden; background: var(--bg); }
+  .cover svg { position: absolute; left: 0; top: 0; }
+  .indigo { fill: var(--indigo); }
+  .coral { fill: var(--accent); }
+  .raised { fill: var(--surface-raised); }
+  .rose { fill: var(--wave-rose); } .gold { fill: var(--wave-gold); } .mint { fill: var(--wave-mint); }
+  .wave { fill: none; stroke-width: 8px; stroke-linecap: round; }
+  .wave.r { stroke: var(--wave-rose); } .wave.g { stroke: var(--wave-gold); } .wave.m { stroke: var(--wave-mint); }
+  .hull { rx: var(--radius-lg); ry: var(--radius-lg); }
+  .tile { rx: var(--radius-md); ry: var(--radius-md); }
+  .text { position: absolute; left: 40px; bottom: 36px; width: 440px; }
+  .name { font: 600 64px/1 var(--font-serif); letter-spacing: 0.02em; color: var(--ink); margin: 0; white-space: nowrap; }
+  .tag { font: 400 14px/20px var(--font-sans); color: var(--ink-muted); margin-top: 16px; }
+  .tag span { font-family: var(--font-latin); letter-spacing: 0.04em; }
+</style>
+</head>
+<body>
+<div class="cover">
+  <svg width="960" height="288" viewBox="0 0 960 288" aria-hidden="true">
+    <!--
+      blocks: indigo slab 280×288 (the night, bleeds top and bottom) · accent hull 288×96, radius-lg · surface-raised tile 120×72, radius-md · wave strip of three unequal bands (rose 24, gold 32, mint 40) at the right edge
+      arrangement: one tall slab with satellites; the hull crosses the slab's right edge like the boat on the water, the strip bleeds off the right
+      pattern: literal motif (wave) — "三色水纹只表示流": three wave strokes in the wave colours under the hull, as in the logo
+      steps and radii: space-12 (48) gaps, space-8 (32) insets, radius-lg on the hull, radius-md on the tile; wave pitch 48
+    -->
+    <rect class="indigo" x="488" y="0" width="280" height="288"/>
+    <rect class="raised tile" x="536" y="40" width="120" height="72"/>
+    <rect class="coral hull" x="616" y="128" width="288" height="96"/>
+    <rect class="rose" x="904" y="0" width="56" height="24"/>
+    <rect class="gold" x="904" y="24" width="56" height="32"/>
+    <rect class="mint" x="904" y="56" width="56" height="40"/>
+    <path class="wave r" d="M640 256 q24 -16 48 0"/>
+    <path class="wave g" d="M688 256 q24 16 48 0 q24 -16 48 0"/>
+    <path class="wave m" d="M784 256 q24 16 48 0 q24 -16 48 0"/>
+  </svg>
+  <div class="text">
+    <h1 class="name">映舟设计系统</h1>
+    <div class="tag">夜里的河，一条船 · <span>One boat, all streams.</span></div>
+  </div>
+</div>
+</body>
+</html>

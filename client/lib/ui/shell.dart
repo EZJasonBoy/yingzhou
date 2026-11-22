@@ -1,6 +1,8 @@
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../app_state.dart';
+import '../diagnostics/dev_log_page.dart';
 import '../pages/browse_page.dart';
 import '../pages/drives_page.dart';
 import '../pages/library_page.dart';
@@ -8,8 +10,13 @@ import '../pages/live_page.dart';
 import '../pages/search_page.dart';
 import '../pages/settings_page.dart';
 import '../pages/sources_page.dart';
+import 'brand.dart';
 import 'device_form.dart';
+import 'pin_pad.dart';
+import 'theme.dart' show debugLegacyTheme;
 import 'tv/tv_shell.dart';
+import 'user_mode.dart';
+import 'yz_tokens.dart';
 
 /// Whether the main screen has its bottom bar: only on a phone held upright (or a narrow window). Tablets and phones
 /// on their side get the rail, a TV its own navigation. The bottom bar has no 设置 tab; 我的 offers it there.
@@ -55,12 +62,29 @@ class _AppShellState extends State<AppShell> {
     (icon: Icons.dns_outlined, selected: Icons.dns_rounded, label: '源'),
     (icon: Icons.cloud_outlined, selected: Icons.cloud_rounded, label: '网盘'),
     (icon: Icons.settings_outlined, selected: Icons.settings_rounded, label: '设置'),
+    (icon: Icons.receipt_long_outlined, selected: Icons.receipt_long_rounded, label: '日志'),
   ];
 
-  /// The bottom bar of a phone held upright has room for this many; 设置, the last, is reached from 我的 there.
+  static const _settingsPage = 6;
+  static const _logPage = 7;
+
+  /// The pages a mode shows, in the order of its entries (ui/user_mode.dart): simple keeps 首页, 直播, 搜索 and 设置
+  /// (which leads on to 源); the developer mode adds 日志.
+  static List<int> _pagesOf(UserMode mode) => switch (mode) {
+    UserMode.simple => const [0, 1, 2, _settingsPage],
+    UserMode.standard => const [0, 1, 2, 3, 4, 5, _settingsPage],
+    UserMode.developer => const [0, 1, 2, 3, 4, 5, _settingsPage, _logPage],
+  };
+
+  /// The bottom bar of a phone held upright has room for this many; in the standard and developer modes 设置 (and
+  /// 日志) are reached from 我的 there.
   static const _bottomBarCount = 6;
 
-  void _go(int i) => setState(() => _index = i);
+  /// Shows page [i] (an index into every page, not into a mode's entries). Leaving 设置 locks it again.
+  void _go(int i) {
+    if (_index == _settingsPage && i != _settingsPage) AppScope.read(context).userMode.lock();
+    setState(() => _index = i);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -97,20 +121,21 @@ class _AppShellState extends State<AppShell> {
 
   /// The rail on a tablet or a phone held sideways. Short windows (a phone in landscape) label only the tab shown,
   /// and scroll the rail if even that does not fit.
-  Widget _rail(BuildContext context, bool short) {
+  Widget _rail(BuildContext context, bool short, List<int> shown) {
     final rail = NavigationRail(
-      selectedIndex: _index,
-      onDestinationSelected: _go,
+      selectedIndex: shown.indexOf(_index),
+      onDestinationSelected: (i) => _go(shown[i]),
       labelType: short ? NavigationRailLabelType.selected : NavigationRailLabelType.all,
       groupAlignment: -0.9,
       leading: short
           ? null
           : Padding(
               padding: const EdgeInsets.only(top: 12, bottom: 20),
-              child: Icon(Icons.live_tv_rounded, size: 30, color: Theme.of(context).colorScheme.primary),
+              child: const BrandMark(size: 36),
             ),
       destinations: [
-        for (final d in _destinations) NavigationRailDestination(icon: Icon(d.icon), selectedIcon: Icon(d.selected), label: Text(d.label)),
+        for (final i in shown)
+          NavigationRailDestination(icon: Icon(_destinations[i].icon), selectedIcon: Icon(_destinations[i].selected), label: _RailLabel(_destinations[i].label, selected: i == _index)),
       ],
     );
     return ColoredBox(
@@ -127,14 +152,23 @@ class _AppShellState extends State<AppShell> {
   }
 
   Widget _layout(BuildContext context) {
+    final mode = AppScope.of(context).userMode;
+    final shown = _pagesOf(mode.mode);
+    // The mode changed and took the page on screen away with it (日志, or 我的 / 源 / 网盘 going simple): to 设置,
+    // where the change was made.
+    if (!shown.contains(_index)) _index = _settingsPage;
+    final simple = mode.simple;
     final children = [
-      BrowsePage(onOpenSources: () => _go(4)),
+      // Simple mode has no 源 entry: what 首页 needs set up is behind 设置.
+      BrowsePage(simple: simple, onOpenSources: () => _go(simple ? _settingsPage : 4)),
       LivePage(visible: _index == 1, onImmersiveChanged: (v) => setState(() => _immersive = v)),
       SearchPage(focusNode: _searchFocus),
       LibraryPage(visible: _index == 3),
       const SourcesPage(),
       DrivesPage(visible: _index == 5),
-      const SettingsPage(),
+      // Simple mode may lock 设置 with a code (ui/pin_pad.dart).
+      const LockGate(child: SettingsPage()),
+      mode.developer ? const DevLogPage() : const SizedBox.shrink(),
     ];
     // Hidden pages keep their state but stop animating.
     final pages = KeyedSubtree(
@@ -145,24 +179,56 @@ class _AppShellState extends State<AppShell> {
       ),
     );
     // A TV: big entries on the left, everything driven by the remote (ui/tv/tv_shell.dart).
-    if (isTv(context)) return TvShell(index: _index, destinations: _destinations, onSelect: _go, immersive: _immersive && _index == 1, pages: pages);
+    if (isTv(context)) {
+      return TvShell(
+        index: shown.indexOf(_index),
+        destinations: [for (final i in shown) _destinations[i]],
+        onSelect: (i) => _go(shown[i]),
+        immersive: _immersive && _index == 1,
+        pages: pages,
+      );
+    }
     if (_immersive && _index == 1) return Scaffold(backgroundColor: Colors.black, body: pages);
     // The rail for everything but a phone held upright. With seven entries it is taller than the smallest desktop
     // window (520 high), so desktops get the same rail as tablets: it scrolls, and a short window labels only the
     // entry that is showing.
     if (!shellUsesBottomBar(context)) {
-      return Scaffold(body: Row(children: [_rail(context, MediaQuery.sizeOf(context).height < 600), Expanded(child: pages)]));
+      return Scaffold(body: Row(children: [_rail(context, MediaQuery.sizeOf(context).height < 600, shown), Expanded(child: pages)]));
     }
+    final bar = shown.take(_bottomBarCount).toList();
     return Scaffold(
       body: pages,
       bottomNavigationBar: NavigationBar(
         // 设置 was opened while the rail was showing (the phone was on its side): 我的 is where it is reached from here.
-        selectedIndex: _index < _bottomBarCount ? _index : 3,
-        onDestinationSelected: _go,
+        selectedIndex: bar.contains(_index) ? bar.indexOf(_index) : bar.indexOf(3),
+        onDestinationSelected: (i) => _go(bar[i]),
         destinations: [
-          for (final d in _destinations.take(_bottomBarCount)) NavigationDestination(icon: Icon(d.icon), selectedIcon: Icon(d.selected), label: d.label),
+          for (final i in bar) NavigationDestination(icon: Icon(_destinations[i].icon), selectedIcon: Icon(_destinations[i].selected), label: _destinations[i].label),
         ],
       ),
+    );
+  }
+}
+
+/// A rail entry's name, with the three-colour wave under it when it is the current page (docs/design: NavRail).
+class _RailLabel extends StatelessWidget {
+  const _RailLabel(this.text, {required this.selected});
+
+  final String text;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = YzTokens.of(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(text),
+        if (!debugLegacyTheme) ...[
+          const SizedBox(height: 3),
+          WaveMark(colors: [t.waveRose, t.waveGold, t.waveMint], width: 18, visible: selected),
+        ],
+      ],
     );
   }
 }

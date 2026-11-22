@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>开发者 · 播放统计与链路</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&amp;family=Noto+Sans+SC:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#13122b}
+a{color:#f4a08a;text-decoration:none}a:hover{color:#f7b6a4}
+summary{cursor:pointer;list-style:none}summary::-webkit-details-marker{display:none}
+details[open] .chev{transform:rotate(90deg)}
+</style>
+</helmet>
+<div style="width: 100%; min-height: 100vh; box-sizing: border-box; padding: 20px 32px 28px; background: #13122b; color: #ece9ff; font-family: 'Noto Sans SC', 'Microsoft YaHei UI', 'PingFang SC', sans-serif; display: flex; flex-direction: column; gap: 20px">
+  <header style="display: flex; align-items: center; gap: 16px; min-height: 40px">
+    <img src="/_blob/fe6f97f08daa9b59c906a0df93c38058" alt="映舟" style="width: 32px; height: 32px; border-radius: 8px">
+    <span style="font-size: 18px; line-height: 26px; font-weight: 600">星河往事 第二季 · 第 3 集</span>
+    <span style="font-size: 12px; line-height: 18px; padding: 2px 8px; border-radius: 6px; border: 1px solid #726eab; color: #aaa6d2">开发者模式</span>
+    <nav style="margin-left: auto; display: flex; gap: 28px; align-items: flex-end">
+      <span style="display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 15px; line-height: 22px; font-weight: 600; color: #ece9ff">播放与链路
+        <svg width="22" height="6" viewBox="0 0 22 6" aria-hidden="true"><path d="M1 4 q2.5 -3 5 0" fill="none" stroke="#ee8c86" stroke-width="2" stroke-linecap="round"/><path d="M6 4 q2.5 3 5 0" fill="none" stroke="#f0c670" stroke-width="2" stroke-linecap="round"/><path d="M11 4 q2.5 -3 5 0 q2.5 3 5 0" fill="none" stroke="#84cfae" stroke-width="2" stroke-linecap="round"/></svg>
+      </span>
+      <a href="Dev-Log.dc.html" style="font-size: 15px; line-height: 22px; color: #aaa6d2; padding-bottom: 10px">引擎日志</a>
+    </nav>
+  </header>
+
+  <div style="display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 24px; align-items: start">
+    <div style="display: flex; flex-direction: column; gap: 20px; min-width: 0">
+      <div style="position: relative; aspect-ratio: 16 / 9; border-radius: 14px; overflow: hidden; background: #000000">
+        <img src="/_blob/4acb575712e2fcc2835eef4d48d2b281" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover">
+        <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 120px; background: linear-gradient(to top, rgba(6,5,26,0.9), rgba(6,5,26,0))"></div>
+
+        <div style="position: absolute; left: 16px; top: 16px; width: 330px; padding: 14px 16px; border-radius: 12px; background: rgba(13,12,32,0.82); border: 1px solid rgba(114,110,171,0.5); display: flex; flex-direction: column; gap: 10px; font-size: 13px; line-height: 20px">
+          <div style="display: flex; align-items: center; justify-content: space-between">
+            <span style="font-weight: 600">播放统计</span>
+            <span style="font-size: 12px; color: #8d89bb">I 键开关</span>
+          </div>
+          <dl style="margin: 0; display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 3px 10px">
+            <dt style="color: #aaa6d2">视频</dt><dd style="margin: 0">HEVC Main 10 · <span style="font-family: Barlow, sans-serif; font-variant-numeric: tabular-nums">1920×1080 · 23.976</span> fps</dd>
+            <dt style="color: #aaa6d2">解码</dt><dd style="margin: 0">d3d11va-copy <span style="color: #84cfae">硬解</span></dd>
+            <dt style="color: #aaa6d2">输出</dt><dd style="margin: 0">gpu-next · <span style="font-family: Barlow, sans-serif; font-variant-numeric: tabular-nums">2560×1440 @ 60</span> Hz</dd>
+            <dt style="color: #aaa6d2">掉帧</dt><dd style="margin: 0; font-family: Barlow, sans-serif; font-variant-numeric: tabular-nums">0 <span style="font-family: 'Noto Sans SC', sans-serif; color: #aaa6d2">· 延迟</span> 2</dd>
+            <dt style="color: #aaa6d2">音频</dt><dd style="margin: 0">AAC LC · <span style="font-family: Barlow, sans-serif">48</span> kHz · 立体声</dd>
+            <dt style="color: #aaa6d2">音画</dt><dd style="margin: 0; font-family: Barlow, sans-serif; font-variant-numeric: tabular-nums">+0.004 s</dd>
+            <dt style="color: #aaa6d2">码率</dt><dd style="margin: 0; font-family: Barlow, sans-serif; font-variant-numeric: tabular-nums">6.2 Mbps</dd>
+          </dl>
+          <div style="display: flex; flex-direction: column; gap: 4px">
+            <div style="display: flex; justify-content: space-between; color: #aaa6d2"><span>缓冲</span><span style="font-family: Barlow, sans-serif; font-variant-numeric: tabular-nums; color: #ece9ff">32.4 s · 6.8 MB/s</span></div>
+            <svg width="298" height="36" viewBox="0 0 298 36" aria-label="最近 60 秒的缓冲长度" role="img">
+              <line x1="0" y1="35" x2="298" y2="35" stroke="#726eab" stroke-opacity="0.5"/>
+              <polyline points="0,33 20,30 40,26 60,22 80,20 100,30 112,34 124,31 140,24 160,18 180,14 200,12 220,10 240,9 260,8 280,7 298,7" fill="none" stroke="#84cfae" stroke-width="2" stroke-linejoin="round"/>
+              <line x1="112" y1="0" x2="112" y2="35" stroke="#f0c670" stroke-dasharray="3 3"/>
+            </svg>
+            <span style="font-size: 12px; color: #f0c670">42:10 换线路，缓冲回落后 9 秒恢复</span>
+          </div>
+        </div>
+
+        <div style="position: absolute; left: 20px; right: 20px; bottom: 14px; display: flex; flex-direction: column; gap: 10px">
+          <svg width="100%" height="14" viewBox="0 0 1000 14" preserveAspectRatio="none" aria-hidden="true">
+            <line x1="0" y1="7" x2="1000" y2="7" stroke="#ece9ff" stroke-opacity="0.22" stroke-width="3"/>
+            <rect x="0" y="5.5" width="820" height="3" fill="#ece9ff" fill-opacity="0.32"/>
+            <rect x="0" y="5" width="772" height="4" rx="2" fill="#f4a08a"/>
+            <line x1="772" y1="0" x2="772" y2="14" stroke="#f0c670" stroke-width="2"/>
+          </svg>
+          <div style="display: flex; align-items: center; gap: 18px; font-size: 14px; line-height: 20px">
+            <svg width="18" height="20" viewBox="0 0 26 28" aria-label="暂停" role="img"><rect x="3" y="2" width="7" height="24" rx="2" fill="#ece9ff"/><rect x="16" y="2" width="7" height="24" rx="2" fill="#ece9ff"/></svg>
+            <span style="font-family: Barlow, sans-serif; font-weight: 500; font-variant-numeric: tabular-nums">42:10 <span style="color: #aaa6d2">/ 54:30</span></span>
+            <span style="margin-left: auto; color: #aaa6d2">线路 2 · 字幕 中文 · 1.0×</span>
+          </div>
+        </div>
+      </div>
+
+      <section style="display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; align-items: baseline; gap: 12px">
+          <h2 style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600">线路</h2>
+          <span style="font-size: 13px; line-height: 20px; color: #8d89bb">进入本集时自动测速；坏线路会被跳过并记入日志</span>
+        </div>
+        <div style="border-radius: 12px; background: #1b1a3a; overflow: hidden; font-size: 14px; line-height: 20px">
+          <div style="display: grid; grid-template-columns: 90px 120px 110px minmax(0, 1fr) 90px; gap: 12px; padding: 10px 16px; color: #8d89bb; font-size: 12px; line-height: 18px; border-bottom: 1px solid rgba(114,110,171,0.35)">
+            <span>线路</span><span>状态</span><span>首帧 / 测速</span><span>地址</span><span></span>
+          </div>
+          <div style="display: grid; grid-template-columns: 90px 120px 110px minmax(0, 1fr) 90px; gap: 12px; padding: 12px 16px; align-items: center; border-bottom: 1px solid rgba(114,110,171,0.2)">
+            <span>线路 1</span>
+            <span style="display: flex; align-items: center; gap: 6px; color: #ee8c86"><span style="width: 8px; height: 8px; border-radius: 50%; background: #ee8c86"></span>404，已跳过</span>
+            <span style="font-family: Barlow, sans-serif; color: #8d89bb">—</span>
+            <span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 12px; color: #aaa6d2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">https://line1.example.com/vod/xh2/e03.m3u8</span>
+            <a href="Dev-Log.dc.html" style="font-size: 13px">看日志</a>
+          </div>
+          <div style="display: grid; grid-template-columns: 90px 120px 110px minmax(0, 1fr) 90px; gap: 12px; padding: 12px 16px; align-items: center; background: #24224a; box-shadow: inset 3px 0 0 #f4a08a">
+            <span style="font-weight: 600">线路 2</span>
+            <span style="display: flex; align-items: center; gap: 6px; color: #84cfae"><span style="width: 8px; height: 8px; border-radius: 50%; background: #84cfae"></span>正在用</span>
+            <span style="font-family: Barlow, sans-serif; font-variant-numeric: tabular-nums">820 ms</span>
+            <span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">https://cdn.example.com/hls/xh2/e03/index.m3u8</span>
+            <span style="font-size: 13px; color: #8d89bb">复制</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 90px 120px 110px minmax(0, 1fr) 90px; gap: 12px; padding: 12px 16px; align-items: center">
+            <span>线路 3</span>
+            <span style="display: flex; align-items: center; gap: 6px; color: #f0c670"><span style="width: 8px; height: 8px; border-radius: 50%; background: #f0c670"></span>可用，较慢</span>
+            <span style="font-family: Barlow, sans-serif; font-variant-numeric: tabular-nums">1.6 s</span>
+            <span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 12px; color: #aaa6d2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">https://jx.example.com/?url=…</span>
+            <span style="font-size: 13px; color: #f4a08a">切到这条</span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <aside style="display: flex; flex-direction: column; gap: 14px; padding: 18px; border-radius: 14px; background: #1b1a3a">
+      <div style="display: flex; align-items: baseline; justify-content: space-between">
+        <h2 style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600">片源从哪来</h2>
+        <span style="font-family: Barlow, sans-serif; font-size: 13px; color: #aaa6d2; font-variant-numeric: tabular-nums">共 1.47 s</span>
+      </div>
+      <ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column">
+        <li style="display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px">
+          <span style="display: flex; flex-direction: column; align-items: center"><span style="width: 10px; height: 10px; border-radius: 50%; background: #84cfae; margin-top: 6px"></span><span style="flex-grow: 1; width: 2px; background: #3a3768"></span></span>
+          <details style="padding-bottom: 14px">
+            <summary style="display: flex; justify-content: space-between; gap: 8px; font-size: 14px; line-height: 22px"><span><span class="chev" style="display: inline-block; color: #8d89bb; margin-right: 6px">›</span>订阅 · 示例订阅</span><span style="font-family: Barlow, sans-serif; color: #aaa6d2">12 ms</span></summary>
+            <div style="margin: 6px 0 0 14px; font-size: 12px; line-height: 18px; color: #aaa6d2">本地缓存，2 小时前更新<br><span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace">https://config.example.com/tv.json</span></div>
+          </details>
+        </li>
+        <li style="display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px">
+          <span style="display: flex; flex-direction: column; align-items: center"><span style="width: 10px; height: 10px; border-radius: 50%; background: #84cfae; margin-top: 6px"></span><span style="flex-grow: 1; width: 2px; background: #3a3768"></span></span>
+          <details style="padding-bottom: 14px">
+            <summary style="display: flex; justify-content: space-between; gap: 8px; font-size: 14px; line-height: 22px"><span><span class="chev" style="display: inline-block; color: #8d89bb; margin-right: 6px">›</span>站点 · 示例站 A</span><span style="font-family: Barlow, sans-serif; color: #aaa6d2">210 ms</span></summary>
+            <div style="margin: 6px 0 0 14px; font-size: 12px; line-height: 18px; color: #aaa6d2">接口类型 1（JSON）· 详情接口返回 24 集、3 条线路</div>
+          </details>
+        </li>
+        <li style="display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px">
+          <span style="display: flex; flex-direction: column; align-items: center"><span style="width: 10px; height: 10px; border-radius: 50%; background: #ee8c86; margin-top: 6px"></span><span style="flex-grow: 1; width: 2px; background: #3a3768"></span></span>
+          <details style="padding-bottom: 14px">
+            <summary style="display: flex; justify-content: space-between; gap: 8px; font-size: 14px; line-height: 22px"><span><span class="chev" style="display: inline-block; color: #8d89bb; margin-right: 6px">›</span>线路 1 · 打不开</span><span style="font-family: Barlow, sans-serif; color: #ee8c86">404</span></summary>
+            <div style="margin: 6px 0 0 14px; font-size: 12px; line-height: 18px; color: #aaa6d2">42:10 时分片请求失败，重试 2 次后换线路 2，从原位置接着播</div>
+          </details>
+        </li>
+        <li style="display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px">
+          <span style="display: flex; flex-direction: column; align-items: center"><span style="width: 10px; height: 10px; border-radius: 50%; background: #84cfae; margin-top: 6px"></span><span style="flex-grow: 1; width: 2px; background: #3a3768"></span></span>
+          <details style="padding-bottom: 14px">
+            <summary style="display: flex; justify-content: space-between; gap: 8px; font-size: 14px; line-height: 22px"><span><span class="chev" style="display: inline-block; color: #8d89bb; margin-right: 6px">›</span>解析 · 直链，不用解析</span><span style="font-family: Barlow, sans-serif; color: #aaa6d2">0 ms</span></summary>
+            <div style="margin: 6px 0 0 14px; font-size: 12px; line-height: 18px; color: #aaa6d2">地址以 .m3u8 结尾，直接交给播放器</div>
+          </details>
+        </li>
+        <li style="display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px">
+          <span style="display: flex; flex-direction: column; align-items: center"><span style="width: 10px; height: 10px; border-radius: 50%; background: #84cfae; margin-top: 6px"></span><span style="flex-grow: 1; width: 2px; background: #3a3768"></span></span>
+          <details open style="padding-bottom: 14px">
+            <summary style="display: flex; justify-content: space-between; gap: 8px; font-size: 14px; line-height: 22px"><span><span class="chev" style="display: inline-block; color: #8d89bb; margin-right: 6px">›</span>播放地址 · HLS</span><span style="font-family: Barlow, sans-serif; color: #aaa6d2">430 ms</span></summary>
+            <div style="margin: 8px 0 0 14px; padding: 10px 12px; border-radius: 8px; background: #13122b; font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 12px; line-height: 19px; color: #ece9ff; word-break: break-all">
+              https://cdn.example.com/hls/xh2/e03/index.m3u8<br>
+              <span style="color: #8d89bb">Referer:</span> https://site-a.example.com/<br>
+              <span style="color: #8d89bb">User-Agent:</span> okhttp/4.12<br>
+              <span style="color: #8d89bb">分片:</span> 327 × 10 s · AES-128
+            </div>
+          </details>
+        </li>
+        <li style="display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px">
+          <span style="display: flex; flex-direction: column; align-items: center"><span style="width: 10px; height: 10px; border-radius: 50%; background: #f4a08a; margin-top: 6px"></span></span>
+          <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 14px; line-height: 22px; padding-left: 14px"><span>首帧</span><span style="font-family: Barlow, sans-serif; color: #ece9ff">820 ms</span></div>
+        </li>
+      </ol>
+      <div style="display: flex; gap: 10px; padding-top: 4px">
+        <button type="button" style="flex: 1; height: 40px; border: 0; border-radius: 10px; background: #f4a08a; color: #2a1520; font-family: inherit; font-size: 14px; font-weight: 600">复制诊断信息</button>
+        <a href="Dev-Log.dc.html" style="flex: 1; height: 40px; box-sizing: border-box; border-radius: 10px; border: 1px solid #726eab; color: #ece9ff; font-size: 14px; display: flex; align-items: center; justify-content: center">引擎日志</a>
+      </div>
+      <p style="margin: 0; font-size: 12px; line-height: 18px; color: #8d89bb">诊断信息会去掉订阅地址里的密钥和账号参数，可以直接贴到 issue。</p>
+    </aside>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

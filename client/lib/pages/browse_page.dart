@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
+import '../engine/engine_client.dart';
 import '../engine/models.dart';
 import '../engine/vod_models.dart';
 import '../ui/common.dart';
@@ -13,12 +14,18 @@ import '../ui/tv/tv_focus.dart';
 import '../ui/tv/tv_widgets.dart';
 import 'detail_page.dart';
 import 'home_switcher.dart';
+import 'simple_home.dart';
 
 /// 首页：current site's recommendations and categories.
+///
+/// In simple mode ([simple]) it starts on 继续看 (what was being watched, and the favourites: simple_home.dart), the
+/// site's recommendations and categories follow as the next tabs, and the header has one button with the site's
+/// name that opens a panel from the right: the sites, and a step up to the entries and subscriptions.
 class BrowsePage extends StatefulWidget {
-  const BrowsePage({super.key, required this.onOpenSources});
+  const BrowsePage({super.key, required this.onOpenSources, this.simple = false});
 
   final VoidCallback onOpenSources;
+  final bool simple;
 
   @override
   State<BrowsePage> createState() => _BrowsePageState();
@@ -58,14 +65,14 @@ class _BrowsePageState extends State<BrowsePage> {
       body = StatusView(icon: Icons.block, message: '当前订阅里没有这台引擎能打开的站点\n（Python 站点要先在「设置」页设置 Python）', actionLabel: '查看站点', onAction: onOpenSources);
     } else {
       // Keyed on the config too: another subscription or entry with a site of the same key starts afresh.
-      body = _SiteBrowser(key: ValueKey('${state.configVersion}|${site.key}'), site: site, refresh: _refresh);
+      body = _SiteBrowser(key: ValueKey('${state.configVersion}|${site.key}|${widget.simple}'), site: site, refresh: _refresh, simple: widget.simple);
     }
     // The header (where the content comes from, and refresh) stays while the content below changes, so a switch
     // keeps the TV's focus on it; it is there whenever a config is, also one without a site to show.
     return Scaffold(
       body: SafeArea(
         child: state.connected && state.hasConfig
-            ? Column(children: [_Header(refresh: _refresh), if (state.busy) const LinearProgressIndicator(minHeight: 2), Expanded(child: body)])
+            ? Column(children: [_Header(refresh: _refresh, simple: widget.simple), if (state.busy) const LinearProgressIndicator(minHeight: 2), Expanded(child: body)])
             : body,
       ),
     );
@@ -86,9 +93,12 @@ class _RefreshSlot extends ValueNotifier<VoidCallback?> {
 }
 
 class _SiteBrowser extends StatefulWidget {
-  const _SiteBrowser({super.key, required this.site, required this.refresh});
+  const _SiteBrowser({super.key, required this.site, required this.refresh, this.simple = false});
 
   final SiteInfo site;
+
+  /// Simple mode: 继续看 comes first, and the categories have no filters.
+  final bool simple;
 
   /// Set to this page's refresh while its home is loaded, so the header's button can ask the site again.
   final _RefreshSlot refresh;
@@ -98,7 +108,8 @@ class _SiteBrowser extends StatefulWidget {
 }
 
 class _SiteBrowserState extends State<_SiteBrowser> {
-  late Future<HomeResult> _home;
+  /// The site's home, and (simple mode) whether anything was watched or kept: 继续看 is where the page opens then.
+  late Future<(HomeResult, bool)> _home;
 
   @override
   void initState() {
@@ -110,7 +121,18 @@ class _SiteBrowserState extends State<_SiteBrowser> {
   int _refreshes = 0;
 
   void _load({bool refresh = false}) {
-    _home = AppScope.read(context).client.home(widget.site.key, refresh: refresh);
+    final client = AppScope.read(context).client;
+    final library = widget.simple ? _watchedAnything(client) : Future.value(false);
+    _home = client.home(widget.site.key, refresh: refresh).then((home) async => (home, await library));
+  }
+
+  static Future<bool> _watchedAnything(EngineClient client) async {
+    try {
+      if ((await client.history(limit: 1)).isNotEmpty) return true;
+      return (await client.favorites()).isNotEmpty;
+    } catch (_) {
+      return false;
+    }
   }
 
   void _refresh() => setState(() {
@@ -140,7 +162,7 @@ class _SiteBrowserState extends State<_SiteBrowser> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<HomeResult>(
+    return FutureBuilder<(HomeResult, bool)>(
       future: _home,
       builder: (context, snap) {
         _offerRefresh(snap.connectionState == ConnectionState.done);
@@ -155,14 +177,17 @@ class _SiteBrowserState extends State<_SiteBrowser> {
             onAction: () => setState(_load),
           );
         }
-        final home = snap.data!;
+        final (home, watched) = snap.data!;
+        final simple = widget.simple;
         final hasRecommend = home.list.isNotEmpty;
-        final tabs = [if (hasRecommend) '推荐', for (final c in home.classes) c.name];
+        final tabs = [if (simple) '继续看', if (hasRecommend) '推荐', for (final c in home.classes) c.name];
         if (tabs.isEmpty) {
           return const StatusView(icon: Icons.inbox, message: '这个站点没有返回分类');
         }
         return DefaultTabController(
           length: tabs.length,
+          // Nothing watched yet: what the site recommends is the better start.
+          initialIndex: simple && !watched && tabs.length > 1 ? 1 : 0,
           child: Column(
             children: [
               Align(
@@ -174,13 +199,14 @@ class _SiteBrowserState extends State<_SiteBrowser> {
               Expanded(
                 child: TabBarView(
                   children: [
+                    if (simple) const SimpleHomeTab(),
                     if (hasRecommend) _VodGrid.fixed(items: home.list),
                     for (final c in home.classes)
                       _CategoryView(
                         key: ValueKey('${c.id}#$_refreshes'),
                         site: widget.site.key,
                         classId: c.id,
-                        filters: home.filters[c.id] ?? const [],
+                        filters: simple ? const [] : home.filters[c.id] ?? const [],
                         refresh: _refreshes > 0,
                       ),
                   ],
@@ -195,21 +221,28 @@ class _SiteBrowserState extends State<_SiteBrowser> {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.refresh});
+  const _Header({required this.refresh, this.simple = false});
 
   /// The site's refresh, or null while its home is loading.
   final ValueListenable<VoidCallback?> refresh;
 
+  /// Simple mode: the site is named, not switched.
+  final bool simple;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final site = AppScope.of(context).currentSite;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 14, 12, 4),
       child: Row(
         children: [
           Text('首页', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
           const SizedBox(width: 16),
-          const Flexible(child: HomeSwitcher()),
+          if (simple)
+            Flexible(child: Align(alignment: Alignment.centerLeft, child: SourcePanelChip(siteName: site?.name ?? '选择站点')))
+          else
+            const Flexible(child: HomeSwitcher()),
           const SizedBox(width: 4),
           ValueListenableBuilder<VoidCallback?>(
             valueListenable: refresh,

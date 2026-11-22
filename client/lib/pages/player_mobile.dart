@@ -1,11 +1,14 @@
 import 'dart:async';
 
+import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:media_kit/media_kit.dart';
 
+import '../engine/episode_names.dart';
 import '../engine/vod_models.dart';
 import '../mobile/playback_host.dart';
+import '../ui/episode_buttons.dart';
 import 'touch_gestures.dart';
 
 /// The phone and tablet side of a player page: full screen and the turn to landscape, the lock, the screen kept on
@@ -378,6 +381,7 @@ class PlayerPhoneInfo extends StatefulWidget {
     required this.episode,
     required this.onLine,
     required this.onEpisode,
+    this.showLines = true,
     this.actions = const [],
     this.panel,
     this.panelTitle = '',
@@ -393,6 +397,9 @@ class PlayerPhoneInfo extends StatefulWidget {
   final int episode;
   final ValueChanged<int> onLine;
   final ValueChanged<int> onEpisode;
+
+  /// The lines are offered (not in simple mode, where the player changes line by itself).
+  final bool showLines;
   final List<Widget> actions;
   final Widget? panel;
   final String panelTitle;
@@ -407,7 +414,9 @@ class PlayerPhoneInfo extends StatefulWidget {
 
 class _PlayerPhoneInfoState extends State<PlayerPhoneInfo> {
   final _scroll = ScrollController();
-  final _episodesKey = GlobalKey();
+
+  /// On the button of the episode playing, to bring it into view.
+  final _currentKey = GlobalKey();
 
   @override
   void initState() {
@@ -424,17 +433,14 @@ class _PlayerPhoneInfoState extends State<PlayerPhoneInfo> {
 
   void _revealEpisode() {
     if (!mounted || !_scroll.hasClients) return;
-    final box = _episodesKey.currentContext?.findRenderObject();
+    final box = _currentKey.currentContext?.findRenderObject();
     if (box is! RenderBox) return;
-    final width = box.size.width;
-    final perRow = (width / 104).floor().clamp(1, 100);
-    final row = widget.episode ~/ perRow;
-    final top = box.localToGlobal(Offset.zero, ancestor: context.findRenderObject()).dy + _scroll.offset + 30;
-    final rowTop = top + row * (PlayerPhoneInfo.episodeExtent + 8);
+    final top = RenderAbstractViewport.maybeOf(box)?.getOffsetToReveal(box, 0).offset;
+    if (top == null) return;
     // Only when the episode is out of sight: the title stays in view for the first rows.
     final viewport = _scroll.position.viewportDimension;
-    if (rowTop + PlayerPhoneInfo.episodeExtent <= viewport) return;
-    _scroll.jumpTo((rowTop - viewport / 3).clamp(0.0, _scroll.position.maxScrollExtent));
+    if (top + box.size.height <= viewport) return;
+    _scroll.jumpTo((top - viewport / 3).clamp(0.0, _scroll.position.maxScrollExtent));
   }
 
   @override
@@ -477,7 +483,7 @@ class _PlayerPhoneInfoState extends State<PlayerPhoneInfo> {
                     const SizedBox(height: 10),
                     SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: widget.actions)),
                   ],
-                  if (lines.length > 1) ...[
+                  if (lines.length > 1 && widget.showLines) ...[
                     const SizedBox(height: 14),
                     Text('线路', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 4),
@@ -500,35 +506,41 @@ class _PlayerPhoneInfoState extends State<PlayerPhoneInfo> {
                     ),
                   ],
                   const SizedBox(height: 14),
-                  Text('选集 · ${episodes.length}', key: _episodesKey, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+                  Text('选集 · ${episodes.length}', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 8),
                 ],
               ),
             ),
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-              sliver: SliverGrid.builder(
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 104,
-                  mainAxisExtent: PlayerPhoneInfo.episodeExtent,
-                  mainAxisSpacing: 8,
-                  crossAxisSpacing: 8,
+              sliver: SliverToBoxAdapter(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // Short names: buttons of about 104 dp that fill the row, about four to a row on a phone.
+                    final columns = ((constraints.maxWidth + 8) / 112).ceil().clamp(1, 100);
+                    return EpisodeButtons(
+                      naming: lines.isEmpty ? EpisodeNaming.empty : EpisodeNaming.of(lines, widget.line, title: widget.title),
+                      buttonWidth: (constraints.maxWidth - 8 * (columns - 1)) / columns - 0.01,
+                      maxColumns: 2,
+                      button: (context, i, label, row) {
+                        final current = i == widget.episode;
+                        final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(10));
+                        final padding = EdgeInsets.symmetric(horizontal: row ? 12 : 6);
+                        final alignment = row ? Alignment.centerLeft : null;
+                        final button = current
+                            ? FilledButton(key: Key('phone-episode-$i'), onPressed: () {}, style: FilledButton.styleFrom(padding: padding, shape: shape, alignment: alignment), child: label)
+                            : OutlinedButton(
+                                key: Key('phone-episode-$i'),
+                                onPressed: () => widget.onEpisode(i),
+                                style: OutlinedButton.styleFrom(padding: padding, shape: shape, alignment: alignment, side: BorderSide(color: scheme.outlineVariant)),
+                                child: label,
+                              );
+                        final sized = row ? button : SizedBox(height: PlayerPhoneInfo.episodeExtent, child: button);
+                        return current ? KeyedSubtree(key: _currentKey, child: sized) : sized;
+                      },
+                    );
+                  },
                 ),
-                itemCount: episodes.length,
-                itemBuilder: (context, i) {
-                  final current = i == widget.episode;
-                  final label = Text(episodes[i].name, maxLines: 1, overflow: TextOverflow.ellipsis);
-                  final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(10));
-                  const padding = EdgeInsets.symmetric(horizontal: 6);
-                  return current
-                      ? FilledButton(key: Key('phone-episode-$i'), onPressed: () {}, style: FilledButton.styleFrom(padding: padding, shape: shape), child: label)
-                      : OutlinedButton(
-                          key: Key('phone-episode-$i'),
-                          onPressed: () => widget.onEpisode(i),
-                          style: OutlinedButton.styleFrom(padding: padding, shape: shape, side: BorderSide(color: scheme.outlineVariant)),
-                          child: label,
-                        );
-                },
               ),
             ),
           ],

@@ -130,6 +130,7 @@ TVBox 的订阅生态很大，能好好用它的地方却几乎只有安卓。�
 | [引擎协议](docs/protocol.md) | 客户端与引擎之间的 HTTP 接口 |
 | [技术选型](docs/tech-choices.md) | 与 MisaTV 等方案的对比、内存实测 |
 | [开发指南](docs/development.md) | 环境、命令、演示引擎、集成测试、打包、排错 |
+| [设计工作流](docs/design-lab.md) | 设计台（四种设备并排、热重载）、流程分镜（步数与等待）、审阅清单 |
 | [品牌](docs/brand/README.md) | 标志、色板、字体、口号 |
 | [更新记录](CHANGELOG.md) | 每个版本和每次迭代改了什么 |
 

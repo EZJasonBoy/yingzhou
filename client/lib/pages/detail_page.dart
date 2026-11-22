@@ -5,11 +5,13 @@ import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
 import '../engine/downloads.dart';
+import '../engine/episode_names.dart';
 import '../engine/library_models.dart';
 import '../engine/source_finder.dart';
 import '../engine/vod_models.dart';
 import '../ui/common.dart';
 import '../ui/device_form.dart';
+import '../ui/episode_buttons.dart';
 import '../ui/tv/tv_focus.dart';
 import 'browse_page.dart' show FolderPage, errorText;
 import 'download_sheet.dart';
@@ -25,10 +27,14 @@ void openDetail(BuildContext context, VodCard vod) {
 }
 
 class DetailPage extends StatefulWidget {
-  const DetailPage({super.key, required this.preview});
+  const DetailPage({super.key, required this.preview, this.resume = false});
 
   /// What we already know from the poster wall; shown while the detail loads.
   final VodCard preview;
+
+  /// Carry on where the title stopped as soon as it has loaded (继续播放 on simple mode's 首页); back from the player
+  /// is this page, with its episodes.
+  final bool resume;
 
   @override
   State<DetailPage> createState() => _DetailPageState();
@@ -61,6 +67,9 @@ class _DetailPageState extends State<DetailPage> {
 
   int _line = 0;
   bool _expanded = false;
+
+  /// [DetailPage.resume] has been acted on: playback starts by itself once only.
+  bool _resumed = false;
   HistoryEntry? _history;
   bool _favorite = false;
   bool _lineFromHistory = false;
@@ -330,7 +339,8 @@ class _DetailPageState extends State<DetailPage> {
         backgroundColor: Colors.transparent,
         actions: [
           // The engine keeps details for a while; this asks the site again (new episodes, repaired lines).
-          IconButton(key: const Key('detail-refresh'), tooltip: '刷新（重新向站点获取）', icon: const Icon(Icons.refresh), onPressed: () => setState(() => _start(refresh: true))),
+          if (!state.userMode.simple)
+            IconButton(key: const Key('detail-refresh'), tooltip: '刷新（重新向站点获取）', icon: const Icon(Icons.refresh), onPressed: () => setState(() => _start(refresh: true))),
           const SizedBox(width: 8),
         ],
       ),
@@ -475,7 +485,15 @@ class _DetailPageState extends State<DetailPage> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final wide = MediaQuery.sizeOf(context).width >= 720;
+    final mode = AppScope.of(context).userMode;
+    final simple = mode.simple;
     final resume = _resumePoint(d);
+    if (widget.resume && !_resumed && resume != null) {
+      _resumed = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _play(d, resume.$1, resume.$2, start: resume.$3);
+      });
+    }
     if (resume != null && !_lineFromHistory) {
       // Start on the line the user watched last time.
       _lineFromHistory = true;
@@ -484,6 +502,7 @@ class _DetailPageState extends State<DetailPage> {
     final line = d.lines.isEmpty ? null : d.lines[_line.clamp(0, d.lines.length - 1)];
     // Some episode of this line is downloaded or under way: every episode button keeps room for its mark.
     final marked = line != null && line.episodes.any((e) => _downloads.find(d.site, line.name, e.id) != null);
+    final naming = line == null ? EpisodeNaming.empty : EpisodeNaming.of(d.lines, d.lines.indexOf(line), title: d.name);
     final meta = [d.year, d.area, d.type, d.remarks].where((s) => s.isNotEmpty).join(' · ');
 
     final poster = ClipRRect(
@@ -518,7 +537,7 @@ class _DetailPageState extends State<DetailPage> {
                   key: const Key('detail-play'),
                   onPressed: () => _play(d, resume.$1, resume.$2, start: resume.$3),
                   icon: const Icon(Icons.play_arrow_rounded),
-                  label: Text('继续播放 ${d.lines[resume.$1].episodes[resume.$2].name}  ${_fmt(resume.$3)}'),
+                  label: Text('继续播放 ${EpisodeNaming.brief(EpisodeNaming.clean(d.lines[resume.$1].episodes[resume.$2].name), columns: 24)}  ${_fmt(resume.$3)}'),
                   style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16)),
                 ),
               )
@@ -547,7 +566,7 @@ class _DetailPageState extends State<DetailPage> {
             ),
             // Not for drive folders: their files are the user's own already, and the engine's download queue
             // resolves episodes through the sites, which drives are not.
-            if (_downloads.available == true && line != null && !d.site.startsWith('drive:'))
+            if (!simple && _downloads.available == true && line != null && !d.site.startsWith('drive:'))
               DownloadButton(detail: d, line: _line, watcher: _downloads, episode: resume != null && resume.$1 == _line ? resume.$2 : 0),
           ],
         ),
@@ -582,45 +601,66 @@ class _DetailPageState extends State<DetailPage> {
               ),
             ),
           ],
+          if (mode.developer) _DevInfo(detail: d, line: line, runtime: AppScope.of(context).siteInfo(d.site)?.runtime.name ?? ''),
           if (d.lines.isNotEmpty) ...[
             const SizedBox(height: 28),
-            Text('线路', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            // Simple mode has no lines to choose from: the player takes the next one when a line fails.
+            if (!simple) ...[
+              Text('线路', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (var i = 0; i < d.lines.length; i++)
+                    ChoiceChip(
+                      label: Text('${d.lines[i].name}  ${d.lines[i].episodes.length}'),
+                      selected: i == _line,
+                      onSelected: (_) => setState(() => _line = i),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 22),
+            ],
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
               children: [
-                for (var i = 0; i < d.lines.length; i++)
-                  ChoiceChip(
-                    label: Text('${d.lines[i].name}  ${d.lines[i].episodes.length}'),
-                    selected: i == _line,
-                    onSelected: (_) => setState(() => _line = i),
+                Text('选集', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Text(
+                    [if (line!.episodes.length > 1) '共 ${line.episodes.length} 集', if (d.remarks.isNotEmpty) d.remarks].join(' · '),
+                    key: const Key('detail-episodes-note'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
                   ),
+                ),
               ],
             ),
-            const SizedBox(height: 22),
-            Text('选集', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+            ..._namingNote(d, naming, scheme),
             const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (var i = 0; i < line!.episodes.length; i++)
-                  SizedBox(
-                    width: wide ? 112 : _narrowEpisodeWidth(context),
-                    child: OutlinedButton(
-                      onPressed: () => _play(d, _line, i),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
-                        // The episode watched last time is highlighted.
-                        backgroundColor: resume != null && resume.$1 == _line && resume.$2 == i ? scheme.primaryContainer : null,
-                        side: BorderSide(color: scheme.outlineVariant),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                      child: _episodeLabel(line.episodes[i].name, _downloads.find(d.site, line.name, line.episodes[i].id), i, marked),
-                    ),
-                  ),
-              ],
+            EpisodeButtons(
+              naming: naming,
+              buttonWidth: wide ? 112 : _narrowEpisodeWidth(context),
+              reserveMark: marked,
+              mark: (i) {
+                final download = _downloads.find(d.site, line.name, line.episodes[i].id);
+                return download == null ? null : EpisodeDownloadMark(key: Key('download-mark-$i'), item: download, compact: true);
+              },
+              button: (context, i, label, row) => OutlinedButton(
+                onPressed: () => _play(d, _line, i),
+                style: OutlinedButton.styleFrom(
+                  padding: row ? const EdgeInsets.symmetric(horizontal: 12) : const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
+                  alignment: row ? Alignment.centerLeft : null,
+                  // The episode watched last time is highlighted.
+                  backgroundColor: resume != null && resume.$1 == _line && resume.$2 == i ? scheme.primaryContainer : null,
+                  side: BorderSide(color: scheme.outlineVariant),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: label,
+              ),
             ),
           ],
         ],
@@ -628,17 +668,36 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  /// An episode's name, and under it how far its download is when there is one (a downloaded one plays offline).
-  /// When any episode of the line has a download ([marked]), all of them keep room for it, so the buttons line up.
-  Widget _episodeLabel(String name, DownloadItem? download, int i, bool marked) {
-    final text = Text(name, maxLines: 1, overflow: TextOverflow.ellipsis);
-    if (!marked) return text;
-    return Column(mainAxisSize: MainAxisSize.min, children: [
-      text,
+  /// Under 选集, when the names need a word: whose titles stand next to this line's numbers, or that this site
+  /// only numbers its episodes while its remark speaks of dated ones (variety shows), with the way to another source.
+  List<Widget> _namingNote(VodDetail d, EpisodeNaming naming, ColorScheme scheme) {
+    final style = TextStyle(color: scheme.onSurfaceVariant, fontSize: 13);
+    if (naming.borrowedFrom != null) {
+      return [
+        const SizedBox(height: 4),
+        Text('这条线路只给了序号，标题取自线路「${naming.borrowedFrom}」的同一位置', key: const Key('detail-episodes-borrowed'), style: style),
+      ];
+    }
+    if (!naming.onlyNumbers || naming.labels.length < 2 || !_remarkNamesEpisodes.hasMatch(d.remarks) || d.site.startsWith('drive:')) return const [];
+    return [
       const SizedBox(height: 2),
-      SizedBox(height: 16, child: download == null ? null : EpisodeDownloadMark(key: Key('download-mark-$i'), item: download, compact: true)),
-    ]);
+      Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 4,
+        children: [
+          Text('这个站点的选集只给了序号，没有每一期的标题', key: const Key('detail-episodes-numbers'), style: style),
+          TextButton(
+            onPressed: _showSourcePicker,
+            style: TextButton.styleFrom(visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 8)),
+            child: const Text('看看别的来源'),
+          ),
+        ],
+      ),
+    ];
   }
+
+  /// A remark that names an episode by more than its place: a date (`更新至20261120加更版`) or an issue (`更6期`).
+  static final _remarkNamesEpisodes = RegExp(r'\d{6,}|期|版');
 
   /// On a narrow screen the episode buttons fill the row: as many of about 84 dp as fit, at least three.
   static double _narrowEpisodeWidth(BuildContext context) {
@@ -674,6 +733,53 @@ class _DetailPageState extends State<DetailPage> {
       .replaceAll('&gt;', '>')
       .replaceAll('&quot;', '"')
       .trim();
+}
+
+/// Developer mode: what the site answered, as the engine names it (the keys and ids a subscription's author needs).
+class _DevInfo extends StatelessWidget {
+  const _DevInfo({required this.detail, required this.line, required this.runtime});
+
+  final VodDetail detail;
+  final PlayLine? line;
+  final String runtime;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final first = line == null || line!.episodes.isEmpty ? null : line!.episodes.first;
+    final rows = <(String, String)>[
+      ('站点', '${detail.site}${runtime.isEmpty ? '' : '（$runtime）'}'),
+      ('vod_id', detail.id),
+      ('线路', detail.lines.isEmpty ? '无' : detail.lines.map((l) => '${l.name}×${l.episodes.length}').join('  ')),
+      if (first != null) ('首集地址', first.id),
+    ];
+    return Container(
+      key: const Key('detail-dev-info'),
+      margin: const EdgeInsets.only(top: 20),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: scheme.surfaceContainer, borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('开发者信息', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+          const SizedBox(height: 6),
+          for (final (k, v) in rows)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(width: 72, child: Text(k, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12, height: 1.5))),
+                  Expanded(
+                    child: SelectableText(v, minLines: 1, maxLines: 3, style: const TextStyle(fontFamilyFallback: ['Cascadia Mono', 'Consolas', 'Menlo', 'monospace'], fontSize: 12, height: 1.5)),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 /// The copies of a title found on other sites: the same title, then close names, as the search brings them.

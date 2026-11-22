@@ -9,6 +9,7 @@ import 'diagnostics/diagnostics.dart';
 import 'engine/engine_client.dart';
 import 'engine/local_engine.dart';
 import 'mobile/playback_host.dart';
+import 'pages/mode_chooser.dart';
 import 'settings.dart';
 import 'ui/device_form.dart';
 import 'ui/poster_cache.dart';
@@ -39,6 +40,7 @@ Future<void> _main() async {
     DeviceFormScope(
       controller: deviceForm,
       child: TvboxApp(
+        askUserMode: true,
         state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings, localEngine: createLocalEngine()),
       ),
     ),
@@ -46,9 +48,13 @@ Future<void> _main() async {
 }
 
 class TvboxApp extends StatefulWidget {
-  const TvboxApp({super.key, required this.state});
+  const TvboxApp({super.key, required this.state, this.askUserMode = false});
 
   final AppState state;
+
+  /// On the very first start, ask which way the app is to be used (simple, standard, developer) before the main
+  /// screen (pages/mode_chooser.dart). Off unless the real app turns it on.
+  final bool askUserMode;
 
   @override
   State<TvboxApp> createState() => _TvboxAppState();
@@ -92,7 +98,7 @@ class _TvboxAppState extends State<TvboxApp> {
           },
           child: CallbackShortcuts(bindings: {const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true): _back}, child: TvAppFrame(child: child ?? const SizedBox.shrink())),
         ),
-        home: const PairingGate(child: UpdateWatcher(child: AppShell())),
+        home: PairingGate(child: UpdateWatcher(child: ModeGate(ask: widget.askUserMode, child: const AppShell()))),
       ),
     );
   }

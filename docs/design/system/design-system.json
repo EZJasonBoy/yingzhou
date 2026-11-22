@@ -1,0 +1,101 @@
+{
+  "v": 3,
+  "assetGroups": {
+    "Imagery": {
+      "files": {
+        "player-frame.jpg": {
+          "blob": "a8db7cc8490abd971cc7f01fe03632cf",
+          "name": "player-frame.jpg",
+          "size": 38224,
+          "type": "image/jpeg"
+        },
+        "poster-1.jpg": {
+          "blob": "b4430f6058cc88655f2930f9a7eb2ab4",
+          "name": "poster-1.jpg",
+          "size": 65932,
+          "type": "image/jpeg"
+        },
+        "poster-14.jpg": {
+          "blob": "7957285ca77c491c2b076291d3ddfa30",
+          "name": "poster-14.jpg",
+          "size": 44675,
+          "type": "image/jpeg"
+        },
+        "poster-5.jpg": {
+          "blob": "08be0d5900f0608a07d7154eb2a574ae",
+          "name": "poster-5.jpg",
+          "size": 57835,
+          "type": "image/jpeg"
+        },
+        "poster-8.jpg": {
+          "blob": "66ffae7b7f025039b0bad80d0e1722a6",
+          "name": "poster-8.jpg",
+          "size": 62912,
+          "type": "image/jpeg"
+        },
+        "yingzhou-hero.jpg": {
+          "blob": "1349bd00ea63456c318f38abd771334b",
+          "name": "yingzhou-hero.jpg",
+          "size": 84516,
+          "type": "image/jpeg"
+        }
+      },
+      "name": "Imagery",
+      "order": [
+        "yingzhou-hero.jpg",
+        "player-frame.jpg",
+        "poster-1.jpg",
+        "poster-5.jpg",
+        "poster-8.jpg",
+        "poster-14.jpg"
+      ],
+      "tile": "l"
+    },
+    "Logos": {
+      "files": {
+        "yingzhou-logo-small.svg": {
+          "blob": "477fec366a8cffa84753ff9c0f7bec44",
+          "name": "yingzhou-logo-small.svg",
+          "size": 426,
+          "type": "image/svg+xml"
+        },
+        "yingzhou-logo.svg": {
+          "blob": "d5c3676defad217c1eefc6130c7d13f2",
+          "name": "yingzhou-logo.svg",
+          "size": 780,
+          "type": "image/svg+xml"
+        }
+      },
+      "name": "Logos",
+      "order": [
+        "yingzhou-logo.svg",
+        "yingzhou-logo-small.svg"
+      ],
+      "tile": "m"
+    }
+  },
+  "blobs": {},
+  "createdOnFiles": {
+    "at": "2026-11-21T18:23:36Z",
+    "v": 1
+  },
+  "docs": {
+    "readme": "project/README.md",
+    "sections": []
+  },
+  "groups": [
+    "Logos",
+    "Imagery"
+  ],
+  "lastChange": {
+    "by": "Claude",
+    "at": "2026-11-21T18:47:28Z",
+    "via": "Claude Code",
+    "note": "封面：名字缩到 64px，不再碰到色块"
+  },
+  "layout": "files",
+  "libraries": [],
+  "namespace": "Yingzhou",
+  "sections": {},
+  "title": "映舟设计系统"
+}

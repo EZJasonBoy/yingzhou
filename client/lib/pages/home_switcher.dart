@@ -4,6 +4,7 @@ import '../app_state.dart';
 import '../engine/models.dart';
 import '../ui/device_form.dart';
 import '../ui/shell.dart' show shellUsesBottomBar;
+import '../ui/tv/tv_focus.dart';
 import '../ui/tv/tv_widgets.dart';
 
 /// Where the home page's content comes from, at three levels: the saved subscription, the entry of a
@@ -192,6 +193,60 @@ class _HomeSwitcherState extends State<HomeSwitcher> {
       );
 }
 
+/// Simple mode's 首页: one button with the site's name; it opens [openSourcePanel].
+class SourcePanelChip extends StatelessWidget {
+  const SourcePanelChip({super.key, required this.siteName});
+
+  final String siteName;
+
+  @override
+  Widget build(BuildContext context) {
+    return ActionChip(
+      key: const Key('home-source-panel'),
+      avatar: const Icon(Icons.dns_outlined, size: 18),
+      label: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ConstrainedBox(constraints: const BoxConstraints(maxWidth: 220), child: Text(siteName, maxLines: 1, overflow: TextOverflow.ellipsis)),
+          const Icon(Icons.chevron_right_rounded, size: 20),
+        ],
+      ),
+      onPressed: () => openSourcePanel(context),
+    );
+  }
+}
+
+/// The sites (and a step up to the entries and the subscriptions) in a panel that slides in from the right, over
+/// the page. Choosing a site closes it; BACK, a tap beside it or Esc close it too. Works with a remote: the site in
+/// use has the focus.
+Future<void> openSourcePanel(BuildContext context) {
+  final width = MediaQuery.sizeOf(context).width;
+  return showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: '关闭',
+    barrierColor: Colors.black54,
+    transitionDuration: const Duration(milliseconds: 220),
+    pageBuilder: (context, _, _) => Align(
+      alignment: Alignment.centerRight,
+      child: Material(
+        key: const Key('source-panel'),
+        color: Theme.of(context).colorScheme.surfaceContainer,
+        elevation: 8,
+        child: SizedBox(
+          width: width < 480 ? width * 0.88 : 420,
+          height: double.infinity,
+          child: const SafeArea(left: false, child: _SourceSheet()),
+        ),
+      ),
+    ),
+    transitionBuilder: (context, animation, _, child) => SlideTransition(
+      position: Tween(begin: const Offset(1, 0), end: Offset.zero).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+      child: child,
+    ),
+  );
+}
+
 /// How an entry of a multi-repository subscription is named in the lists.
 String repoLabel(RepoInfo r) => r.group ? '${r.name}（多仓）' : r.name;
 
@@ -272,13 +327,35 @@ class _SourceSheetState extends State<_SourceSheet> {
           ),
         );
 
-    Widget row({required Key key, required String text, required bool current, int depth = 0, required VoidCallback onTap}) => ListTile(
-          key: key,
-          contentPadding: EdgeInsets.only(left: 16 + 20.0 * depth, right: 16),
-          leading: Icon(current ? Icons.check_rounded : null),
-          title: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis),
-          onTap: _loading ? null : onTap,
-        );
+    final tv = isTv(context);
+    Widget row({required Key key, required String text, required bool current, int depth = 0, required VoidCallback onTap}) => tv
+        // The remote: big rows with the brand's focus ring; the one in use takes the focus when the list shows.
+        ? Padding(
+            padding: EdgeInsets.fromLTRB(12 + 20.0 * depth, 3, 12, 3),
+            child: TvFocusable(
+              key: key,
+              autofocus: current,
+              scale: 1.03,
+              onTap: _loading ? null : onTap,
+              child: Container(
+                constraints: const BoxConstraints(minHeight: 50),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(color: current ? scheme.primaryContainer : scheme.surfaceContainerHigh, borderRadius: BorderRadius.circular(12)),
+                child: Row(children: [
+                  Icon(current ? Icons.check_rounded : null, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16))),
+                ]),
+              ),
+            ),
+          )
+        : ListTile(
+            key: key,
+            contentPadding: EdgeInsets.only(left: 16 + 20.0 * depth, right: 16),
+            leading: Icon(current ? Icons.check_rounded : null),
+            title: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis),
+            onTap: _loading ? null : onTap,
+          );
 
     final List<Widget> head;
     final List<Widget> rows;

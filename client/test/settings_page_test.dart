@@ -48,8 +48,9 @@ void main() {
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
     final list = find.byKey(const Key('settings-list'));
+    // A group whose cards have nothing to show on this engine keeps its heading out of sight, not out of the page.
     for (final heading in ['外观', '播放', '网络', '局域网', '下载与数据', '关于']) {
-      expect(find.descendant(of: list, matching: find.text(heading, skipOffstage: false)), findsOneWidget, reason: 'the $heading group');
+      expect(find.descendant(of: list, matching: find.text(heading, skipOffstage: false), skipOffstage: false), findsOneWidget, reason: 'the $heading group');
     }
     await tester.dragUntilVisible(find.byKey(const Key('about-engine')), list, const Offset(0, -300));
     expect(find.byKey(const Key('about-engine')), findsOneWidget);
