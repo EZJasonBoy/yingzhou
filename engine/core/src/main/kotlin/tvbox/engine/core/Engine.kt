@@ -16,6 +16,8 @@ import tvbox.engine.core.model.EngineInfo
 import tvbox.engine.core.model.HomeResult
 import tvbox.engine.core.model.PlayInfo
 import tvbox.engine.core.model.PlayRequest
+import tvbox.engine.core.model.ProbeRequest
+import tvbox.engine.core.model.ProbeResult
 import tvbox.engine.core.model.RepoInfo
 import tvbox.engine.core.model.SiteInfo
 import tvbox.engine.core.model.Subscription
@@ -607,19 +609,37 @@ class Engine(
         return searchAggregator.search(sources, keyword.trim()) { describe(it) }
     }
 
-    suspend fun resolvePlay(request: PlayRequest): PlayInfo {
+    /** [sniff] false: a page that needs sniffing comes back as `kind=sniff` even when this engine could sniff it. */
+    suspend fun resolvePlay(request: PlayRequest, sniff: Boolean = true): PlayInfo {
         // A finished download plays from the engine's disk, without the site or the network.
         downloads?.offlinePlay(request)?.let { return it }
         val a = current()
         val raw = siteCall(request.site) { it.play(request.line, request.episodeId) }
         return try {
-            withExtras(streamCached(playerHeaders(playResolver.resolve(raw, a.config)), request, a.config), raw, request)
+            withExtras(streamCached(playerHeaders(playResolver.resolve(raw, a.config, sniff)), request, a.config), raw, request)
         } catch (e: PlayResolveException) {
             throw EngineException.SiteFailed("PLAY_FAILED", e.message ?: "play failed")
         } catch (e: Exception) {
             val (code, message) = describe(e)
             throw EngineException.SiteFailed(code, message)
         }
+    }
+
+    /** 线路体检: see [probeLines]. Videos are fetched as the playlist endpoint fetches them, ads cut the same way. */
+    private val lineProbe = tvbox.engine.core.play.LineProbe(http, playlistBase, cleaner = ::cleanPlaylist)
+
+    /**
+     * `POST /play/probe` (线路体检): whether each of [request]'s lines plays and how fast, one result per line as it
+     * finishes. Each line is resolved by [resolvePlay] (the same parsers, headers, `hosts` and playback proxy as
+     * playing; only the episode asked for, so a spider runs its `playerContent` once per line) but never sniffed: such
+     * a line comes back as `sniff`. [resolver] stands in for [resolvePlay] for sites that are not the config's (the
+     * user's drives). Throws before anything is sent when there is no config or no such site.
+     */
+    fun probeLines(request: ProbeRequest, resolver: (suspend (PlayRequest) -> PlayInfo)? = null): Flow<ProbeResult> {
+        if (resolver != null) return lineProbe.probe(request, "", resolver)
+        val a = current()
+        if (request.site !in a.sources) throw EngineException.NotFound("site ${request.site}")
+        return lineProbe.probe(request, a.scope) { resolvePlay(it, sniff = false) }
     }
 
     /**

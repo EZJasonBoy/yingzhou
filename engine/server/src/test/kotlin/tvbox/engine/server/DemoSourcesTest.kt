@@ -28,6 +28,10 @@ import tvbox.engine.core.config.ConfigLocator
 import tvbox.engine.core.model.Capabilities
 import tvbox.engine.core.model.EngineInfo
 import tvbox.engine.core.model.PlayRequest
+import tvbox.engine.core.model.ProbeLine
+import tvbox.engine.core.model.ProbeRequest
+import tvbox.engine.core.model.ProbeState
+import kotlinx.coroutines.flow.toList
 import tvbox.engine.core.net.SiteHttp
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -135,6 +139,31 @@ class DemoSourcesTest {
         }
         assertEquals("PLAY_FAILED", failed.code)
         assertEquals(engine.search("demo", "星河", 1).list.map { it.name }, engine.search("demo_dead", "星河", 1).list.map { it.name })
+    }
+
+    @Test
+    fun `the line probe finds 白昼迷踪 第二季's first line dead and its throttled line slow`() = runBlocking {
+        val engine = demoEngine()
+        val detail = engine.detail("demo", DemoSite.DEAD_LINE_ITEM.toString())
+        assertEquals("白昼迷踪 第二季", detail.name)
+        assertEquals(listOf("失效线路", "演示直链", "需解析线路", "限速线路"), detail.lines.map { it.name })
+        // The two lines in the middle play the public test stream; the probe of this test stays on this machine.
+        val lines = detail.lines.filter { it.name == "失效线路" || it.name == "限速线路" }.map { ProbeLine(it.name, it.episodes.first().id) }
+        val results = engine.probeLines(ProbeRequest("demo", lines)).toList().associateBy { it.line }
+
+        val dead = results.getValue("失效线路")
+        assertEquals(ProbeState.DEAD, dead.state, dead.toString())
+        assertEquals("连不上", dead.reason)
+        assertEquals(0, dead.index)
+
+        val slow = results.getValue("限速线路")
+        assertEquals(ProbeState.SLOW, slow.state, slow.toString())
+        assertEquals("网速不够", slow.reason)
+        assertEquals(1, slow.index)
+        assertEquals("hls", slow.kind)
+        assertEquals(DemoVideo.WIDTH, slow.width)
+        assertEquals(DemoVideo.HEIGHT, slow.height)
+        assertTrue(slow.bytesPerSecond!! in THROTTLED_RATE / 2..THROTTLED_RATE * 3 / 2, slow.toString())
     }
 
     @Test

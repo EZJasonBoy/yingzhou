@@ -196,6 +196,42 @@ event: end       data: {"sites":40,"ms":9120}
 
 引擎尽量自己走完解析链（直链 / JSON 解析接口 / `jx` / 网页嗅探）。网页嗅探：桌面与 NAS 引擎用无头 Edge/Chrome（CDP，浏览器装在非标准位置时设 `TVBOX_BROWSER`），Android 内置引擎用 WebView；判定规则同 TVBox（配置 `rules` 的 `host`/`rule`/`filter`，再加内置视频地址正则），返回的 `headers` 带上页面实际使用的 Referer / User-Agent / Cookie。配置的顶层 `headers` 里有播放地址所在域名的条目时，它的请求头也并进 `headers`（同名覆盖）；直播线路的 `headers` 同理。`/info` 的 `capabilities.sniff` 表示引擎能否嗅探；不能时才返回 `kind: "sniff"`，由客户端自行嗅探（或提示换线路）。
 
+### 线路体检
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/play/probe` | `{site, lines: [{line, episodeId}], direct?}` → SSE：每测完一条线路一个 `line` 事件（按完成的先后），最后一个 `end` |
+
+同一集在几条线路上能不能播、快不快，按下「播放」之前就知道（设计见 [design/line-probe.md](design/line-probe.md)）。`lines` 由客户端给：同一集在每条线路上的 `episodeId` 只有它知道。`direct` 与 `/play/resolve` 相同（体检都是在引擎这边量的）。
+
+```
+event: line
+data: {"index":0,"line":"线路一","state":"ok","kind":"hls","width":1920,"height":1080,"resolveMs":180,"firstByteMs":420,"bytesPerSecond":3355443,"parsedBy":"","reason":""}
+
+event: line
+data: {"index":1,"line":"线路二","state":"dead","kind":"","resolveMs":12,"parsedBy":"","reason":"连不上"}
+
+event: end
+data: {}
+```
+
+- `index`：这条线路在请求 `lines` 里的位置。`line`：线路名，原样带回。
+- `state`：`ok`（解析成功，播放列表和视频开头都取到了，网速够）、`slow`（取到了，但网速不够这个清晰度用，或者到了时间才回来、整次体检收尾时还没回来）、`dead`（解析失败，或地址打不开）、`sniff`（要网页嗅探才有地址，体检不替它开浏览器）、`skipped`（超过一次体检的线路数上限，没测）。
+- `kind`：`hls` | `file`；没取到视频时为空。
+- `width` / `height`：主列表里最高一档的 `RESOLUTION`，没有就不出现。`resolveMs`：解析地址用了多久。`firstByteMs`：从拿到地址到视频的第一批字节（HLS 是第一个分片的）。`bytesPerSecond`：读第一个分片（或文件开头）的速度。**量不到的数字不出现，不是 0。**
+- `parsedBy`：哪个解析器给的地址，同 `PlayInfo.parsedBy`。
+- `reason`：`dead` 和 `slow` 时的一句话原因，其余为空。现有的：`超时`、`解析超时`、`解析失败`、`连不上`、`404`、`被拒绝`、`服务器出错`、`不是视频`、`没有内容`、`播放列表是空的`、`打不开`、`不支持`、`找不到`、`网速不够`、`HTTP <状态码>`；客户端原样显示，不要按它分支（分支看 `state`）。
+
+怎么测：
+
+- 解析走 `/play/resolve` 的同一套代码（解析器、请求头、`hosts`、「播放」用途的代理、网盘），只是不做网页嗅探。jar / js / Python 站点会真的调蜘蛛的 `playerContent`，所以只测请求里的这一集。
+- 取视频和引擎的 `/m3u8`、播放缓存取片源时一样（配置的 `hosts`、`headers`、DNS），去广告规则也一样：HLS 取播放列表（主列表取 `RESOLUTION` 最高的一档），再取第一个分片；不是 HLS 的地址带 `Range: bytes=0-524287` 取开头。分片或文件读前 512 KB 或 1.5 秒（先到为准）算网速。
+- 同时测 3 条，一次最多测 6 条，其余立即回 `skipped`。每条：解析最多 6 秒（超过是 `dead`、`解析超时`），从拿到地址到视频第一批字节最多 4 秒（什么都没回来是 `dead`、`超时`；晚到的是 `slow`、`超时`）。整次请求 10 秒收尾，还没回来的线路回 `slow`、`超时`（不回 `dead`：慢和坏分开）。
+- 网速低于清晰度需要的是 `slow`、`网速不够`：1080p 约 0.6 MB/s，4K 约 2.5 MB/s，更低或不知道清晰度约 0.3 MB/s（MB = 1024 × 1024 字节）。
+- 结果按「订阅配置 + 站点 + 线路 + `episodeId`」缓存 5 分钟，命中的立即回，不再解析、不再联网。一个主机（主机名 + 端口）2 分钟内两次连不上，这个主机上的其余线路直接回 `dead`、`连不上`，不再去碰（这种结果不缓存）。
+- 没有生效的订阅回 409，没有这个站点回 404，都在开始推送之前。`lines` 为空时只有一个 `end`。
+- 等结果期间每隔不到半秒有一行 `:` 开头的 SSE 注释（保活）：引擎靠写失败发现客户端已经断开，然后取消还没测完的线路。客户端忽略这些行即可。断开连接就是取消体检。
+
 ## 弹幕
 
 | 方法 | 路径 | 说明 |
