@@ -31,9 +31,9 @@ data class RemoteScreenInfo(
  *
  * A client that lets itself be driven registers as a *screen* and keeps a connection open; a phone opens a
  * *controller* connection to one screen. The hub passes the screen's state to its controllers (the latest at once,
- * then every change) and the controllers' commands to the screen, with the screen's answers back. It does not look
- * into either: what a state holds and which commands exist is between the client and the remote (and may grow
- * without a new engine).
+ * then every change) and the controllers' commands to the screen, with the screen's answers back (and what an answer
+ * carries in `data`, to the controller that asked only). It does not look into either: what a state holds and which
+ * commands exist is between the client and the remote (and may grow without a new engine).
  *
  * Who may connect is decided before the hub is reached (the access plugin: this machine, or a paired device while
  * sharing is on). Screens are only those that connected themselves, so a client that has not switched 「允许手机遥控」
@@ -141,6 +141,9 @@ class RemoteHub(private val clock: () -> Long = System::currentTimeMillis) {
                         put("id", msg["id"] ?: JsonNull)
                         put("ok", (msg["ok"] as? JsonPrimitive)?.content == "true")
                         put("message", clean(msg.string("message"), 200))
+                        // What a command answers with (a page of the log, a crash record…), as the screen wrote it. An
+                        // object or nothing: the message as a whole is already within MAX_SCREEN_MESSAGE.
+                        (msg["data"] as? JsonObject)?.let { put("data", it) }
                     }.toString()
                     synchronized(lock) { controllers[to]?.peer?.send(out) }
                 }

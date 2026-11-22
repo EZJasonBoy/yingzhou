@@ -143,6 +143,8 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
         mediaExtrasRoutes(engine)
         // Cloud drives and folders: their API and the route that streams their files to players.
         options.drives?.let { driveRoutes(it) }
+        // Subscriptions, settings, history and favorites as one file, and putting such a file back (BackupRoutes).
+        backupRoutes(engine, access)
 
         // HLS playlists the engine cleans of ads (see M3u8Cleaner). Any trouble sends the player to the original url.
         get("/m3u8") {

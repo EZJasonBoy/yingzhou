@@ -13,15 +13,18 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import okhttp3.OkHttpClient
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -145,6 +148,48 @@ class RemoteTest {
         assertTrue(hub.screens().isEmpty())
         assertEquals("gone", other.sent.last().str("type"))
         assertEquals(RemoteHub.GONE, other.closed!!.first)
+    }
+
+    @Test
+    fun `an answer's data goes to the controller that asked, as the screen wrote it, and only an object`() {
+        val hub = RemoteHub()
+        val screenPeer = FakePeer()
+        val screen = hub.screenConnected(hello, AccessControl.LOCAL, screenPeer)
+        val phone = FakePeer()
+        val asking = hub.controllerConnected("tv-1", "dev1", "我的手机", phone)
+        val other = FakePeer()
+        hub.controllerConnected("tv-1", "dev2", "平板", other)
+        val otherSeen = other.sent.size
+
+        asking.receive("""{"type":"command","id":"d1","name":"diag.log","args":{"after":3,"limit":2}}""")
+        val command = screenPeer.last("command")!!
+        assertEquals("diag.log", command.str("name"))
+        assertEquals(3, command["args"]!!.jsonObject["after"]!!.jsonPrimitive.int)
+        val data = """{"entries":[{"seq":4,"time":"2026-11-22T12:00:00.000Z","level":"warn","module":"播放器","message":"缓冲见底","detail":{"线路":"线路 2"}}],"next":4,"nested":{"a":[1,2,{"b":null}]}}"""
+        screen.receive("""{"type":"result","to":"${asking.session}","id":"d1","ok":true,"message":"","data":$data}""")
+        val result = phone.sent.last()
+        assertEquals("result", result.str("type"))
+        assertEquals("d1", result.str("id"))
+        assertEquals("true", result["ok"]!!.jsonPrimitive.content)
+        assertEquals(EngineJson.parseToJsonElement(data), result["data"], "passed on untouched")
+        assertNull(result["to"], "who it was for stays in the engine")
+        assertEquals(otherSeen, other.sent.size, "the other controller hears nothing of it")
+
+        // A failure may carry data too.
+        screen.receive("""{"type":"result","to":"${asking.session}","id":"d2","ok":false,"message":"密码不对","data":{"locked":true}}""")
+        assertEquals("false", phone.sent.last()["ok"]!!.jsonPrimitive.content)
+        assertEquals("true", phone.sent.last()["data"]!!.jsonObject["locked"]!!.jsonPrimitive.content)
+
+        // Data that is not an object is dropped, the answer still arrives; an answer without data has none.
+        for ((i, wrong) in listOf("[1,2]", "\"text\"", "42", "null", "true").withIndex()) {
+            screen.receive("""{"type":"result","to":"${asking.session}","id":"w$i","ok":true,"data":$wrong}""")
+            val answer = phone.sent.last()
+            assertEquals("w$i", answer.str("id"), wrong)
+            assertFalse(answer.containsKey("data"), "$wrong is not passed on")
+        }
+        screen.receive("""{"type":"result","to":"${asking.session}","id":"old","ok":true,"message":"好了"}""")
+        assertEquals(setOf("type", "id", "ok", "message"), phone.sent.last().keys, "an answer as before")
+        assertEquals(otherSeen, other.sent.size)
     }
 
     @Test
@@ -408,6 +453,37 @@ class RemoteTest {
             }
             // The screen left: it is off the list.
             withTimeout(5000) { while (hub.screens().isNotEmpty()) kotlinx.coroutines.delay(20) }
+        }
+    }
+
+    @Test
+    fun `a long answer with data reaches the phone over the sockets, and a message past the limit still ends the screen`() {
+        val access = access()
+        remoteTest(access) { ws ->
+            val token = access.pairDevice().token
+            ws.webSocket("/api/v1/remote/screen") {
+                val screen = this
+                say(hello)
+                next("welcome")
+                ws.webSocket("/api/v1/remote/control?screen=tv-1", request = phone(token)) {
+                    next("screen")
+                    say("""{"type":"command","id":"r","name":"diag.report","args":{}}""")
+                    val command = screen.next("command")
+                    // The whole diagnostic text, far longer than a message or a command may be.
+                    val text = "映舟诊断信息\n" + "日志一行\n".repeat(60 * 1024)
+                    screen.say(
+                        buildJsonObject {
+                            put("type", "result"); put("to", command.str("from")); put("id", "r"); put("ok", true); put("message", "")
+                            put("data", buildJsonObject { put("text", text) })
+                        }.toString(),
+                    )
+                    val answer = next("result")
+                    assertEquals("r", answer.str("id"))
+                    assertEquals(text, answer["data"]!!.jsonObject.str("text"))
+                }
+                say("""{"type":"result","to":"c1","id":"x","ok":true,"data":{"text":"${"x".repeat(RemoteHub.MAX_SCREEN_MESSAGE)}"}}""")
+                assertEquals(CloseReason.Codes.TOO_BIG.code, withTimeout(5000) { closeReason.await() }!!.code)
+            }
         }
     }
 
