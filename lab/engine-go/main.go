@@ -11,6 +11,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -172,9 +175,22 @@ func (service *engine) ServeHTTP(response http.ResponseWriter, request *http.Req
 	}
 }
 
+func pureGoProviders(client *http.Client) map[string]provider {
+	providers := extraProviders(client)
+	providers["csp_Bili"] = newBiliProvider(client)
+	providers["csp_Alllive"] = newAllLiveProvider(client)
+	providers["csp_FirstAid"] = newFirstAidProvider(client)
+	providers["csp_Kugou"] = kugouProvider{client: client}
+	providers["csp_Push"] = newPushProvider()
+	providers[drpyLoaderAPI] = newDrpyProvider(client)
+	providers["csp_AppDrama2"] = ganfanProvider{client: client}
+	return providers
+}
+
 func main() {
 	source := flag.String("source", "", "订阅 URL 或本地 JSON 文件")
 	listen := flag.String("listen", "127.0.0.1:9980", "本机监听地址")
+	mobileData := flag.String("mobile-data", "", "运行与 iOS 内置引擎相同的映舟 API，将订阅和历史保存在此目录")
 	dramaHost := flag.String("drama2-host", "", "可选，本机已激活原版干饭蜘蛛的独立映舟引擎地址")
 	native := flag.String("drama2-native", "", "可选，肥猫蜘蛛的本机原生启动器绝对路径")
 	flag.StringVar(native, "spider-native", "", "已编译的肥猫蜘蛛启动器绝对路径")
@@ -186,6 +202,32 @@ func main() {
 	limit := flag.Int("limit", 1, "从该页迁移的条目数")
 	episodes := flag.Int("episodes", 1, "每条线路迁移的分集或频道数")
 	flag.Parse()
+	if *mobileData != "" {
+		flag.Visit(func(option *flag.Flag) {
+			if option.Name != "mobile-data" && option.Name != "listen" {
+				log.Fatal("-mobile-data 模式从客户端导入订阅，只接受 -listen 参数")
+			}
+		})
+		host, number, err := net.SplitHostPort(*listen)
+		port, parseErr := strconv.Atoi(number)
+		if err != nil || !isLoopback(host) || parseErr != nil {
+			log.Fatal("-listen 需要本机回环地址及端口")
+		}
+		dir, err := filepath.Abs(*mobileData)
+		if err != nil {
+			log.Fatal(err)
+		}
+		bound, err := StartMobileEngine(port, dir)
+		if err != nil {
+			log.Fatal(err)
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer stop()
+		log.Printf("映舟 Go 引擎 http://127.0.0.1:%d/api/v1/info", bound)
+		<-ctx.Done()
+		StopMobileEngine()
+		return
+	}
 	if (*sample == "") == (*source == "") || (*sample != "" && (*dramaHost != "" || *native != "" || *category != "" || *export != "")) {
 		log.Fatal("请选择 -source 读取原订阅，或单独使用 -sample 读取已迁移样本")
 	}
@@ -215,13 +257,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	providers := extraProviders(client)
-	providers["csp_Bili"] = newBiliProvider(client)
-	providers["csp_Alllive"] = newAllLiveProvider(client)
-	providers["csp_FirstAid"] = newFirstAidProvider(client)
-	providers["csp_Kugou"] = kugouProvider{client: client}
-	providers["csp_Push"] = newPushProvider()
-	providers[drpyLoaderAPI] = newDrpyProvider(client)
+	providers := pureGoProviders(client)
 	drama := ganfanProvider{client: client}
 	if *native != "" {
 		runner, err := newNativeSpider(*native, document.Spider)

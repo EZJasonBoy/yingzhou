@@ -89,14 +89,15 @@ class SettingsPage extends StatelessWidget {
                   FilledButton.tonal(
                     key: const Key('open-sources'),
                     onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const SourcesPage(standalone: true))),
-                    child: const Text('导入订阅、换站点'),
+                    child: Text(state.hasBuiltInGo ? '订阅、站点与引擎' : '导入订阅、换站点'),
                   ),
                 ],
               ),
             ],
           ),
         const PageSection(id: 'look', title: '外观', icon: Icons.palette_outlined, children: [UserModeSettings(), UiModeSettings(), ThemeModeSettings()]),
-        const PageSection(id: 'play', title: '播放', icon: Icons.play_circle_outline_rounded, gap: 0, children: [StreamCacheSettings(), DanmakuServiceSettings()]),
+        if (!state.lightweightEngine)
+          const PageSection(id: 'play', title: '播放', icon: Icons.play_circle_outline_rounded, gap: 0, children: [StreamCacheSettings(), DanmakuServiceSettings()]),
         // Always there: the GitHub mirror and the proxy for updates are this device's own and work without an engine.
         // One card per kind of route, so on a wide window they stand side by side.
         PageSection(
@@ -105,20 +106,20 @@ class SettingsPage extends StatelessWidget {
           icon: Icons.public_rounded,
           gap: 0,
           children: [
-            _card(context, title: 'GitHub 镜像', children: const [GithubProxySettings()]),
+            if (!state.lightweightEngine) _card(context, title: 'GitHub 镜像', children: const [GithubProxySettings()]),
             _card(context, title: 'HTTP 代理', children: const [HttpProxySettings()]),
             // Its own card, shown once the engine has said which DNS servers it offers.
-            const NetworkSettings(card: true),
+            if (!state.lightweightEngine) const NetworkSettings(card: true),
           ],
         ),
-        const PageSection(
+        if (!state.lightweightEngine) const PageSection(
           id: 'lan',
           title: '局域网',
           icon: Icons.wifi_tethering_rounded,
           gap: 0,
           children: [Padding(padding: EdgeInsets.only(top: 12), child: LanSection(part: LanPart.share))],
         ),
-        const PageSection(id: 'data', title: '下载与数据', icon: Icons.download_outlined, gap: 0, children: [DownloadSettings(), CacheSettings(), PythonSettings()]),
+        PageSection(id: 'data', title: '下载与数据', icon: Icons.download_outlined, gap: 0, children: [if (!state.lightweightEngine) const DownloadSettings(), const CacheSettings(), if (!state.lightweightEngine) const PythonSettings()]),
         PageSection(id: 'about', title: '关于', icon: Icons.info_outline_rounded, gap: 0, children: [about, const UpdateSettings(), const DiagnosticsSettings()]),
         if (state.userMode.developer)
           PageSection(

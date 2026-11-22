@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import 'diagnostics/dev_log.dart';
 import 'engine/discovery.dart';
 import 'engine/engine_client.dart';
+import 'engine/go_engine.dart';
 import 'engine/lan.dart';
 import 'engine/local_engine.dart';
 import 'engine/models.dart';
@@ -25,11 +26,21 @@ class AppState extends ChangeNotifier {
     this.engineUrl = defaultEngineUrl,
     SettingsStore? settings,
     this._localEngine,
+    this._goEngine,
     this.waitStep = const Duration(milliseconds: 500),
     this.playerBackend = mediaKitBackend,
   }) : _settings = settings ?? MemorySettings() {
     // Read before the first connect writes the engine's address: that is how a first start is told.
     userMode = UserModeController(_settings)..addListener(notifyListeners);
+    if (hasBuiltInGo) {
+      _remoteUrl = _settings.getString(_engineUrlKey) ?? (engineUrl == defaultEngineUrl ? '' : engineUrl);
+      _usingGo = switch (_settings.getString(_engineModeKey)) {
+        'go' => true,
+        'remote' when _remoteUrl.isNotEmpty => false,
+        _ => _remoteUrl.isEmpty || _remoteUrl == defaultEngineUrl,
+      };
+      if (!_usingGo) engineUrl = _remoteUrl;
+    }
   }
 
   final EngineClientFactory clientFactory;
@@ -40,7 +51,7 @@ class AppState extends ChangeNotifier {
 
   /// Local preferences of this client (window, player volume...).
   SettingsStore get settings => _settings;
-  late final network = ClientNetworkPreferences(_settings, () => engineUrl);
+  late final network = ClientNetworkPreferences(_settings, () => usingBuiltInGo ? 'builtin-go' : engineUrl);
 
   /// Light or dark, as chosen in 设置 → 外观.
   late final ThemeChoice themeChoice = ThemeChoice(_settings);
@@ -49,6 +60,18 @@ class AppState extends ChangeNotifier {
   /// follow a change.
   late final UserModeController userMode;
   final LocalEngine? _localEngine;
+  final GoEngine? _goEngine;
+  bool get hasBuiltInGo => _goEngine != null;
+  bool get usingBuiltInGo => _usingGo;
+  bool get lightweightEngine => usingBuiltInGo || (info?.capabilities['go'] == true && info?.name == 'yingzhou-go');
+  String get remoteEngineUrl => hasBuiltInGo ? _remoteUrl : engineUrl;
+  bool _usingGo = false;
+  String _remoteUrl = '';
+  int _switchRevision = 0;
+  Future<void> _nativeTransition = Future.value();
+  bool _goRunning = false;
+  bool _switchingMobileEngine = false;
+  bool get canChooseEngine => !busy || _switchingMobileEngine;
 
   /// The last lines the bundled engine printed (desktop); empty where the engine is not this app's child.
   List<String> get engineOutput => _localEngine?.recentOutput ?? const [];
@@ -59,6 +82,7 @@ class AppState extends ChangeNotifier {
   bool startingEngine = false;
 
   static const _engineUrlKey = 'engineUrl';
+  static const _engineModeKey = 'engine.mode';
   static const _siteKey = 'siteKey';
 
   /// The site last chosen in one config of one subscription: `siteKey|<subscription>|<config url>`.
@@ -74,9 +98,12 @@ class AppState extends ChangeNotifier {
   /// Restores the last engine and site, then connects. When nothing answers on the local address, starts the
   /// bundled engine (desktop) or waits for the embedded one (Android) to come up.
   Future<void> start() async {
-    engineUrl = _settings.getString(_engineUrlKey) ?? engineUrl;
+    final revision = _switchRevision;
+    if (!hasBuiltInGo) engineUrl = _settings.getString(_engineUrlKey) ?? engineUrl;
     await network.migrateUpdateProxy();
+    if (_switchRevision != revision) return;
     currentSiteKey = _settings.getString(_siteKey);
+    if (hasBuiltInGo) return connect();
     await connect();
     if (connected || !_isLocal(engineUrl)) return;
 
@@ -162,8 +189,11 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    _switchRevision++;
     _localEngine?.stop();
+    if (hasBuiltInGo) unawaited(_nativeTransition.then((_) => _stopGo()).catchError((Object _) {}));
     _client?.close();
+    _client = null;
     super.dispose();
   }
 
@@ -197,6 +227,7 @@ class AppState extends ChangeNotifier {
     SiteRuntime.js => info?.capabilities['js'] ?? false,
     SiteRuntime.jar => info?.capabilities['jar'] ?? false,
     SiteRuntime.py => info?.capabilities['py'] ?? false,
+    SiteRuntime.go => info?.capabilities['go'] ?? false,
     SiteRuntime.unknown => false,
   };
 
@@ -222,42 +253,119 @@ class AppState extends ChangeNotifier {
     return key;
   }
 
-  Future<void> connect([String? url]) => _run(() async {
-    if (url != null) engineUrl = url.trim();
-    await _connectOnce();
-  });
+  Future<void> connect([String? url]) {
+    if (hasBuiltInGo) return _switchMobile(url?.trim() ?? (usingBuiltInGo ? null : _remoteUrl));
+    return _run(() async {
+      if (url != null) engineUrl = url.trim();
+      await _connectOnce();
+    });
+  }
 
-  Future<void> _connectOnce() async {
+  Future<void> useBuiltInGo() => hasBuiltInGo ? _switchMobile(null) : Future.value();
+
+  Future<void> _stopGo() async {
+    if (!_goRunning) return;
+    await _goEngine!.stop();
+    _goRunning = false;
+  }
+
+  Future<void> _switchMobile(String? remote) async {
+    if (remote != null) {
+      final address = Uri.tryParse(remote);
+      if (address == null || !{'http', 'https'}.contains(address.scheme) || address.host.isEmpty || address.userInfo.isNotEmpty || address.port < 1 || address.port > 65535) {
+        error = '请输入完整的 HTTP(S) 引擎地址';
+        notifyListeners();
+        return;
+      }
+    }
+    final revision = ++_switchRevision;
     _client?.close();
-    final client = clientFactory(Uri.parse(engineUrl));
-    _client = client;
-    final saved = _settings.getString(_tokenKey(engineUrl));
-    client.token = saved == null || saved.isEmpty ? null : saved;
-    client.onUnauthorized = (e) => _pairingRequired(client, e);
+    _client = null;
+    _clearConnection();
+    _usingGo = remote == null;
+    if (remote != null) engineUrl = _remoteUrl = remote;
+    _switchingMobileEngine = true;
+    startingEngine = _usingGo;
+    busy = true;
+    error = null;
+    notifyListeners();
+    final transition = _nativeTransition.then((_) async {
+      if (revision != _switchRevision) return;
+      if (remote != null) {
+        await _stopGo();
+      } else {
+        final port = await _goEngine!.start();
+        _goRunning = true;
+        if (revision == _switchRevision) engineUrl = 'http://127.0.0.1:$port';
+      }
+    });
+    _nativeTransition = transition.catchError((Object _) {});
+    try {
+      await transition;
+      if (revision == _switchRevision) await _connectOnce();
+    } on EngineException catch (failure) {
+      if (revision == _switchRevision) error = failure.message;
+    } finally {
+      if (revision == _switchRevision) {
+        _switchingMobileEngine = false;
+        startingEngine = false;
+        busy = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  void _clearConnection() {
     info = null;
     engineSettings = null;
     summary = null;
     sites = const [];
     subscriptions = const [];
+    loadingConfig = false;
     configError = null;
-    info = await client.info();
+    needsPairing = false;
+    pairingError = null;
+  }
+
+  Future<void> _connectOnce() async {
+    _client?.close();
+    final client = clientFactory(Uri.parse(engineUrl));
+    _client = client;
+    final saved = usingBuiltInGo ? null : _settings.getString(_tokenKey(engineUrl));
+    client.token = saved == null || saved.isEmpty ? null : saved;
+    client.onUnauthorized = (e) => _pairingRequired(client, e);
+    _clearConnection();
+    final connectedInfo = await client.info();
+    if (!identical(client, _client)) return;
+    info = connectedInfo;
     error = null;
     DevLog.instance.info('引擎', '已连接 ${info!.name} ${info!.version}（${info!.platform}，协议 v${info!.protocol}）', detail: {'地址': engineUrl});
-    await _settings.setString(_engineUrlKey, engineUrl);
-    try {
-      engineSettings = await client.settings();
-      if (network.githubPending) {
-        final pending = network.githubSettings;
-        engineSettings = await client.patchSettings({'githubProxy': pending.githubProxy, 'githubProxyPrefix': pending.githubProxyPrefix});
+    if (!usingBuiltInGo) await _settings.setString(_engineUrlKey, engineUrl);
+    if (!identical(client, _client)) return;
+    if (hasBuiltInGo) await _settings.setString(_engineModeKey, usingBuiltInGo ? 'go' : 'remote');
+    if (!identical(client, _client)) return;
+    if (!lightweightEngine) {
+      try {
+        final settings = await client.settings();
+        if (!identical(client, _client)) return;
+        engineSettings = settings;
+        if (network.githubPending) {
+          final pending = network.githubSettings;
+          final updated = await client.patchSettings({'githubProxy': pending.githubProxy, 'githubProxyPrefix': pending.githubProxyPrefix});
+          if (!identical(client, _client)) return;
+          engineSettings = updated;
+        }
+        await network.rememberGithub(engineSettings!);
+      } on EngineException catch (e) {
+        if (!identical(client, _client)) return;
+        if (_refused(e)) return;
+        engineSettings = null;
       }
-      await network.rememberGithub(engineSettings!);
-    } on EngineException catch (e) {
-      if (_refused(e)) return;
-      engineSettings = null;
     }
+    if (!identical(client, _client)) return;
     needsPairing = false;
     await _loadSubscriptions();
-    await _loadConfig();
+    if (identical(client, _client)) await _loadConfig();
   }
 
   // ---- pairing with an engine on another device ----
@@ -313,21 +421,27 @@ class AppState extends ChangeNotifier {
   Future<bool> pair(String code) async {
     final client = _client;
     if (client == null) return false;
+    final revision = _switchRevision;
+    final address = engineUrl;
     busy = true;
     pairingError = null;
     notifyListeners();
     try {
       final token = await client.pair(code.trim(), deviceName());
-      await _settings.setString(_tokenKey(engineUrl), token);
+      if (!identical(client, _client)) return false;
+      await _settings.setString(_tokenKey(address), token);
+      if (!identical(client, _client)) return false;
       needsPairing = false;
       await _connectOnce();
       return connected;
     } on EngineException catch (e) {
-      pairingError = e.message;
+      if (revision == _switchRevision) pairingError = e.message;
       return false;
     } finally {
-      busy = false;
-      notifyListeners();
+      if (revision == _switchRevision) {
+        busy = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -403,7 +517,9 @@ class AppState extends ChangeNotifier {
     final c = _client;
     if (c == null) return;
     try {
-      info = await c.info();
+      final current = await c.info();
+      if (!identical(c, _client)) return;
+      info = current;
       notifyListeners();
     } on EngineException {
       // The next connect shows what is wrong.
@@ -451,18 +567,23 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _loadConfig() async {
+    final asked = client;
     loadingConfig = true;
     configError = null;
     notifyListeners();
     try {
-      summary = await client.config();
+      final config = await asked.config();
+      if (!identical(asked, _client)) return;
+      summary = config;
       await _loadSites();
-      if (summary?.refreshing == true) unawaited(_followRefresh(client));
+      if (identical(asked, _client) && summary?.refreshing == true) unawaited(_followRefresh(asked));
     } on EngineException catch (e) {
-      if (e.code != 'NO_CONFIG') configError = e.message;
+      if (identical(asked, _client) && e.code != 'NO_CONFIG') configError = e.message;
     } finally {
-      loadingConfig = false;
-      notifyListeners();
+      if (identical(asked, _client)) {
+        loadingConfig = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -483,13 +604,15 @@ class AppState extends ChangeNotifier {
   List<Subscription> subscriptions = const [];
 
   Future<void> _loadSubscriptions() async {
+    final asked = client;
     try {
-      final all = await client.subscriptions();
+      final all = await asked.subscriptions();
+      if (!identical(asked, _client)) return;
       // Never loaded (0) go after the rest, in the order they were added.
       final order = {for (var i = 0; i < all.length; i++) all[i].id: i};
       subscriptions = [...all]..sort((a, b) => b.usedAt != a.usedAt ? b.usedAt.compareTo(a.usedAt) : order[a.id]!.compareTo(order[b.id]!));
     } on EngineException {
-      subscriptions = const [];
+      if (identical(asked, _client)) subscriptions = const [];
     }
   }
 
@@ -548,7 +671,10 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _loadSites() async {
-    sites = await client.sites();
+    final asked = client;
+    final current = await asked.sites();
+    if (!identical(asked, _client)) return;
+    sites = current;
     configVersion++;
     final s = summary;
     if (s != null) DevLog.instance.info('订阅', '${s.sites} 个站点 · ${s.parses} 个解析 · ${s.lives} 组直播', detail: {'配置': s.url});

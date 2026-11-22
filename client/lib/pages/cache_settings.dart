@@ -99,7 +99,7 @@ class _CacheSettingsState extends State<CacheSettings> {
   Future<void> _load(AppState state) async {
     CacheInfo? engine;
     try {
-      if (state.connected) engine = await state.client.cacheInfo();
+      if (state.connected && !state.lightweightEngine) engine = await state.client.cacheInfo();
     } on EngineException {
       // An engine without a data cache.
     } on StateError {

@@ -84,7 +84,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
       platform: defaultTargetPlatform.name.toLowerCase(),
     )..onControllersGone = RemoteKeyboard.instance.releaseAll;
     agent.form = _form;
-    agent.bind(engineUrl: app.engineUrl, connected: app.connected, token: app.engineToken);
+    agent.bind(engineUrl: app.engineUrl, connected: app.connected && !app.lightweightEngine, token: app.engineToken);
   }
 
   @override

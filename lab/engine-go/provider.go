@@ -27,31 +27,60 @@ type Site struct {
 	Timeout     int             `json:"timeout,omitempty"`
 }
 
-type Class struct{ ID, Name string }
-type FilterValue struct{ Name, Value string }
-type Filter struct {
-	Key, Name string
-	Default   string `json:"init,omitempty"`
-	Values    []FilterValue
+type Class struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
-type Card struct{ Site, ID, Name, Pic, Remarks, Tag string }
+type FilterValue struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+type Filter struct {
+	Key     string        `json:"key"`
+	Name    string        `json:"name"`
+	Default string        `json:"init,omitempty"`
+	Values  []FilterValue `json:"values"`
+}
+type Card struct {
+	Site    string `json:"site"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Pic     string `json:"pic,omitempty"`
+	Remarks string `json:"remarks,omitempty"`
+	Tag     string `json:"tag,omitempty"`
+}
 type Home struct {
-	Classes []Class
-	Filters map[string][]Filter
-	List    []Card
+	Classes []Class             `json:"classes"`
+	Filters map[string][]Filter `json:"filters,omitempty"`
+	List    []Card              `json:"list"`
 }
 type Page struct {
-	Page, PageCount, Total int
-	List                   []Card
+	Page      int    `json:"page"`
+	PageCount int    `json:"pageCount"`
+	Total     int    `json:"total"`
+	List      []Card `json:"list"`
 }
-type Episode struct{ ID, Name string }
+type Episode struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
 type Line struct {
-	Name     string
-	Episodes []Episode
+	Name     string    `json:"name"`
+	Episodes []Episode `json:"episodes"`
 }
 type Detail struct {
-	Site, ID, Name, Pic, Year, Area, Type, Actor, Director, Content, Remarks string
-	Lines                                                                    []Line
+	Site     string `json:"site"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Pic      string `json:"pic,omitempty"`
+	Year     string `json:"year,omitempty"`
+	Area     string `json:"area,omitempty"`
+	Type     string `json:"type,omitempty"`
+	Actor    string `json:"actor,omitempty"`
+	Director string `json:"director,omitempty"`
+	Content  string `json:"content,omitempty"`
+	Remarks  string `json:"remarks,omitempty"`
+	Lines    []Line `json:"lines"`
 }
 type PlayInfo struct {
 	Kind, URL, Format string

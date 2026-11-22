@@ -23,8 +23,9 @@ class SourcesPage extends StatefulWidget {
 }
 
 class _SourcesPageState extends State<SourcesPage> {
-  late final _engineField = TextEditingController(text: AppScope.read(context).engineUrl);
+  late final _engineField = TextEditingController(text: AppScope.read(context).remoteEngineUrl);
   final _subscriptionField = TextEditingController();
+  bool _editRemote = false;
 
   @override
   void dispose() {
@@ -39,37 +40,58 @@ class _SourcesPageState extends State<SourcesPage> {
     final scheme = Theme.of(context).colorScheme;
     final info = state.info;
     final summary = state.summary;
+    final showAddress = !state.usingBuiltInGo || _editRemote;
 
     final engine = _card(
       context,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          if (state.hasBuiltInGo) ...[
+            SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(value: true, label: Text('本机 Go')),
+                ButtonSegment(value: false, label: Text('远程引擎')),
+              ],
+              selected: {!showAddress},
+              onSelectionChanged: !state.canChooseEngine ? null : (selected) {
+                setState(() => _editRemote = !selected.single);
+                if (selected.single && !state.usingBuiltInGo) state.useBuiltInGo();
+              },
+            ),
+            const SizedBox(height: 12),
+            if (!showAddress) Text('本机 Go 支持已适配的站点。需要 Java、Python 或 JS 蜘蛛时可连接远程引擎。订阅和观看记录保存在各自的引擎。', style: Theme.of(context).textTheme.bodySmall),
+          ],
+          if (showAddress) Row(
             children: [
               Expanded(
                 child: TextField(
                   controller: _engineField,
                   keyboardType: TextInputType.url,
-                  decoration: const InputDecoration(labelText: '引擎地址'),
-                  onSubmitted: (v) => state.connect(v),
+                  decoration: InputDecoration(labelText: '引擎地址', hintText: state.hasBuiltInGo ? 'http://192.168.1.5:9978' : null),
+                  onSubmitted: state.canChooseEngine ? (v) => state.connect(v) : null,
                 ),
               ),
               const SizedBox(width: 12),
-              FilledButton.tonal(onPressed: state.busy ? null : () => state.connect(_engineField.text), child: const Text('连接')),
+              FilledButton.tonal(onPressed: state.canChooseEngine ? () => state.connect(_engineField.text) : null, child: const Text('连接')),
             ],
           ),
           const SizedBox(height: 8),
           Text(
-            info == null ? '未连接' : '已连接：${info.name} ${info.version}（${info.platform}，协议 v${info.protocol}）',
+            state.startingEngine ? '正在启动本机引擎…' : info == null ? '未连接' : '已连接：${info.name} ${info.version}（${info.platform}，协议 v${info.protocol}）',
             key: const Key('engine-status'),
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 4),
-          Text(
+          if (showAddress) Text(
             '引擎在另一台设备上时：在那台设备的「设置 → 局域网」打开「局域网共享」，在「发现局域网里的引擎」里选它，或在这里填它显示的地址，再输入配对码',
             style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
           ),
+          if (state.hasBuiltInGo && !state.connected && state.error != null) ...[
+            Text(state.error!, style: TextStyle(color: scheme.error)),
+            if (state.usingBuiltInGo && !showAddress)
+              TextButton(onPressed: state.busy ? null : state.useBuiltInGo, child: const Text('重试本机引擎')),
+          ],
         ],
       ),
     );
@@ -88,7 +110,7 @@ class _SourcesPageState extends State<SourcesPage> {
                       controller: _subscriptionField,
                       keyboardType: TextInputType.url,
                       enabled: state.connected && !state.busy,
-                      decoration: const InputDecoration(labelText: '订阅地址', hintText: '支持 http(s)、clan://、;pk; 密钥后缀'),
+                      decoration: InputDecoration(labelText: '订阅地址', hintText: state.lightweightEngine ? 'HTTP(S) 单仓订阅地址' : '支持 http(s)、clan://、;pk; 密钥后缀'),
                       onSubmitted: (v) => state.importSubscription(v),
                     ),
                   ),
@@ -102,9 +124,9 @@ class _SourcesPageState extends State<SourcesPage> {
                     PhoneInputButton(
                       key: const Key('subscription-phone-input'),
                       enabled: state.connected && !state.busy,
-                      request: const PhoneInputRequest(
+                      request: PhoneInputRequest(
                         title: '订阅地址',
-                        hint: 'http(s)://…、clan://…，可带 ;pk; 密钥',
+                        hint: state.lightweightEngine ? 'HTTP(S) 单仓订阅地址' : 'http(s)://…、clan://…，可带 ;pk; 密钥',
                         keyboard: PhoneKeyboard.url,
                       ),
                       onReceived: (url) {
@@ -120,13 +142,13 @@ class _SourcesPageState extends State<SourcesPage> {
           ),
         ),
         if (state.busy) const Padding(padding: EdgeInsets.only(top: 12), child: LinearProgressIndicator()),
-        if (state.error != null) ...[
+        if (state.error != null && (!state.hasBuiltInGo || state.connected)) ...[
           Padding(
             padding: const EdgeInsets.only(top: 12),
             child: Text(state.error!, style: TextStyle(color: scheme.error)),
           ),
           // A subscription that does not load is often a network matter: the way there is right here.
-          const _NetworkRoute(failed: true),
+          if (!state.lightweightEngine) const _NetworkRoute(failed: true),
         ],
       ],
     );
@@ -165,7 +187,7 @@ class _SourcesPageState extends State<SourcesPage> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     const ConfigFreshness(),
-                    const _NetworkRoute(),
+                    if (!state.lightweightEngine) const _NetworkRoute(),
                     if (summary.repos.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       DropdownButton<String>(
@@ -261,6 +283,7 @@ class _SiteListState extends State<_SiteList> {
     SiteRuntime.js: 'JS',
     SiteRuntime.jar: 'JAR',
     SiteRuntime.py: 'PY',
+    SiteRuntime.go: 'Go',
     SiteRuntime.remote: '远程',
     SiteRuntime.unknown: '未知',
   };

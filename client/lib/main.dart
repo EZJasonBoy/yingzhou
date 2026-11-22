@@ -7,6 +7,7 @@ import 'app_state.dart';
 import 'desktop/desktop_window.dart';
 import 'diagnostics/diagnostics.dart';
 import 'engine/engine_client.dart';
+import 'engine/go_engine.dart';
 import 'engine/local_engine.dart';
 import 'mobile/playback_host.dart';
 import 'pages/mode_chooser.dart';
@@ -41,7 +42,7 @@ Future<void> _main() async {
       controller: deviceForm,
       child: TvboxApp(
         askUserMode: true,
-        state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings, localEngine: createLocalEngine()),
+        state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings, localEngine: createLocalEngine(), goEngine: createGoEngine()),
       ),
     ),
   );

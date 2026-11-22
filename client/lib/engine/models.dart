@@ -203,7 +203,7 @@ class CacheInfo {
       CacheInfo(bytes: (json['bytes'] as num?)?.toInt() ?? 0, entries: (json['entries'] as num?)?.toInt() ?? 0);
 }
 
-enum SiteRuntime { cms, js, jar, py, remote, unknown }
+enum SiteRuntime { cms, js, jar, py, remote, go, unknown }
 
 class SiteInfo {
   const SiteInfo({
