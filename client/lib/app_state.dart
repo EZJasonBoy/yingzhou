@@ -6,6 +6,7 @@ import 'diagnostics/dev_log.dart';
 import 'engine/discovery.dart';
 import 'engine/engine_client.dart';
 import 'engine/lan.dart';
+import 'engine/line_probe.dart';
 import 'engine/local_engine.dart';
 import 'engine/models.dart';
 import 'network_preferences.dart';
@@ -44,6 +45,9 @@ class AppState extends ChangeNotifier {
 
   /// Light or dark, as chosen in 设置 → 外观.
   late final ThemeChoice themeChoice = ThemeChoice(_settings);
+
+  /// What the line probe (线路体检) found, shared by the detail page, the player and what reports on the player.
+  final lineProbes = LineProbes();
 
   /// Simple, standard or developer, as chosen in 设置 → 外观 (ui/user_mode.dart); pages that ask [AppScope.of]
   /// follow a change.
