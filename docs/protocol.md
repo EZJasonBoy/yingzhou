@@ -485,7 +485,7 @@ Python 站点调用失败时的错误码：`PY_UNAVAILABLE`（没有可用的 Py
 | WS | `/remote/screen` | 屏幕端：先说 `hello`，然后发状态、收命令 |
 | WS | `/remote/control?screen=<id>` | 遥控端：立即收到那块屏幕最近的状态，之后每次变化都收到；发命令 |
 
-网页遥控器在 `/remote/`（不在 `/api/v1` 下）：`index.html`、`remote.css`、`remote.js`、`icon.svg`、`manifest.webmanifest` 五个静态文件，没有依赖也没有构建步骤，**不需要令牌**（它自己经 `POST /pair` 配对，令牌存在手机浏览器的 localStorage 里）。地址后面可以带 `#code=<配对码>`，网页拿它直接配对后从地址里去掉；`#tab=play` 直接打开「播放」页。响应带 `Content-Security-Policy`（只运行自己的脚本）：屏幕报上来的片名、集名来自第三方站点，网页只把它们当文字显示。
+网页遥控器和控制台在 `/remote/`（不在 `/api/v1` 下）：`index.html`、`remote.css`、`remote.js`、`icon.svg`、`manifest.webmanifest` 五个静态文件，加上控制台各页第一次打开时才加载的 `pages/sources.js`、`pages/data.js`、`pages/logs.js`、`pages/settings.js`（固定的清单，`/remote/` 下别的路径都是 404），没有依赖也没有构建步骤，**不需要令牌**（它自己经 `POST /pair` 配对，令牌存在手机浏览器的 localStorage 里）。宽度 900 像素以上是左侧导航（遥控与播放、订阅与站点、数据、日志与崩溃、设置），更窄是底栏（遥控、播放、更多）。地址后面可以带 `#code=<配对码>`，网页拿它直接配对后从地址里去掉；`#page=<页>` 打开某一页（`remote`、`playing`、`sources`、`data`、`logs`、`settings`，手机上还有 `more`），可以和 `#code=` 一起用（`#page=logs&code=123456`）；`#tab=play` 和 `#page=playing` 一样。响应带 `Content-Security-Policy`（只运行自己的脚本）：屏幕报上来的片名、集名来自第三方站点，网页只把它们当文字显示。
 
 **谁能被遥控**：屏幕都是自己连上来的。客户端里的「允许手机遥控」默认关闭，关着的时候它根本不连 `/remote/screen`，不在列表里，也就没有任何办法遥控它；打开后登记，关掉即断开。能遥控的是能通过引擎鉴权的调用方：本机，或局域网共享开着时配对过的设备。配对过的设备可以遥控登记在这台引擎上的任何屏幕（它本来也能用这台引擎的全部接口）。
 

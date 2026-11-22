@@ -4,6 +4,7 @@ import io.ktor.http.CacheControl
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.install
 import io.ktor.server.application.pluginOrNull
 import io.ktor.server.response.cacheControl
@@ -90,20 +91,24 @@ private fun Route.remoteRoutes(hub: RemoteHub, access: AccessControl) {
     }
 
     get("/remote") { call.respondRedirect("/remote/", permanent = false) }
-    get("/remote/{file?}") {
-        val name = call.parameters["file"].orEmpty().ifEmpty { "index.html" }
-        val file = RemotePage.file(name)
-        if (file == null) {
-            call.respond(HttpStatusCode.NotFound, ErrorBody(ApiError("NOT_FOUND", "没有这个文件")))
-            return@get
-        }
-        // The page shows names that come from third-party sites; nothing but its own script may run in it.
-        call.response.header("Content-Security-Policy", RemotePage.CSP)
-        call.response.header("X-Content-Type-Options", "nosniff")
-        call.response.header("Referrer-Policy", "no-referrer")
-        call.response.cacheControl(CacheControl.NoCache(null))
-        call.respondBytes(file.bytes, file.type)
+    get("/remote/{file?}") { call.respondRemoteFile(call.parameters["file"].orEmpty().ifEmpty { "index.html" }) }
+    // The console's pages (订阅与站点, 数据, 日志与崩溃, 设置), each loaded when it is first opened.
+    get("/remote/pages/{file}") { call.respondRemoteFile("pages/" + call.parameters["file"].orEmpty()) }
+}
+
+/** One of the web remote's files by its name in [RemotePage]'s list; anything else is 404. */
+private suspend fun ApplicationCall.respondRemoteFile(name: String) {
+    val file = RemotePage.file(name)
+    if (file == null) {
+        respond(HttpStatusCode.NotFound, ErrorBody(ApiError("NOT_FOUND", "没有这个文件")))
+        return
     }
+    // The page shows names that come from third-party sites; nothing but its own script may run in it.
+    response.header("Content-Security-Policy", RemotePage.CSP)
+    response.header("X-Content-Type-Options", "nosniff")
+    response.header("Referrer-Policy", "no-referrer")
+    response.cacheControl(CacheControl.NoCache(null))
+    respondBytes(file.bytes, file.type)
 }
 
 /** What a connection turned into once the hub took it: where its messages go, and what to do when it ends. */
@@ -187,20 +192,28 @@ private class SocketPeer : RemoteHub.Peer {
 private fun AccessControl.stillAllowed(subject: String): Boolean =
     subject == AccessControl.LOCAL || (sharing && devices().any { it.id == subject })
 
-/** The web remote's files, read once from the engine's resources (`resources/remote/`): a fixed list, no paths. */
+/**
+ * The web remote's files, read once from the engine's resources (`resources/remote/`): a fixed list, no paths. The
+ * console's pages sit in `pages/` and are named here with that prefix; nothing else under it is served.
+ */
 internal object RemotePage {
     class File(val bytes: ByteArray, val type: ContentType)
 
     const val CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ws: wss:; " +
         "manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
+    private val script = ContentType("text", "javascript").withParameter("charset", "utf-8")
+
+    /** The modules `remote.js` loads for the console's pages (`import('./pages/<name>.js')`). */
+    val pages = listOf("sources", "data", "logs", "settings")
+
     private val types = mapOf(
         "index.html" to ContentType.Text.Html.withParameter("charset", "utf-8"),
         "remote.css" to ContentType.Text.CSS.withParameter("charset", "utf-8"),
-        "remote.js" to ContentType("text", "javascript").withParameter("charset", "utf-8"),
+        "remote.js" to script,
         "icon.svg" to ContentType.Image.SVG,
         "manifest.webmanifest" to ContentType("application", "manifest+json"),
-    )
+    ) + pages.associate { "pages/$it.js" to script }
     private val cache = ConcurrentHashMap<String, File>()
 
     /** Development: `-Dtvbox.remote.dir=<folder>` serves the files from there, read again each time. */
