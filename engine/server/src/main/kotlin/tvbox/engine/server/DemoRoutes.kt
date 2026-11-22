@@ -24,7 +24,8 @@ import javax.imageio.ImageIO
 /**
  * A fake MacCMS JSON site for development (`--demo`): categories, paging, search, details, generated posters,
  * one directly playable line and one line that goes through a JSON parser (and, on one title, a dead line in front
- * of them). Nothing here touches third-party sites except the public HLS test stream used as the video.
+ * of them and a throttled one after them). Nothing here touches third-party sites except the public HLS test stream
+ * used as the video.
  *
  * Two sites come last, for switching sources: 演示豆瓣 (a recommendation site, see [DemoDouban]) and 演示失效站, the
  * same titles as 演示站 with every line dead (`/demo/dead/…`).
@@ -253,14 +254,18 @@ class DemoSite {
                 return@buildJsonObject
             }
             val eps = (1..item.episodes).map { if (item.episodes == 1) "正片" else "第${it}集" }
-            // One title has a dead line in front of the two that play, for the player's change of line.
+            // One title has a dead line in front of the two that play, for the player's change of line, and a
+            // throttled one after them (DemoThrottled.kt): the line probe finds it slow. Like the slow source, it is
+            // named by localhost, so the engine treats it as any site's line.
             val dead = item.id == DEAD_LINE_ITEM
-            put("vod_play_from", (if (dead) "失效线路$LINE_SEP" else "") + "演示直链" + LINE_SEP + "需解析线路")
+            val throttled = base.replace("//127.0.0.1", "//localhost") + "/demo/throttled/master.m3u8"
+            put("vod_play_from", (if (dead) "失效线路$LINE_SEP" else "") + "演示直链" + LINE_SEP + "需解析线路" + (if (dead) "${LINE_SEP}限速线路" else ""))
             put(
                 "vod_play_url",
                 (if (dead) eps.mapIndexed { i, n -> "$n\$http://127.0.0.1:1/dead/${item.id}/${i + 1}.m3u8" }.joinToString("#") + LINE_SEP else "") +
                     eps.joinToString("#") { "$it\$$TEST_STREAM" } + LINE_SEP +
-                    eps.mapIndexed { i, n -> "$n\$$base/demo/page/${item.id}/${i + 1}" }.joinToString("#"),
+                    eps.mapIndexed { i, n -> "$n\$$base/demo/page/${item.id}/${i + 1}" }.joinToString("#") +
+                    (if (dead) LINE_SEP + eps.joinToString("#") { "$it\$$throttled" } else ""),
             )
         }
     }
@@ -337,8 +342,11 @@ class DemoSite {
          */
         val SELF_CHECK_SKIP = mapOf(DEAD_SITE to "线路全部失效是故意的（留给播放器测自动换源），自检不查")
 
-        /** 《白昼迷踪 第二季》, second on the home page: its first line, 失效线路, points at a port nothing listens on. */
-        private const val DEAD_LINE_ITEM = 95
+        /**
+         * 《白昼迷踪 第二季》, second on the home page: its first line, 失效线路, points at a port nothing listens on; its
+         * last, 限速线路, is the throttled line.
+         */
+        const val DEAD_LINE_ITEM = 95
 
         /** 《慢速源演示》, last on the home page: its episodes are the playlists of the slow source. */
         private const val SLOW_ITEM = 97
@@ -391,6 +399,7 @@ fun Route.demoRoutes(site: DemoSite) {
         "http://" + (request.headers[io.ktor.http.HttpHeaders.Host] ?: "127.0.0.1")
 
     demoSlowRoutes(site.slow)
+    demoThrottledRoutes(site.slow)
     demoMediaRoutes()
     demoDownloadRoutes(site.slow)
     get("/demo/config.json") { call.respondText(site.configJson(call.base()), ContentType.Application.Json) }
