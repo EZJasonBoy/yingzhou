@@ -41,6 +41,14 @@ Map<String, Object> fakeLine(String name, String tag, {int count = 3}) => {
 ///
 /// [categories] are `cms`'s category cards by `tid` (folders open the category whose id is theirs); each category
 /// request is noted in [categoryAsked] by its `tid`.
+///
+/// The line probe (`POST /api/v1/play/probe`, SSE): without [probe] the engine is one from before it (404). With
+/// it, each line asked about is answered from [probe] by the line's name (the fields of a `line` event besides
+/// `index` and `line`, e.g. `{'state': 'ok', 'width': 1920, 'height': 1080, 'bytesPerSecond': 3355443}`), in the
+/// order of [probe]'s entries (the order they "finish"); lines it does not name come last, as `skipped`. Then
+/// `end`; comment lines (`: keep-alive`) come between, as the engine sends them while it waits. Each request's body
+/// is noted in [probeAsked]. With [probeGate] the answer waits until it completes, so a
+/// test can look at the lines while they are being measured.
 MockClient fakeEngine({
   bool hasConfig = false,
   List<Map<String, Object>> history = const [],
@@ -72,6 +80,9 @@ MockClient fakeEngine({
   Map<String, List<Map<String, Object>>> homeByConfig = const {},
   Map<String, List<Map<String, Object>>> categories = const {},
   List<String>? categoryAsked,
+  Map<String, Map<String, Object>>? probe,
+  List<Map<String, dynamic>>? probeAsked,
+  Future<void>? probeGate,
 }) {
   var configured = hasConfig;
   // With [savedSubscriptions] the engine keeps a list like the real one: `GET`, rename (`PUT`), `DELETE`, and
@@ -316,6 +327,25 @@ MockClient fakeEngine({
           'cache': streamCache == null ? '' : 'k1',
           'subtitles': subtitles[body['episodeId']] ?? subtitles['*'] ?? const <Object>[],
         });
+      case ('POST', '/api/v1/play/probe') when probe != null:
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        probeAsked?.add(body);
+        if (probeGate != null) await probeGate;
+        final asked = [for (final l in body['lines'] as List<dynamic>) (l as Map<String, dynamic>)['line'] as String];
+        final order = [
+          for (final name in probe.keys)
+            if (asked.contains(name)) name,
+          for (final name in asked)
+            if (!probe.containsKey(name)) name,
+        ];
+        // Like the engine, comment lines keep the connection alive while lines are measured.
+        final sse = StringBuffer(': keep-alive\n\n');
+        for (final name in order) {
+          final event = {'index': asked.indexOf(name), 'line': name, ...probe[name] ?? const {'state': 'skipped'}};
+          sse.write('event: line\ndata: ${jsonEncode(event)}\n\n: keep-alive\n\n');
+        }
+        sse.write('event: end\ndata: {}\n\n');
+        return http.Response.bytes(utf8.encode(sse.toString()), 200, headers: {'content-type': 'text/event-stream'});
       case ('GET', '/api/v1/danmaku'):
         danmakuAsked?.add(request.url);
         final items = danmaku[request.url.queryParameters['episodeId']] ?? danmaku['*'];

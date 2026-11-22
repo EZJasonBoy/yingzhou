@@ -7,14 +7,17 @@ import '../app_state.dart';
 import '../engine/downloads.dart';
 import '../engine/episode_names.dart';
 import '../engine/library_models.dart';
+import '../engine/line_probe.dart';
 import '../engine/source_finder.dart';
 import '../engine/vod_models.dart';
 import '../ui/common.dart';
 import '../ui/device_form.dart';
 import '../ui/episode_buttons.dart';
+import '../ui/line_probe_view.dart';
 import '../ui/tv/tv_focus.dart';
 import 'browse_page.dart' show FolderPage, errorText;
 import 'download_sheet.dart';
+import 'line_probe_settings.dart';
 import 'player_page.dart';
 
 void openDetail(BuildContext context, VodCard vod) {
@@ -77,9 +80,24 @@ class _DetailPageState extends State<DetailPage> {
   /// The engine's downloads, for marking the episodes that are downloaded or under way.
   late final DownloadsWatcher _downloads = DownloadsWatcher(AppScope.read(context).client)..addListener(_downloadsChanged);
 
+  /// The line probe (线路体检): what it finds is shared with the player through [LineProbes]. [_probing] is the
+  /// probe this page started, stopped if the page closes before it is done; [_probedKey] the episode it was asked
+  /// for on its own (「打开详情时先测线路」).
+  late final LineProbes _probes;
+  LineProbeRun? _probing;
+  String? _probedKey;
+
+  /// The history of what is on screen has been asked for (answered or not): the probe waits for it, since it says
+  /// which episode 播放 will play.
+  bool _libraryDone = false;
+
+  /// The user picked a line on this page: 播放 uses it, whatever the probe says.
+  bool _lineChosen = false;
+
   @override
   void initState() {
     super.initState();
+    _probes = AppScope.read(context).lineProbes..addListener(_probesChanged);
     _start();
     _loadLibrary();
     _downloads.start();
@@ -90,7 +108,14 @@ class _DetailPageState extends State<DetailPage> {
     _gen++;
     _finder?.dispose();
     _downloads.dispose();
+    _probes
+      ..removeListener(_probesChanged)
+      ..release(_probing);
     super.dispose();
+  }
+
+  void _probesChanged() {
+    if (mounted) setState(() {});
   }
 
   void _downloadsChanged() {
@@ -212,6 +237,9 @@ class _DetailPageState extends State<DetailPage> {
     _lineFromHistory = false;
     _history = null;
     _favorite = false;
+    _libraryDone = false;
+    _probedKey = null;
+    _lineChosen = false;
   }
 
   /// The user picked [card] in 换一个: it is loaded as it is, and stays even without lines.
@@ -223,6 +251,9 @@ class _DetailPageState extends State<DetailPage> {
       _d = null;
       _line = 0;
       _lineFromHistory = false;
+      _lineChosen = false;
+      _libraryDone = false;
+      _probedKey = null;
       _history = null;
       _favorite = false;
       _loading = true;
@@ -256,9 +287,11 @@ class _DetailPageState extends State<DetailPage> {
       setState(() {
         _history = results[0] as HistoryEntry?;
         _favorite = results[1] as bool;
+        _libraryDone = true;
       });
     } catch (_) {
       // Library is a nice-to-have on this page; browsing still works without it.
+      if (mounted && site == _shown.site && id == _shown.id) setState(() => _libraryDone = true);
     }
   }
 
@@ -278,6 +311,10 @@ class _DetailPageState extends State<DetailPage> {
   }
 
   Future<void> _play(VodDetail detail, int line, int episode, {Duration? start}) async {
+    // The line the probe found best, unless the user picked one here; then the probe of the episode played, if it
+    // was not probed yet (「打开详情时先测线路」 off): the player takes its answers as they come.
+    if (!_lineChosen) (line, episode) = _bestLine(detail, line, episode);
+    _probeLines(detail, line, episode);
     // When every line fails, the player may look for the title on other sites (not for drives, and not for a source
     // the user chose or a site that is not `changeable`).
     final sources = detail.site.startsWith('drive:')
@@ -312,6 +349,49 @@ class _DetailPageState extends State<DetailPage> {
       );
     }
     if (picked != null && mounted && !(picked.site == _shown.site && picked.id == _shown.id)) _pick(picked);
+  }
+
+  /// The probe of [line] / [episode] on every line of [d] that has it, unless there is a fresh one ([again] asks
+  /// anew). A probe this page had under way for another episode stops.
+  LineProbeRun? _probeLines(VodDetail d, int line, int episode, {bool again = false}) {
+    final state = AppScope.read(context);
+    if (!state.connected) return null;
+    final run = _probes.probe(state.client, d, line: line, episode: episode, direct: state.fetchDirect, again: again);
+    if (run != null && run.running && !identical(run, _probing)) {
+      _probes.release(_probing);
+      _probing = run;
+    }
+    return run;
+  }
+
+  /// The probe of what 播放 would play; null before there is one.
+  LineProbeRun? _shownProbe(VodDetail d) {
+    final state = AppScope.read(context);
+    final target = _playTarget(d);
+    return target == null || !state.connected ? null : _probes.find(state.client, d, target.$1, target.$2);
+  }
+
+  /// The episode 播放 would play: where the history says, else the first one of the line on screen.
+  (int, int)? _playTarget(VodDetail d) {
+    final resume = _resumePoint(d);
+    if (resume != null) return (resume.$1, resume.$2);
+    if (d.lines.isEmpty) return null;
+    final line = _line.clamp(0, d.lines.length - 1);
+    return d.lines[line].episodes.isEmpty ? null : (line, 0);
+  }
+
+  /// [episode] of [line], or the same episode on the line the probe found best ([choosePlayLine]): the one watched
+  /// last time if it plays, else the best picture a line is fast enough for. Unchanged while there is no answer.
+  (int, int) _bestLine(VodDetail d, int line, int episode) {
+    final state = AppScope.read(context);
+    final run = state.connected ? _probes.find(state.client, d, line, episode) : null;
+    if (run == null) return (line, episode);
+    final h = _history;
+    final last = h == null ? -1 : d.lines.indexWhere((l) => l.name == h.line);
+    final pick = choosePlayLine(run.results, lastWatched: last < 0 ? null : last, fallback: line, candidates: run.asked);
+    if (pick == line) return (line, episode);
+    final at = d.lines[pick].findEpisode(index: episode, name: d.lines[line].episodes[episode].name);
+    return at == null ? (line, episode) : (pick, at);
   }
 
   /// Where the history says we were: (line, episode, position), matched by line name and episode id.
@@ -499,6 +579,20 @@ class _DetailPageState extends State<DetailPage> {
       _lineFromHistory = true;
       _line = resume.$1;
     }
+    // The probe of the episode 播放 would play, once the history has said which it is (on a phone only when the
+    // user wants it: there it waits for 播放).
+    final target = _libraryDone ? _playTarget(d) : null;
+    if (target != null && LineProbeSettings.onDetail(context)) {
+      final key = LineProbes.episodeKey(d, target.$1, target.$2);
+      if (key != _probedKey) {
+        _probedKey = key;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && identical(_d, d)) _probeLines(d, target.$1, target.$2);
+        });
+      }
+    }
+    final probe = _shownProbe(d);
+    final wording = probeWording(mode.mode);
     final line = d.lines.isEmpty ? null : d.lines[_line.clamp(0, d.lines.length - 1)];
     // Some episode of this line is downloaded or under way: every episode button keeps room for its mark.
     final marked = line != null && line.episodes.any((e) => _downloads.find(d.site, line.name, e.id) != null);
@@ -612,14 +706,19 @@ class _DetailPageState extends State<DetailPage> {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   for (var i = 0; i < d.lines.length; i++)
                     ChoiceChip(
                       key: Key('detail-line-$i'),
-                      label: Text(_lineChip(d.lines, i, simple)),
+                      label: _lineLabel(d.lines, i, simple, probe?.of(i), wording),
                       selected: i == _line,
-                      onSelected: (_) => setState(() => _line = i),
+                      onSelected: (_) => setState(() {
+                        _line = i;
+                        _lineChosen = true;
+                      }),
                     ),
+                  ?_probeAction(d, probe),
                 ],
               ),
               const SizedBox(height: 22),
@@ -707,6 +806,34 @@ class _DetailPageState extends State<DetailPage> {
     final width = MediaQuery.sizeOf(context).width - padding.left - padding.right - 48;
     final columns = ((width + 8) / 92).floor().clamp(3, 8);
     return (width - 8 * (columns - 1)) / columns - 0.5;
+  }
+
+  /// A line's chip: its name ([_lineChip]) and what the probe says of it (the wave while it is measured).
+  static Widget _lineLabel(List<PlayLine> lines, int i, bool simple, LineProbe? probe, ProbeWording wording) {
+    final name = Text(_lineChip(lines, i, simple));
+    if (!LineProbeBadge.shows(probe, wording)) return name;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [name, const SizedBox(width: 8), LineProbeBadge(key: Key('detail-line-probe-$i'), probe: probe!, wording: wording)],
+    );
+  }
+
+  /// After the lines: 「重新测一遍」 once they were probed, 「测一遍线路」 where the probe waits for 播放 (phones);
+  /// nothing with an engine from before the probe, or when only one line has the episode.
+  Widget? _probeAction(VodDetail d, LineProbeRun? run) {
+    final target = _playTarget(d);
+    if (target == null || d.site.startsWith('drive:') || LineProbes.linesWith(d, target.$1, target.$2).length < 2) return null;
+    // Probing by itself: no button until the history has said what to probe (a probe that has gone stale since
+    // can be asked for again).
+    if (run == null && LineProbeSettings.onDetail(context) && _probedKey == null) return null;
+    if (run != null && run.unsupported) return null;
+    final running = run?.running ?? false;
+    return TextButton.icon(
+      key: const Key('detail-probe-again'),
+      onPressed: running ? null : () => _probeLines(d, target.$1, target.$2, again: true),
+      icon: const Icon(Icons.refresh_rounded, size: 18),
+      label: Text(running ? '正在测…' : (run == null ? '测一遍线路' : '重新测一遍')),
+    );
   }
 
   /// A line on its chip: the site's name and how many episodes it has; in simple mode its number, and the episodes

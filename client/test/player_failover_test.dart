@@ -238,7 +238,8 @@ void main() {
 
     await pass(tester, const Duration(seconds: 2));
     expect(resolved, ['线路一', '线路二']);
-    expect(find.text('「线路一」无法播放，已切到「线路二」'), findsOneWidget);
+    // 线路二 shows nothing either: in place of the spinner and the notice, the 正在换线路 card says what happened.
+    expect(find.text('「线路一」无法播放。正在试「线路二」。'), findsOneWidget);
 
     await pass(tester, const Duration(seconds: 13));
     expect(resolved, ['线路一', '线路二'], reason: 'still within its 15 seconds');

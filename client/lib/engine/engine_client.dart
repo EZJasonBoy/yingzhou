@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
 import 'library_models.dart';
+import 'line_probe.dart';
 import 'live_models.dart';
 import 'models.dart';
 import 'network_models.dart';
@@ -172,6 +174,65 @@ class EngineClient {
   /// Aggregated search over every searchable site, streamed as each site answers (SSE).
   Stream<SearchEvent> searchAll(String keyword, {Set<String>? sites}) async* {
     final request = http.Request('GET', _uri('search/stream', {'wd': keyword, if (sites != null && sites.isNotEmpty) 'sites': sites.join(',')}));
+    await for (final (event, json) in _events(request)) {
+      switch (event) {
+        case 'site':
+          yield SearchSiteStatus.fromJson(json);
+        case 'results':
+          yield SearchResults.fromJson(json);
+        case 'end':
+          yield SearchEnd.fromJson(json);
+      }
+    }
+  }
+
+  /// The line probe (线路体检): each of [lines] (a line of [site] and that line's id of the episode) resolved and
+  /// measured by the engine, streamed in the order they finish; the stream ends with the engine's `end`. Each
+  /// answer's [LineProbe.index] is its line's place in [lines]. Cancelling the subscription closes the connection,
+  /// and the engine stops measuring what is left. [direct] as in [resolvePlay].
+  Stream<LineProbe> probeLines(String site, List<({String line, String episodeId})> lines, {bool direct = false}) {
+    final request = http.Request('POST', _uri('play/probe'))
+      ..headers['Content-Type'] = 'application/json'
+      ..body = jsonEncode({
+        'site': site,
+        'lines': [for (final l in lines) {'line': l.line, 'episodeId': l.episodeId}],
+        'direct': direct,
+      });
+    // Done at `end`, without waiting for the connection to wind down: an `await for` left early, or a cancel future
+    // handed back to the controller, would hold the done event until the reader has stopped.
+    StreamSubscription<(String, Map<String, dynamic>)>? sub;
+    late final StreamController<LineProbe> out;
+    void finish() {
+      if (!out.isClosed) unawaited(out.close());
+    }
+
+    out = StreamController<LineProbe>(
+      onListen: () {
+        sub = _events(request).listen(
+          (e) {
+            if (e.$1 == 'line') out.add(LineProbe.fromJson(e.$2));
+            if (e.$1 == 'end') {
+              unawaited(sub?.cancel());
+              finish();
+            }
+          },
+          onError: (Object error, StackTrace stack) {
+            if (!out.isClosed) out.addError(error, stack);
+            finish();
+          },
+          onDone: finish,
+          cancelOnError: true,
+        );
+      },
+      onCancel: () {
+        unawaited(sub?.cancel());
+      },
+    );
+    return out.stream;
+  }
+
+  /// Sends [request] and reads its answer as server-sent events: each event's name and its JSON data.
+  Stream<(String, Map<String, dynamic>)> _events(http.Request request) async* {
     request.headers['Accept'] = 'text/event-stream';
     _auth(request);
 
@@ -189,17 +250,7 @@ class EngineClient {
     final data = StringBuffer();
     await for (final line in response.stream.transform(utf8.decoder).transform(const LineSplitter())) {
       if (line.isEmpty) {
-        if (event != null && data.isNotEmpty) {
-          final json = jsonDecode(data.toString()) as Map<String, dynamic>;
-          switch (event) {
-            case 'site':
-              yield SearchSiteStatus.fromJson(json);
-            case 'results':
-              yield SearchResults.fromJson(json);
-            case 'end':
-              yield SearchEnd.fromJson(json);
-          }
-        }
+        if (event != null && data.isNotEmpty) yield (event, jsonDecode(data.toString()) as Map<String, dynamic>);
         event = null;
         data.clear();
       } else if (line.startsWith('event:')) {

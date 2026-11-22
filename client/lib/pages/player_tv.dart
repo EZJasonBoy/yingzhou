@@ -383,10 +383,12 @@ extension _PlayerTv on _PlayerPageState {
 
   String get _tvTitle => '${_detail.name} · ${_currentEpisode.name}';
 
-  /// 1080p, 4K … from the picture's size; empty until there is a picture.
+  /// 1080p, 4K … from the picture's size; until the player knows it, what the line probe measured of this line;
+  /// empty when neither knows.
   String get _tvQuality {
     final w = _player.state.width, h = _player.state.height;
-    return w != null && h != null && w > 0 && h > 0 ? PlayInfoPanel.quality(w, h) : '';
+    if (w != null && h != null && w > 0 && h > 0) return PlayInfoPanel.quality(w, h);
+    return _probeOf(_line)?.quality ?? '';
   }
 
   /// Under the title of the info bar: 线路 2 · 1080p · 中文字幕 · 弹幕开.
@@ -448,7 +450,13 @@ extension _PlayerTv on _PlayerPageState {
 
   /// What the 线路 panel says of a line that is not playing. For now what this round of lines found out (a line that
   /// failed for this episode); the line check (docs/design/line-probe.md) puts what it measured here.
-  String? _tvLineStatus(int line) => _failedLines.contains(line) ? '刚才打不开' : null;
+  /// What the 线路 panel says beside a line: what the line probe found (快 / 慢 / 打不开 in simple mode, the picture and
+  /// the speed otherwise), or that it failed in this round when the probe has nothing to say about it.
+  String? _tvLineStatus(int line) {
+    final words = _probeOf(line)?.text(probeWording(_userMode.mode)) ?? '';
+    if (words.isNotEmpty && !(_failedLines.contains(line) && _probeOf(line)!.state.alive)) return words;
+    return _failedLines.contains(line) ? '刚才打不开' : null;
+  }
 
   List<TvHint> _tvHints(_PlayerPanel? panel) {
     const back = (['←', '返回'], '回到拨盘');

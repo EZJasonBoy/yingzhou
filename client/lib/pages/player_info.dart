@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'package:material_ui/material_ui.dart';
 import 'package:media_kit/media_kit.dart';
 
+import '../engine/line_probe.dart';
+import '../ui/line_probe_view.dart';
 import '../ui/yz_tokens.dart';
 import 'player_dev.dart';
 
@@ -50,6 +52,8 @@ class PlayInfoPanel extends StatefulWidget {
     required this.lineCount,
     required this.how,
     this.switched = const [],
+    this.probes = const [],
+    this.wording = ProbeWording.standard,
     this.showTitle = true,
     this.onLines,
     this.onStats,
@@ -72,6 +76,11 @@ class PlayInfoPanel extends StatefulWidget {
   /// The lines given up on for this episode, each with why.
   final List<String> switched;
 
+  /// What the line probe (线路体检) found for this episode, a row per line; the section is left out when no line
+  /// was probed. Worded per [wording] (the developer mode adds the milliseconds).
+  final List<PlayInfoLine> probes;
+  final ProbeWording wording;
+
   /// False where the panel sits under a title of its own (upright on a phone).
   final bool showTitle;
 
@@ -84,20 +93,13 @@ class PlayInfoPanel extends StatefulWidget {
   final VoidCallback? onChain;
 
   /// 1080p, 4K …: by the width, so a film cropped to 1920×800 still counts as 1080p.
-  static String quality(int width, int height) {
-    if (width >= 3840 || height >= 2160) return '4K';
-    if (width >= 2560 || height >= 1440) return '2K';
-    if (width >= 1920 || height >= 1080) return '1080p';
-    if (width >= 1280 || height >= 720) return '720p';
-    return '${height}p';
-  }
+  static String quality(int width, int height) => videoQuality(width, height);
 
   /// How many dropped frames it takes before 播放信息 mentions them.
   static const droppedWorthSaying = 30;
 
   /// 3.2 MB/s, 640 KB/s.
-  static String speed(double bytesPerSecond) =>
-      bytesPerSecond >= 1048576 ? '${(bytesPerSecond / 1048576).toStringAsFixed(1)} MB/s' : '${(bytesPerSecond / 1024).round()} KB/s';
+  static String speed(double bytesPerSecond) => speedLabel(bytesPerSecond);
 
   @override
   State<PlayInfoPanel> createState() => _PlayInfoPanelState();
@@ -226,6 +228,11 @@ class _PlayInfoPanelState extends State<PlayInfoPanel> {
               ),
             ),
         ],
+        if (widget.probes.any((l) => l.probe != null)) ...[
+          const SizedBox(height: 14),
+          Text('各条线路刚测过的结果', style: label),
+          for (final (i, l) in widget.probes.indexed) _probeRow(i, l, tokens, scheme),
+        ],
         const SizedBox(height: 14),
         Text(
           widget.lineCount > 1 ? '总是卡的时候先看缓冲：一直很少，就换一条线路；每条线路都这样，多半是这个站点慢或者网络慢。' : '总是卡的时候先看缓冲：一直很少，多半是这个站点慢或者网络慢。',
@@ -252,4 +259,41 @@ class _PlayInfoPanelState extends State<PlayInfoPanel> {
       ],
     );
   }
+
+  /// A line of the probe section: a mark for its state, its name, and what the probe found.
+  Widget _probeRow(int i, PlayInfoLine l, YzTokens tokens, ColorScheme scheme) {
+    final probe = l.probe;
+    final mark = switch (probe?.state) {
+      LineProbeState.ok || LineProbeState.slow => Icon(Icons.check_rounded, size: 16, color: tokens.success),
+      LineProbeState.dead => Icon(Icons.close_rounded, size: 16, color: tokens.danger),
+      LineProbeState.testing => const ProbeWave(width: 16, height: 6),
+      _ => const SizedBox(width: 16),
+    };
+    return Padding(
+      key: Key('play-info-probe-$i'),
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        children: [
+          SizedBox(width: 18, child: Center(child: mark)),
+          const SizedBox(width: 8),
+          Text(l.playing ? '${l.name} · 正在播' : l.name, style: TextStyle(fontSize: 13, fontWeight: l.playing ? FontWeight.w700 : null)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: probe == null || !LineProbeBadge.shows(probe, widget.wording)
+                  ? Text('没测', style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant))
+                  : probe.state == LineProbeState.testing
+                  ? Text('测速中', style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant))
+                  : LineProbeBadge(probe: probe, wording: widget.wording),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
+
+/// A line in 播放信息's probe section: as the screen names it, what the probe found (null: not probed), and
+/// whether it is the one playing.
+typedef PlayInfoLine = ({String name, LineProbe? probe, bool playing});

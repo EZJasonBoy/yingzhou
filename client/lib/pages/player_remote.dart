@@ -95,6 +95,15 @@ extension _PlayerRemoteGlue on _PlayerPageState {
       'canFullscreen': _window.supported && !_window.pinnedFullScreen,
       // As the screen names them (simple mode numbers its lines).
       'lines': [for (var i = 0; i < lines.length; i++) _lineName(i)],
+      // What the line probe found, aligned with `lines`, once there is a probe for this episode.
+      if (lines.length > 1 && _probeRun != null)
+        'lineStates': [
+          for (var i = 0; i < lines.length; i++)
+            if (_probeOf(i) case final probe?)
+              {'state': probe.state == LineProbeState.testing ? 'probing' : probe.state.name, 'label': probe.label(probeWording(_userMode.mode))}
+            else
+              {'state': '', 'label': ''},
+        ],
       'line': _line,
       'episodes': [for (final e in _currentLine.episodes) e.name],
       'episode': _episode,

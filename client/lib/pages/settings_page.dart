@@ -11,6 +11,7 @@ import 'download_settings.dart';
 import 'github_proxy_settings.dart';
 import 'http_proxy_settings.dart';
 import 'lan_section.dart';
+import 'line_probe_settings.dart';
 import 'network_settings.dart';
 import 'osd_clock_settings.dart';
 import 'python_settings.dart';
@@ -97,7 +98,7 @@ class SettingsPage extends StatelessWidget {
             ],
           ),
         const PageSection(id: 'look', title: '外观', icon: Icons.palette_outlined, children: [UserModeSettings(), StartPageSettings(), UiModeSettings(), ThemeModeSettings()]),
-        const PageSection(id: 'play', title: '播放', icon: Icons.play_circle_outline_rounded, gap: 0, children: [StreamCacheSettings(), DanmakuServiceSettings(), OsdClockSettings()]),
+        const PageSection(id: 'play', title: '播放', icon: Icons.play_circle_outline_rounded, gap: 0, children: [LineProbeSettings(), StreamCacheSettings(), DanmakuServiceSettings(), OsdClockSettings()]),
         // Always there: the GitHub mirror and the proxy for updates are this device's own and work without an engine.
         // One card per kind of route, so on a wide window they stand side by side.
         PageSection(
