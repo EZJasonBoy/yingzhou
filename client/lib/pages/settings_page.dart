@@ -107,7 +107,8 @@ class SettingsPage extends StatelessWidget {
           children: [
             _card(context, title: 'GitHub 镜像', children: const [GithubProxySettings()]),
             _card(context, title: 'HTTP 代理', children: const [HttpProxySettings()]),
-            if (state.engineSettings != null) _card(context, title: '安全 DNS 与订阅的网络规则', children: const [NetworkSettings()]),
+            // Its own card, shown once the engine has said which DNS servers it offers.
+            const NetworkSettings(card: true),
           ],
         ),
         const PageSection(

@@ -7,7 +7,11 @@ import '../engine/network_models.dart';
 /// 设置 → 网络: which DNS-over-HTTPS server the engine asks (off unless the user picks one), and what the active
 /// subscription brings along: `hosts` redirects, per-host `headers`, `ads` hosts.
 class NetworkSettings extends StatefulWidget {
-  const NetworkSettings({super.key});
+  const NetworkSettings({super.key, this.card = false});
+
+  /// A card of its own with a title (设置's 网络 group), shown only once the engine has said what it has; without, a
+  /// part of another card under a divider.
+  final bool card;
 
   @override
   State<NetworkSettings> createState() => _NetworkSettingsState();
@@ -64,10 +68,10 @@ class _NetworkSettingsState extends State<NetworkSettings> {
       if (info.ads.isNotEmpty) '${info.ads.length} 个嗅探屏蔽域名',
     ];
 
-    return Column(
+    final content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Divider(height: 24),
+        if (!widget.card) const Divider(height: 24),
         Text('安全 DNS（DoH）', style: theme.textTheme.bodyLarge),
         const SizedBox(height: 2),
         Text(
@@ -109,6 +113,23 @@ class _NetworkSettingsState extends State<NetworkSettings> {
           ],
         ],
       ],
+    );
+    if (!widget.card) return content;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('安全 DNS 与订阅的网络规则', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+              const SizedBox(height: 10),
+              content,
+            ],
+          ),
+        ),
+      ),
     );
   }
 

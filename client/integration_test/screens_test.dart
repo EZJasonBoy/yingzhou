@@ -228,6 +228,15 @@ void main() {
     await shot(tester, 'episodes-numbers-desktop');
   });
 
+  for (final device in [desktop, tv]) {
+    testWidgets('simple: the sites from the right (${device.name})', (tester) async {
+      await start(tester, device, mode: UserMode.simple, watched: history, extraSites: 6);
+      await tester.tap(find.byKey(const Key('home-source-panel')));
+      await pause(tester);
+      await shot(tester, 'simple-sources-${device.name}');
+    });
+  }
+
   testWidgets('simple: 设置 behind the lock (phone)', (tester) async {
     await start(tester, phone, mode: UserMode.simple, pin: '2580', light: true);
     await tapText(tester, '设置');
