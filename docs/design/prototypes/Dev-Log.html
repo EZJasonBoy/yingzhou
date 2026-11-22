@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<!-- Exported from canvas/Dev-Log.dc.html by tools/design/export-prototypes.mjs; edit the canvas file, not this one. -->
+<meta charset="utf-8">
+<title>开发者 · 引擎日志</title>
+</head>
+<body>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&amp;family=Noto+Sans+SC:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#13122b}
+a{color:#f4a08a;text-decoration:none}a:hover{color:#f7b6a4}
+.row{display:grid;grid-template-columns:104px 44px 56px minmax(0,1fr);gap:14px;padding:6px 16px;align-items:baseline}
+.row:hover{background:#201e42}
+.t{font-family:ui-monospace,'Cascadia Mono',Consolas,monospace;font-size:12px;color:#8d89bb;font-variant-numeric:tabular-nums}
+.m{font-size:12px;color:#aaa6d2}
+.msg{font-size:13px;line-height:20px;color:#ece9ff;overflow-wrap:anywhere}
+.u{font-family:ui-monospace,'Cascadia Mono',Consolas,monospace;font-size:12px;color:#aaa6d2}
+</style>
+<div style="width: 100%; min-height: 100vh; box-sizing: border-box; padding: 20px 32px 28px; background: #13122b; color: #ece9ff; font-family: 'Noto Sans SC', 'Microsoft YaHei UI', 'PingFang SC', sans-serif; display: flex; flex-direction: column; gap: 20px">
+  <header style="display: flex; align-items: center; gap: 16px; min-height: 40px">
+    <img src="../system/assets/Logos/yingzhou-logo-small.svg" alt="映舟" style="width: 32px; height: 32px; border-radius: 8px">
+    <span style="font-size: 18px; line-height: 26px; font-weight: 600">星河往事 第二季 · 第 3 集</span>
+    <span style="font-size: 12px; line-height: 18px; padding: 2px 8px; border-radius: 6px; border: 1px solid #726eab; color: #aaa6d2">开发者模式</span>
+    <nav style="margin-left: auto; display: flex; gap: 28px; align-items: flex-end">
+      <a href="Dev-Player.html" style="font-size: 15px; line-height: 22px; color: #aaa6d2; padding-bottom: 10px">播放与链路</a>
+      <span style="display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 15px; line-height: 22px; font-weight: 600; color: #ece9ff">引擎日志
+        <svg width="22" height="6" viewBox="0 0 22 6" aria-hidden="true"><path d="M1 4 q2.5 -3 5 0" fill="none" stroke="#ee8c86" stroke-width="2" stroke-linecap="round"/><path d="M6 4 q2.5 3 5 0" fill="none" stroke="#f0c670" stroke-width="2" stroke-linecap="round"/><path d="M11 4 q2.5 -3 5 0 q2.5 3 5 0" fill="none" stroke="#84cfae" stroke-width="2" stroke-linecap="round"/></svg>
+      </span>
+    </nav>
+  </header>
+
+  <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+    <span style="height: 32px; padding: 0 14px; border-radius: 8px; background: #ece9ff; color: #13122b; font-size: 13px; font-weight: 600; display: flex; align-items: center">全部 <span style="font-family: Barlow, sans-serif; margin-left: 6px">14</span></span>
+    <span style="height: 32px; padding: 0 14px; border-radius: 8px; border: 1px solid #3a3768; font-size: 13px; color: #aaa6d2; display: flex; align-items: center">信息 <span style="font-family: Barlow, sans-serif; margin-left: 6px">11</span></span>
+    <span style="height: 32px; padding: 0 14px; border-radius: 8px; border: 1px solid #3a3768; font-size: 13px; color: #f0c670; display: flex; align-items: center">警告 <span style="font-family: Barlow, sans-serif; margin-left: 6px">2</span></span>
+    <span style="height: 32px; padding: 0 14px; border-radius: 8px; border: 1px solid #3a3768; font-size: 13px; color: #ee8c86; display: flex; align-items: center">错误 <span style="font-family: Barlow, sans-serif; margin-left: 6px">1</span></span>
+    <span style="width: 1px; height: 20px; background: #3a3768; margin: 0 4px"></span>
+    <span style="height: 32px; padding: 0 12px; border-radius: 8px; background: #24224a; font-size: 13px; color: #ece9ff; display: flex; align-items: center; gap: 6px">
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 7 L5.5 10.5 L12 3.5" fill="none" stroke="#84cfae" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>只看本集
+    </span>
+    <label style="margin-left: auto; width: 300px; height: 36px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; background: #1b1a3a; border: 1px solid #3a3768; display: flex; align-items: center; gap: 8px">
+      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="#8d89bb" stroke-width="2"/><path d="M16 16 L20 20" stroke="#8d89bb" stroke-width="2" stroke-linecap="round"/></svg>
+      <input type="text" placeholder="搜网址、模块或报错" style="flex: 1; min-width: 0; border: 0; background: transparent; color: #ece9ff; font-family: inherit; font-size: 13px; outline: none">
+    </label>
+    <span style="height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid #726eab; font-size: 13px; display: flex; align-items: center">导出</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 24px; align-items: start">
+    <section style="border-radius: 14px; background: #1b1a3a; padding: 8px 0; overflow: hidden">
+      <div class="row" style="padding-top: 8px; padding-bottom: 8px; border-bottom: 1px solid rgba(114,110,171,0.3)">
+        <span class="m" style="color: #8d89bb">时间</span><span class="m" style="color: #8d89bb">级别</span><span class="m" style="color: #8d89bb">模块</span><span class="m" style="color: #8d89bb">内容</span>
+      </div>
+      <div class="row"><span class="t">20:40:58.112</span><span class="m">信息</span><span class="m">订阅</span><span class="msg">读取本地缓存（2 小时前） <span class="u">https://config.example.com/tv.json</span></span></div>
+      <div class="row"><span class="t">20:40:58.124</span><span class="m">信息</span><span class="m">站点</span><span class="msg">示例站 A 详情 → 200 · 210 ms <span class="u">GET https://site-a.example.com/api/detail?id=1024</span></span></div>
+      <div class="row"><span class="t">20:40:58.336</span><span class="m">信息</span><span class="m">线路</span><span class="msg">测速 3 条：线路 1 640 ms · 线路 2 820 ms · 线路 3 1.6 s</span></div>
+      <div class="row"><span class="t">20:40:58.340</span><span class="m">信息</span><span class="m">播放器</span><span class="msg">打开线路 1，从 41:28 接着播 <span class="u">https://line1.example.com/vod/xh2/e03.m3u8</span></span></div>
+      <div class="row"><span class="t">20:40:59.180</span><span class="m">信息</span><span class="m">播放器</span><span class="msg">首帧 840 ms · HEVC Main 10 · d3d11va-copy</span></div>
+      <div class="row"><span class="t">20:41:20.006</span><span class="m">信息</span><span class="m">播放器</span><span class="msg">缓冲 30.0 s · 下载 7.1 MB/s</span></div>
+      <div class="row"><span class="t">20:41:37.502</span><span class="m" style="color: #f0c670">警告</span><span class="m">播放器</span><span class="msg" style="color: #f0c670">分片 e03_0253.ts 超时 5 s，重试 1/2</span></div>
+      <div class="row"><span class="t">20:41:42.611</span><span class="m" style="color: #f0c670">警告</span><span class="m">播放器</span><span class="msg" style="color: #f0c670">分片 e03_0253.ts → 404，重试 2/2</span></div>
+      <div class="row" style="background: #24224a; box-shadow: inset 3px 0 0 #ee8c86"><span class="t" style="color: #ece9ff">20:41:42.905</span><span class="m" style="color: #ee8c86; font-weight: 600">错误</span><span class="m" style="color: #ece9ff">线路</span><span class="msg" style="font-weight: 600">线路 1 不可用：连续 2 次 404</span></div>
+      <div class="row"><span class="t">20:41:42.910</span><span class="m">信息</span><span class="m">线路</span><span class="msg">换到线路 2，从 42:10 接着播（已提示用户）</span></div>
+      <div class="row"><span class="t">20:41:43.330</span><span class="m">信息</span><span class="m">播放器</span><span class="msg">打开线路 2 <span class="u">https://cdn.example.com/hls/xh2/e03/index.m3u8</span></span></div>
+      <div class="row"><span class="t">20:41:44.150</span><span class="m">信息</span><span class="m">播放器</span><span class="msg">首帧 820 ms · 缓冲 2.1 s</span></div>
+      <div class="row"><span class="t">20:41:53.004</span><span class="m">信息</span><span class="m">播放器</span><span class="msg">缓冲恢复到 30 s</span></div>
+      <div class="row"><span class="t">20:42:20.000</span><span class="m">信息</span><span class="m">引擎</span><span class="msg">本地引擎运行中 · 内存 182 MB · 3 个站点已加载</span></div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 12px 16px 6px; font-size: 12px; color: #8d89bb">
+        <span style="width: 8px; height: 8px; border-radius: 50%; background: #84cfae"></span>实时 · 滚动到底部时自动跟随
+      </div>
+    </section>
+
+    <aside style="display: flex; flex-direction: column; gap: 14px; padding: 18px; border-radius: 14px; background: #1b1a3a">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <span style="font-size: 12px; line-height: 18px; padding: 1px 8px; border-radius: 6px; background: rgba(238,140,134,0.16); color: #ee8c86; font-weight: 600">错误</span>
+        <span class="t">20:41:42.905</span>
+      </div>
+      <h2 style="margin: 0; font-size: 17px; line-height: 26px; font-weight: 600">线路 1 不可用：连续 2 次 404</h2>
+      <dl style="margin: 0; display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 8px 12px; font-size: 13px; line-height: 20px">
+        <dt style="color: #aaa6d2">请求</dt><dd style="margin: 0" class="u"><span style="color: #ece9ff">GET</span> https://line1.example.com/vod/xh2/e03_0253.ts</dd>
+        <dt style="color: #aaa6d2">响应</dt><dd style="margin: 0"><span style="font-family: Barlow, sans-serif">404</span> Not Found · <span style="font-family: Barlow, sans-serif">112</span> ms</dd>
+        <dt style="color: #aaa6d2">来自</dt><dd style="margin: 0">示例站 A · 第 3 集 · 线路 1</dd>
+        <dt style="color: #aaa6d2">之后</dt><dd style="margin: 0">换到线路 2，播放没有中断</dd>
+      </dl>
+      <div style="padding: 10px 12px; border-radius: 8px; background: #13122b; font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 12px; line-height: 19px; color: #aaa6d2; word-break: break-all">
+        <span style="color: #8d89bb">Referer:</span> https://site-a.example.com/<br>
+        <span style="color: #8d89bb">User-Agent:</span> okhttp/4.12<br>
+        <span style="color: #8d89bb">Range:</span> bytes=0-
+      </div>
+      <div style="display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: 10px; background: rgba(240,198,112,0.10); font-size: 13px; line-height: 20px">
+        <svg width="18" height="18" viewBox="0 0 24 24" style="flex: none; margin-top: 1px" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="none" stroke="#f0c670" stroke-width="2"/><path d="M12 7 V13 M12 16.5 V17" stroke="#f0c670" stroke-width="2.2" stroke-linecap="round"/></svg>
+        <span>这条线路最近 24 小时失败 3 次。可以在订阅里把它排到后面。</span>
+      </div>
+      <div style="display: flex; gap: 10px">
+        <button type="button" style="flex: 1; height: 40px; border: 0; border-radius: 10px; background: #f4a08a; color: #2a1520; font-family: inherit; font-size: 14px; font-weight: 600">复制为 curl</button>
+        <a href="Dev-Player.html" style="flex: 1; height: 40px; box-sizing: border-box; border-radius: 10px; border: 1px solid #726eab; color: #ece9ff; font-size: 14px; display: flex; align-items: center; justify-content: center">在链路里看</a>
+      </div>
+    </aside>
+  </div>
+</div>
+</body>
+</html>

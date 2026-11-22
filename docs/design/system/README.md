@@ -75,3 +75,9 @@
 - **手机**：底栏导航，竖屏海报三列；播放页靠手势（双击快进、上下滑亮度音量、长按倍速）。主题跟随系统。
 - **平板**：侧边导航加更宽的海报墙；其余同手机。
 - **电视**：只用方向键、OK、返回、菜单。焦点永远看得见、不会丢，返回键一层层退回首页。字号乘 1.4，边距 `space-12`。默认 **夜** 主题。
+
+## 用在哪里
+
+- **应用**：`docs/design/tokens.json` 生成 `client/lib/ui/yz_tokens.dart`，主题（`client/lib/ui/theme.dart`）只用这些 token。
+- **原型**：[../prototypes](../prototypes/README.md) 里三种用法的画板都只用这套颜色、字和组件，可以照着搭新的界面。
+- **宣传**：`components/` 里每个组件有说明和预览页（`preview.html`），`components/bundle.css` 是全部 token 和组件样式，网页、海报、作品集可以直接引用；`assets/` 里是标志和演示用的图片（海报和画面都是虚构的）。
