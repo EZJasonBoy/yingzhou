@@ -95,7 +95,7 @@ class SettingsPage extends StatelessWidget {
               ),
             ],
           ),
-        const PageSection(id: 'look', title: '外观', icon: Icons.palette_outlined, children: [UserModeSettings(), UiModeSettings(), ThemeModeSettings()]),
+        const PageSection(id: 'look', title: '外观', icon: Icons.palette_outlined, children: [UserModeSettings(), StartPageSettings(), UiModeSettings(), ThemeModeSettings()]),
         const PageSection(id: 'play', title: '播放', icon: Icons.play_circle_outline_rounded, gap: 0, children: [StreamCacheSettings(), DanmakuServiceSettings()]),
         // Always there: the GitHub mirror and the proxy for updates are this device's own and work without an engine.
         // One card per kind of route, so on a wide window they stand side by side.

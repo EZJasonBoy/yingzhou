@@ -10,8 +10,9 @@ import '../ui/poster.dart';
 import '../ui/tv/tv_focus.dart';
 import 'detail_page.dart';
 
-/// 首页 → 继续看 in simple mode: the title watched last, with one big button that carries on where it stopped; under
-/// it what else was watched lately, and the favourites. It stands in for 我的, which simple mode has no entry for.
+/// 首页 → 继续看, in every mode: the title watched last, with one big button that carries on where it stopped; under
+/// it what else was watched lately, and the favourites. In simple mode it also stands in for 我的, which that mode
+/// has no entry for.
 class SimpleHomeTab extends StatefulWidget {
   const SimpleHomeTab({super.key});
 

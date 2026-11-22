@@ -64,6 +64,8 @@ void main() {
   testWidgets('python spiders: browse, play through localProxy, search, a missing package, live', (tester) async {
     MediaKit.ensureInitialized();
     final settings = MemorySettings();
+    // These tests start from the site's recommendations, whatever an earlier one left in the history.
+    await settings.setString('ui.startPage', 'home');
     await settings.setString('siteKey', 'demo_py');
     await tester.pumpWidget(
       TvboxApp(

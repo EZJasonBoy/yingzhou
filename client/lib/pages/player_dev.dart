@@ -29,6 +29,15 @@ Future<String?> readMpvProperty(Player player, String name) async {
   return null;
 }
 
+/// Several libmpv properties of [player] at once; those it does not know (or has no libmpv for) are left out.
+Future<Map<String, String>> readMpvProperties(Player player, List<String> names) async {
+  final answers = await Future.wait([for (final n in names) readMpvProperty(player, n)]);
+  return {
+    for (var i = 0; i < names.length; i++)
+      if (answers[i] != null) names[i]: answers[i]!,
+  };
+}
+
 /// Developer mode: playback statistics over the picture (the I key), read from the player once a second. What the
 /// decoder and the output are doing is libmpv's own account; where there is no libmpv to ask, the few things every
 /// player knows are shown instead.
@@ -88,13 +97,8 @@ class _PlayerStatsOverlayState extends State<PlayerStatsOverlay> {
     if (_reading) return;
     _reading = true;
     try {
-      final answers = await Future.wait([for (final p in PlayerStatsOverlay._properties) readMpvProperty(widget.player, p)]);
+      final values = await readMpvProperties(widget.player, PlayerStatsOverlay._properties);
       if (!mounted) return;
-      final values = <String, String>{};
-      for (var i = 0; i < answers.length; i++) {
-        final a = answers[i];
-        if (a != null) values[PlayerStatsOverlay._properties[i]] = a;
-      }
       final state = widget.player.state;
       final ahead = double.tryParse(values['demuxer-cache-duration'] ?? '') ?? (state.buffer - state.position).inMilliseconds / 1000;
       _buffer.add(ahead < 0 ? 0 : ahead);

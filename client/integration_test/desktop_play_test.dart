@@ -69,6 +69,8 @@ void main() {
   testWidgets('browse, play, fullscreen, seek and volume in the desktop app', (tester) async {
     MediaKit.ensureInitialized();
     final settings = MemorySettings();
+    // These tests start from the site's recommendations, whatever an earlier one left in the history.
+    await settings.setString('ui.startPage', 'home');
     await settings.setString('siteKey', 'demo');
     await tester.pumpWidget(TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings)));
     await until(tester, find.text('星河往事 第二季'));
@@ -140,6 +142,8 @@ void main() {
   testWidgets('subtitles, audio tracks and danmaku in the real player', (tester) async {
     MediaKit.ensureInitialized();
     final settings = MemorySettings();
+    // These tests start from the site's recommendations, whatever an earlier one left in the history.
+    await settings.setString('ui.startPage', 'home');
     await settings.setString('siteKey', 'demo_js');
     // An earlier run's history would bring back its subtitle and position (that is the feature): start without.
     await tester.runAsync(() async {
@@ -301,6 +305,8 @@ void main() {
   testWidgets('a dead line is replaced by the next one, which plays', (tester) async {
     MediaKit.ensureInitialized();
     final settings = MemorySettings();
+    // These tests start from the site's recommendations, whatever an earlier one left in the history.
+    await settings.setString('ui.startPage', 'home');
     await settings.setString('siteKey', 'demo');
     await tester.pumpWidget(TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings)));
     await until(tester, find.text('白昼迷踪 第二季'));

@@ -95,9 +95,12 @@ void main() {
     await key(tester, LogicalKeyboardKey.arrowRight);
     expect(focusOnText('推荐片'), isTrue, reason: 'the first poster of 首页');
 
-    // ↑ goes to the tab right above the poster (电影; 推荐 is to its left), which opens when it keeps the focus.
+    // ↑ goes to the tab right above the poster (推荐; 继续看 is to its left), → to the next one (电影), which opens
+    // when it keeps the focus.
     await key(tester, LogicalKeyboardKey.arrowUp);
     expect(focused().context!.findAncestorWidgetOfExactType<TabBar>(), isNotNull, reason: '↑ from the posters reaches the tabs');
+    await key(tester, LogicalKeyboardKey.arrowRight);
+    expect(focused().context!.findAncestorWidgetOfExactType<TabBar>(), isNotNull, reason: '→ walks the tabs');
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     expect(find.text('分类片'), findsOneWidget, reason: 'the category under the focused tab shows');
@@ -136,6 +139,7 @@ void main() {
     await pumpTv(tester, filterRows: 9);
     await key(tester, LogicalKeyboardKey.arrowRight);
     await key(tester, LogicalKeyboardKey.arrowUp);
+    await key(tester, LogicalKeyboardKey.arrowRight);
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     await key(tester, LogicalKeyboardKey.arrowDown);

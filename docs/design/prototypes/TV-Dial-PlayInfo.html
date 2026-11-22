@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<!-- Exported from canvas/TV-Dial-PlayInfo.dc.html by tools/design/export-prototypes.mjs; edit the canvas file, not this one. -->
+<meta charset="utf-8">
+<title>电视播放 · 拨盘进到播放信息</title>
+</head>
+<body>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&amp;family=Noto+Sans+SC:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#ece9ff;text-decoration:none}a:hover{color:#ffffff}
+.row{width:100%;border:0;background:transparent;font-family:inherit;text-align:left;height:72px;box-sizing:border-box;padding:0 22px;border-radius:16px;display:flex;align-items:center;gap:16px;font-size:24px;line-height:32px;color:#ece9ff;opacity:0.45}
+.row svg{flex:none}
+.v{margin-left:auto;font-size:21px;line-height:28px;color:#aaa6d2;white-space:nowrap}
+dt{color:#aaa6d2;font-size:19px;line-height:32px}
+dd{margin:0;font-size:21px;line-height:32px;font-variant-numeric:tabular-nums}
+.k{min-width:38px;height:34px;box-sizing:border-box;padding:0 8px;border-radius:8px;border:1.5px solid #726eab;display:inline-flex;align-items:center;justify-content:center;font-family:Barlow,'Noto Sans SC',sans-serif;font-size:17px;font-weight:600;color:#ece9ff}
+.h{display:flex;align-items:center;gap:8px;font-size:19px;line-height:26px;color:#aaa6d2}
+</style>
+<div style="position: relative; width: 1280px; height: 720px; overflow: hidden; background: #000000; color: #ece9ff; font-family: 'Noto Sans SC', 'Microsoft YaHei UI', 'PingFang SC', sans-serif">
+  <img src="../system/assets/Imagery/player-frame.jpg" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover">
+  <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 1120px; background: linear-gradient(to right, rgba(6,5,26,0.95), rgba(6,5,26,0.86) 78%, rgba(6,5,26,0))"></div>
+  <div style="position: absolute; left: 0; right: 0; top: 0; height: 160px; background: linear-gradient(to bottom, rgba(6,5,26,0.8), rgba(6,5,26,0))"></div>
+  <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 200px; background: linear-gradient(to top, rgba(6,5,26,0.94), rgba(6,5,26,0))"></div>
+
+  <div style="position: absolute; left: 64px; top: 34px; font-size: 26px; line-height: 34px; font-weight: 600">星河往事 第二季 · 第 3 集</div>
+
+  <div style="position: absolute; right: 64px; top: 28px; display: flex; align-items: baseline; gap: 18px">
+    <span style="font-size: 19px; line-height: 26px; color: #aaa6d2">还剩 12 分钟 · 约 21:19 看完</span>
+    <span style="font-family: Barlow, sans-serif; font-size: 40px; line-height: 44px; font-weight: 500; font-variant-numeric: tabular-nums">21:07</span>
+  </div>
+
+  <nav aria-label="拨盘" style="position: absolute; left: 64px; top: 92px; width: 420px; display: flex; flex-direction: column; gap: 6px">
+    <button type="button" class="row"><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><path d="M5 8 H16 M5 14 H16 M5 20 H12" fill="none" stroke="#ece9ff" stroke-width="2.2" stroke-linecap="round"/><path d="M19 13 L25 17 L19 21 Z" fill="#ece9ff"/></svg>选集<span class="v">第 3 集 · 共 24 集</span></button>
+    <button type="button" class="row"><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><path d="M5 10 H21 M17 5 L22 10 L17 15 M23 19 H7 M11 14 L6 19 L11 24" fill="none" stroke="#ece9ff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>线路<span class="v">线路 2 · 1080p</span></button>
+    <button type="button" class="row"><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><path d="M5 19 A9 9 0 1 1 23 19" fill="none" stroke="#ece9ff" stroke-width="2.2" stroke-linecap="round"/><path d="M14 19 L19 11" stroke="#ece9ff" stroke-width="2.2" stroke-linecap="round"/></svg>倍速<span class="v">1.0×</span></button>
+    <button type="button" class="row"><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect x="3" y="6" width="22" height="16" rx="3" fill="none" stroke="#ece9ff" stroke-width="2.2"/><path d="M8 17 H13 M16 17 H20 M8 12 H10 M13 12 H20" stroke="#ece9ff" stroke-width="2.2" stroke-linecap="round"/></svg>字幕<span class="v">中文（简体）</span></button>
+    <button type="button" class="row"><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><path d="M4 6 H24 V19 H13 L8 23 V19 H4 Z" fill="none" stroke="#ece9ff" stroke-width="2.2" stroke-linejoin="round"/><path d="M9 11 H19 M9 15 H15" stroke="#ece9ff" stroke-width="2.2" stroke-linecap="round"/></svg>弹幕<span class="v">开</span></button>
+    <a class="row" href="TV-Dial.html" style="opacity: 1; background: rgba(244,160,138,0.18); color: #f4a08a; font-weight: 600">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="10" fill="none" stroke="#f4a08a" stroke-width="2.2"/><path d="M14 13 V19" stroke="#f4a08a" stroke-width="2.4" stroke-linecap="round"/><circle cx="14" cy="9" r="1.4" fill="#f4a08a"/></svg>信息
+      <svg width="12" height="20" viewBox="0 0 12 20" style="margin-left: auto" aria-hidden="true"><path d="M3 3 L10 10 L3 17" fill="none" stroke="#f4a08a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
+    <button type="button" class="row"><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><path d="M4 8 H24 M4 14 H24 M4 20 H24" stroke="#ece9ff" stroke-width="2.2" stroke-linecap="round"/><circle cx="10" cy="8" r="3" fill="#13122b" stroke="#ece9ff" stroke-width="2.2"/><circle cx="18" cy="14" r="3" fill="#13122b" stroke="#ece9ff" stroke-width="2.2"/><circle cx="12" cy="20" r="3" fill="#13122b" stroke="#ece9ff" stroke-width="2.2"/></svg>更多设置</button>
+  </nav>
+
+  <section aria-label="播放信息" style="position: absolute; left: 504px; top: 92px; width: 476px; height: 540px; box-sizing: border-box; padding: 20px 22px; border-radius: 18px; background: rgba(27,26,58,0.97); display: flex; flex-direction: column; gap: 12px">
+    <h2 style="margin: 0; font-size: 24px; line-height: 32px; font-weight: 600">播放信息</h2>
+    <div style="display: flex; align-items: center; gap: 16px; padding: 12px 16px; border-radius: 14px; background: #24224a">
+      <svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="16" fill="#84cfae"/><path d="M10 18.5 L15.5 24 L26 12.5" fill="none" stroke="#13122b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div style="display: flex; flex-direction: column">
+        <span style="font-size: 24px; line-height: 32px; font-weight: 600; color: #84cfae">很顺</span>
+        <span style="font-size: 19px; line-height: 26px; color: #aaa6d2">已缓冲 28 秒</span>
+      </div>
+    </div>
+    <dl style="margin: 0; display: grid; grid-template-columns: 60px minmax(0, 1fr); column-gap: 14px">
+      <dt>画面</dt><dd>1080p（1920×1080）· 60 帧</dd>
+      <dt>网速</dt><dd>3.2 MB/s</dd>
+      <dt>解码</dt><dd>硬件解码（显卡）</dd>
+      <dt>来自</dt><dd>孤舟影库</dd>
+      <dt>线路</dt><dd>线路 2（共 4 条）· 直链</dd>
+    </dl>
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <span style="font-size: 19px; line-height: 26px; color: #aaa6d2">这一集换过的线路</span>
+      <span style="display: flex; align-items: center; gap: 10px; font-size: 20px; line-height: 30px">
+        <svg width="22" height="22" viewBox="0 0 28 28" style="flex: none" aria-hidden="true"><path d="M5 10 H21 M17 5 L22 10 L17 15 M23 19 H7 M11 14 L6 19 L11 24" fill="none" stroke="#f0c670" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        线路 1：等了 15 秒还没有画面
+      </span>
+    </div>
+    <p style="margin: 0; font-size: 19px; line-height: 27px; color: #aaa6d2">总是卡，先看缓冲：一直很少，就换一条线路。</p>
+    <a href="TV-Dial-Lines.html" style="margin-top: auto; height: 60px; border-radius: 14px; background: #f4a08a; color: #2a1520; font-size: 22px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 10px; outline: 4px solid #f4a08a; outline-offset: 3px">
+      <svg width="24" height="24" viewBox="0 0 28 28" aria-hidden="true"><path d="M5 10 H21 M17 5 L22 10 L17 15 M23 19 H7 M11 14 L6 19 L11 24" fill="none" stroke="#2a1520" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>换线路
+    </a>
+  </section>
+
+  <div style="position: absolute; left: 64px; right: 64px; bottom: 30px; display: flex; align-items: center; gap: 28px">
+    <span style="font-family: Barlow, sans-serif; font-size: 22px; font-weight: 500; font-variant-numeric: tabular-nums">42:10 <span style="color: #aaa6d2">/ 54:30</span></span>
+    <div style="margin-left: auto; display: flex; align-items: center; gap: 26px">
+      <span class="h"><span class="k">OK</span>换线路</span>
+      <a class="h" href="TV-Dial.html"><span class="k">←</span><span class="k">返回</span>回到拨盘</a>
+    </div>
+  </div>
+</div>
+</body>
+</html>

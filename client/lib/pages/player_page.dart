@@ -30,6 +30,7 @@ import 'browse_page.dart' show errorText;
 import 'danmaku_layer.dart';
 import 'danmaku_panel.dart';
 import 'player_dev.dart';
+import 'player_info.dart';
 import 'player_mobile.dart';
 import 'player_tracks.dart';
 import 'seek_bar.dart';
@@ -57,6 +58,9 @@ part 'player_tv.dart';
 /// Seeking: the bar seeks once, when it is let go ([SeekBar]), and shows what is buffered — what the player holds
 /// and, for streams the engine caches, what the engine has on disk. The player's own cache is set up for where the
 /// video comes from ([PlayerCache]).
+/// The panels over the picture. At most one is open: opening one closes the one before.
+enum _PlayerPanel { episodes, tracks, danmaku, chain, info, tvSettings }
+
 class PlayerPage extends StatefulWidget {
   const PlayerPage({super.key, required this.detail, required this.line, required this.episode, this.startPosition, this.sources});
 
@@ -100,6 +104,35 @@ class _PlayerPageState extends State<PlayerPage> {
   late final EngineClient _client;
   final _focus = FocusNode();
 
+  /// The panel that is open, if any, and the focus scope it opens in: the D-pad and Tab walk the panel and stop at
+  /// its edges, they never reach the bars or the picture under it.
+  _PlayerPanel? _panel;
+  final _panelScope = FocusScopeNode(debugLabel: 'player-panel');
+
+  bool _isOpen(_PlayerPanel panel) => _panel == panel;
+
+  /// Opens [panel] in place of any other, or closes it if it is the one open.
+  void _setOpen(_PlayerPanel panel, bool open) {
+    if (open) {
+      _panel = panel;
+    } else if (_panel == panel) {
+      _panel = null;
+    }
+  }
+
+  set _panelOpen(bool open) => _setOpen(_PlayerPanel.episodes, open);
+  bool get _tracksOpen => _isOpen(_PlayerPanel.tracks);
+  set _tracksOpen(bool open) => _setOpen(_PlayerPanel.tracks, open);
+  bool get _danmakuOpen => _isOpen(_PlayerPanel.danmaku);
+  set _danmakuOpen(bool open) => _setOpen(_PlayerPanel.danmaku, open);
+  bool get _chainOpen => _isOpen(_PlayerPanel.chain);
+  set _chainOpen(bool open) => _setOpen(_PlayerPanel.chain, open);
+  bool get _infoOpen => _isOpen(_PlayerPanel.info);
+  set _infoOpen(bool open) => _setOpen(_PlayerPanel.info, open);
+  bool get _tvSettingsOpen => _isOpen(_PlayerPanel.tvSettings);
+
+  bool get _anyPanelOpen => _panel != null;
+
   /// The remote control on a TV (player_tv.dart).
   final _tvUi = _TvPlayerUi();
   void _tvSet(VoidCallback change) => setState(change);
@@ -131,7 +164,6 @@ class _PlayerPageState extends State<PlayerPage> {
   PlayInfo? _played;
   bool _onRelay = false;
   bool _controlsVisible = true;
-  bool _panelOpen = false;
   bool _opening = false;
   Timer? _hideTimer;
   Timer? _saveTimer;
@@ -174,7 +206,6 @@ class _PlayerPageState extends State<PlayerPage> {
   /// Subtitles and audio tracks ([PlayerTracks]); the 字幕 panel. What the title's history says to choose, until
   /// the user chooses something else.
   late final PlayerTracks _tracks;
-  bool _tracksOpen = false;
   String _savedSubtitle = '';
   String _savedAudio = '';
   Future<void>? _historyRead;
@@ -185,7 +216,6 @@ class _PlayerPageState extends State<PlayerPage> {
   bool _danmakuLoading = false;
   bool _danmakuAsked = false;
   String? _danmakuError;
-  bool _danmakuOpen = false;
   int _danmakuSeq = 0;
 
   /// Simple, standard or developer (read once: the mode is not changed while a video plays).
@@ -196,13 +226,10 @@ class _PlayerPageState extends State<PlayerPage> {
   /// Developer mode: the statistics over the picture, the 链路 panel, and what it shows: how long the address took
   /// to find and the first picture to come, and the lines that failed for this episode.
   bool _statsOpen = false;
-  bool _chainOpen = false;
   int? _resolveMs;
   int? _firstFrameMs;
   Stopwatch? _sinceOpen;
   final _failedNotes = <String>[];
-
-  bool get _anyPanelOpen => _panelOpen || _tracksOpen || _danmakuOpen || _chainOpen;
 
   /// Phones and tablets: gestures on the picture, full screen and rotation, the lock, picture-in-picture
   /// ([MobilePlayback]); null on desktops and TVs. [_stageKey] keeps the picture and its controls alive when the
@@ -376,6 +403,7 @@ class _PlayerPageState extends State<PlayerPage> {
     }
     _player.dispose();
     _focus.dispose();
+    _panelScope.dispose();
     _tvUi.dispose();
     super.dispose();
   }
@@ -450,11 +478,14 @@ class _PlayerPageState extends State<PlayerPage> {
     return _started && position > Duration.zero ? position : _resumeAt;
   }
 
+  /// What line [line] is called on screen: the site's name, or in simple mode its number (线路 1, 线路 2 …).
+  String _lineName(int line) => lineTitle(_detail.lines, line, numbered: _simple);
+
+  /// The line in a sentence (a notice, an error, the log).
   String _lineLabel(int line) {
-    final name = _detail.lines[line].name;
-    final label = name.isEmpty ? '线路 ${line + 1}' : name;
+    final label = _lineName(line);
     if (_detail.site != widget.detail.site) return '「${AppScope.read(context).siteName(_detail.site)} · $label」';
-    return name.isEmpty ? label : '「$name」';
+    return _simple || _detail.lines[line].name.trim().isEmpty ? label : '「$label」';
   }
 
   /// The next line, going round from the current one, that has the episode and has not failed in this round.
@@ -487,14 +518,14 @@ class _PlayerPageState extends State<PlayerPage> {
     final resume = _reached();
     final failed = _lineLabel(_line);
     _failedLines.add(_line);
-    _failedNotes.add('${_currentLine.name.isEmpty ? '线路 ${_line + 1}' : _currentLine.name}：$reason');
+    _failedNotes.add('${_lineName(_line)}：$reason');
     final next = _autoLine ? _nextLine() : null;
     _log(DevLevel.warn, '线路', '$failed$why：$reason', {'站点': _detail.site, '选集': _currentEpisode.name, '选集地址': _currentEpisode.id});
     if (next != null) {
       final from = resume != null && resume > Duration.zero ? '，从 ${_TimeLabel.format(resume)} 接着播' : '';
       _log(DevLevel.info, '线路', '换到${_lineLabel(next.$1)}$from');
-      // Simple mode says what happened without naming lines, which it does not show anywhere.
-      _showOsd(_simple ? '这条线路打不开，已换到下一条$from' : '$failed$why，已切到${_lineLabel(next.$1)}', const Duration(seconds: 4));
+      // Simple mode says it in plain words, with the numbers its lines go by.
+      _showOsd(_simple ? '$failed 打不开，已换到${_lineLabel(next.$1)}$from' : '$failed$why，已切到${_lineLabel(next.$1)}', const Duration(seconds: 4));
       _open(next.$1, next.$2, resume: resume, automatic: true);
       return;
     }
@@ -743,7 +774,38 @@ class _PlayerPageState extends State<PlayerPage> {
     if (ms == null) return;
     _firstFrameMs = ms;
     _log(DevLevel.info, '播放器', '${_lineLabel(_line)} 出画面 · $ms ms');
-    if (_chainOpen && mounted) setState(() {});
+    if ((_chainOpen || _infoOpen) && mounted) setState(() {});
+  }
+
+  /// 播放信息, in every mode (player_info.dart): how the picture is doing and where it comes from, in plain words.
+  /// [inline]: under the picture on a phone held upright, where the lines are on the page already.
+  Widget _buildInfo({bool inline = false}) {
+    final played = _played;
+    return PlayInfoPanel(
+      player: _player,
+      showTitle: !inline,
+      source: AppScope.read(context).siteName(_detail.site),
+      line: _lineName(_line),
+      lineCount: _detail.lines.length,
+      how: [
+        played == null ? '正在找播放地址' : (_parsedBy.isEmpty ? '直链' : _parserLabel(_parsedBy)),
+        if (played?.relay.isNotEmpty == true) _onRelay ? '经引擎' : '直连片源',
+      ].join(' · '),
+      switched: List.of(_failedNotes),
+      onLines: _detail.lines.length < 2
+          ? null
+          : () => setState(() {
+              // The lines are at the top of the episodes; upright on a phone they are under the picture.
+              if (inline) {
+                _panel = null;
+              } else {
+                _panelOpen = true;
+              }
+            }),
+      onStats: _dev ? _toggleStats : null,
+      statsOn: _statsOpen,
+      onChain: _dev ? _openChain : null,
+    );
   }
 
   /// 链路 (developer mode): where what is on the screen comes from.
@@ -772,19 +834,17 @@ class _PlayerPageState extends State<PlayerPage> {
 
   void _toggleStats() => setState(() => _statsOpen = !_statsOpen);
 
-  void _openChain() => setState(() {
-    _panelOpen = false;
-    _tracksOpen = false;
-    _danmakuOpen = false;
-    _chainOpen = true;
-  });
+  void _openChain() => setState(() => _chainOpen = true);
 
   /// The line, how its address was found, and where the video comes from, for the bars and the info under the picture.
-  String get _lineCaption => [
-    _currentLine.name,
-    if (_parsedBy.isNotEmpty) _parserLabel(_parsedBy),
-    if (_played?.relay.isNotEmpty == true) _onRelay ? '经引擎' : '直连片源',
-  ].join(' · ');
+  String get _lineCaption => _simple
+      // Simple mode: which line, when there is more than one; how its address was found is in 播放信息.
+      ? (_detail.lines.length > 1 ? _lineName(_line) : '')
+      : [
+          _currentLine.name,
+          if (_parsedBy.isNotEmpty) _parserLabel(_parsedBy),
+          if (_played?.relay.isNotEmpty == true) _onRelay ? '经引擎' : '直连片源',
+        ].join(' · ');
 
   /// Asks the engine for this episode's danmaku (the site's, else the services the user switched on). Nothing is
   /// asked while danmaku are off.
@@ -995,14 +1055,8 @@ class _PlayerPageState extends State<PlayerPage> {
     if (_window.isFullScreen && !_window.pinnedFullScreen) {
       _window.fullScreen = false;
       setState(() {});
-    } else if (_panelOpen) {
-      setState(() => _panelOpen = false);
-    } else if (_tracksOpen) {
-      setState(() => _tracksOpen = false);
-    } else if (_danmakuOpen) {
-      setState(() => _danmakuOpen = false);
-    } else if (_chainOpen) {
-      setState(() => _chainOpen = false);
+    } else if (_anyPanelOpen) {
+      setState(() => _panel = null);
     } else {
       Navigator.of(context).maybePop();
     }
@@ -1096,7 +1150,7 @@ class _PlayerPageState extends State<PlayerPage> {
                 AnimatedOpacity(
                   opacity: _barsVisible ? 1 : 0,
                   duration: const Duration(milliseconds: 200),
-                  child: IgnorePointer(ignoring: !_barsVisible, child: _buildControls(context)),
+                  child: IgnorePointer(ignoring: !_barsVisible, child: _tvMode ? _tvBars(context) : _buildControls(context)),
                 ),
                 // The lock, over the picture when it fills the screen; a locked screen shows nothing else.
                 if (_mobile != null && !inline && !pip)
@@ -1132,20 +1186,14 @@ class _PlayerPageState extends State<PlayerPage> {
                       ),
                     ),
                   ),
-                if (_panelOpen && sidePanels) _tvMode ? _buildTvEpisodePanel(context) : _buildEpisodePanel(context),
-                if (_tvUi.settingsOpen) _buildTvSettings(context),
-                if (_tracksOpen && sidePanels) PlayerSidePanel(onClose: () => setState(() => _tracksOpen = false), child: TracksPanel(tracks: _tracks)),
-                if (_chainOpen && sidePanels) PlayerSidePanel(width: 420, onClose: () => setState(() => _chainOpen = false), child: PlayerChainPanel(chain: _chain)),
-                if (_danmakuOpen && sidePanels)
-                  PlayerSidePanel(
-                    onClose: () => setState(() => _danmakuOpen = false),
-                    child: DanmakuPanel(
-                      prefs: _danmakuPrefs,
-                      list: _danmaku,
-                      loading: _danmakuLoading,
-                      error: _danmakuError,
-                      onReload: () => _loadDanmaku(refresh: true),
-                      onLoadFile: _loadDanmakuFile,
+                // The panel, in a focus scope of its own (keyed by which panel it is, so one that replaces another
+                // starts afresh and takes the remote's focus).
+                if (_buildPanel(context, sidePanels) case final panel?)
+                  Positioned.fill(
+                    key: const ValueKey('player-panel'),
+                    child: FocusScope(
+                      node: _panelScope,
+                      child: Stack(fit: StackFit.expand, children: [KeyedSubtree(key: ValueKey(_panel), child: panel)]),
                     ),
                   ),
               ],
@@ -1154,6 +1202,31 @@ class _PlayerPageState extends State<PlayerPage> {
         ),
       ),
     ))));
+  }
+
+  /// The open panel, over the picture. Upright on a phone the panels open under the picture instead
+  /// ([_buildPhoneInfo]); the TV's 设置 has no such place and always opens here.
+  Widget? _buildPanel(BuildContext context, bool sidePanels) {
+    final panel = _panel;
+    if (panel == null || (!sidePanels && panel != _PlayerPanel.tvSettings)) return null;
+    return switch (panel) {
+      _PlayerPanel.episodes => _tvMode ? _buildTvEpisodePanel(context) : _buildEpisodePanel(context),
+      _PlayerPanel.tvSettings => _buildTvSettings(context),
+      _PlayerPanel.tracks => PlayerSidePanel(onClose: () => setState(() => _tracksOpen = false), child: TracksPanel(tracks: _tracks)),
+      _PlayerPanel.chain => PlayerSidePanel(width: 420, onClose: () => setState(() => _chainOpen = false), child: PlayerChainPanel(chain: _chain)),
+      _PlayerPanel.info => PlayerSidePanel(onClose: () => setState(() => _infoOpen = false), child: _buildInfo()),
+      _PlayerPanel.danmaku => PlayerSidePanel(
+        onClose: () => setState(() => _danmakuOpen = false),
+        child: DanmakuPanel(
+          prefs: _danmakuPrefs,
+          list: _danmaku,
+          loading: _danmakuLoading,
+          error: _danmakuError,
+          onReload: () => _loadDanmaku(refresh: true),
+          onLoadFile: _loadDanmakuFile,
+        ),
+      ),
+    };
   }
 
   Widget _buildStatus() {
@@ -1323,6 +1396,14 @@ class _PlayerPageState extends State<PlayerPage> {
                   TextButton(key: const Key('stats-button'), onPressed: _toggleStats, child: Text('统计', style: TextStyle(color: _statsOpen ? TvColors.coral : Colors.white))),
                   TextButton(key: const Key('chain-button'), onPressed: _openChain, child: const Text('链路', style: TextStyle(color: Colors.white))),
                 ],
+                // On a TV 播放信息 is in the 设置 panel.
+                if (!_tvMode)
+                  IconButton(
+                    key: const Key('info-button'),
+                    tooltip: '播放信息',
+                    onPressed: () => setState(() => _infoOpen = true),
+                    icon: const Icon(Icons.info_outline_rounded, color: Colors.white),
+                  ),
                 IconButton(
                   key: const Key('danmaku-toggle'),
                   tooltip: _danmakuPrefs.enabled ? '关闭弹幕 (D)' : '打开弹幕 (D)',
@@ -1331,22 +1412,12 @@ class _PlayerPageState extends State<PlayerPage> {
                 ),
                 TextButton(
                   key: const Key('danmaku-button'),
-                  onPressed: () => setState(() {
-                    _panelOpen = false;
-                    _tracksOpen = false;
-                    _chainOpen = false;
-                    _danmakuOpen = true;
-                  }),
+                  onPressed: () => setState(() => _danmakuOpen = true),
                   child: const Text('弹幕', style: TextStyle(color: Colors.white)),
                 ),
                 TextButton.icon(
                   key: const Key('tracks-button'),
-                  onPressed: () => setState(() {
-                    _panelOpen = false;
-                    _danmakuOpen = false;
-                    _chainOpen = false;
-                    _tracksOpen = true;
-                  }),
+                  onPressed: () => setState(() => _tracksOpen = true),
                   icon: const Icon(Icons.subtitles_outlined, color: Colors.white),
                   label: const Text('字幕', style: TextStyle(color: Colors.white)),
                 ),
@@ -1388,7 +1459,7 @@ class _PlayerPageState extends State<PlayerPage> {
                   child: ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
-                      if (_linesOffered) ...[
+                      if (_linesShown) ...[
                         Text('线路', style: TextStyle(color: scheme.onSurfaceVariant)),
                         const SizedBox(height: 8),
                         Wrap(
@@ -1397,7 +1468,8 @@ class _PlayerPageState extends State<PlayerPage> {
                           children: [
                             for (var i = 0; i < _detail.lines.length; i++)
                               ChoiceChip(
-                                label: Text(_detail.lines[i].name),
+                                key: Key('player-line-$i'),
+                                label: Text(_lineName(i)),
                                 selected: i == _line,
                                 onSelected: (_) {
                                   setState(() => _panelOpen = false);
@@ -1439,9 +1511,8 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
-  /// The lines are there to choose from: always, except in simple mode, where they only show once the page has run
-  /// out of lines to try by itself (the way out of an error).
-  bool get _linesOffered => !_simple || _error != null;
+  /// The lines are there to choose from in every mode. Simple mode leaves them out when there is only one.
+  bool get _linesShown => !_simple || _detail.lines.length > 1;
 
   // ------------------------------------------------------------------ phones and tablets
 
@@ -1548,6 +1619,12 @@ class _PlayerPageState extends State<PlayerPage> {
         ],
         _SpeedButton(player: _player, speeds: _speeds),
         IconButton(
+          key: const Key('info-button'),
+          tooltip: '播放信息',
+          onPressed: () => _openPanel(info: true),
+          icon: const Icon(Icons.info_outline_rounded, color: Colors.white),
+        ),
+        IconButton(
           key: const Key('danmaku-toggle'),
           tooltip: _danmakuPrefs.enabled ? '关闭弹幕' : '打开弹幕',
           onPressed: _toggleDanmaku,
@@ -1560,12 +1637,13 @@ class _PlayerPageState extends State<PlayerPage> {
     );
   }
 
-  void _openPanel({bool episodes = false, bool tracks = false, bool danmaku = false, bool chain = false}) {
+  void _openPanel({bool episodes = false, bool tracks = false, bool danmaku = false, bool chain = false, bool info = false}) {
     setState(() {
       _panelOpen = episodes;
       _tracksOpen = tracks;
       _danmakuOpen = danmaku;
       _chainOpen = chain;
+      _infoOpen = info;
     });
     _pokeControls();
   }
@@ -1585,7 +1663,7 @@ class _PlayerPageState extends State<PlayerPage> {
       lines: _detail.lines,
       line: _line,
       episode: _episode,
-      showLines: _linesOffered,
+      numberedLines: _simple,
       onLine: (i) {
         if (i != _line) _pickLine(i);
       },
@@ -1620,12 +1698,15 @@ class _PlayerPageState extends State<PlayerPage> {
         ),
         PhoneAction(key: const Key('phone-danmaku-panel'), icon: Icons.tune_rounded, label: '弹幕设置', onPressed: () => _openPanel(danmaku: true)),
         PhoneAction(key: const Key('phone-tracks'), icon: Icons.subtitles_outlined, label: '字幕', onPressed: () => _openPanel(tracks: true)),
+        PhoneAction(key: const Key('phone-info'), icon: Icons.info_outline_rounded, label: '信息', onPressed: () => _openPanel(info: true)),
         if (mobile.pipSupported) PhoneAction(icon: Icons.picture_in_picture_alt_rounded, label: '小窗', onPressed: _enterPip),
       ],
       panel: _tracksOpen
           ? TracksPanel(tracks: _tracks)
           : _chainOpen
           ? PlayerChainPanel(chain: _chain)
+          : _infoOpen
+          ? _buildInfo(inline: true)
           : _danmakuOpen
           ? DanmakuPanel(
               prefs: _danmakuPrefs,
@@ -1636,12 +1717,8 @@ class _PlayerPageState extends State<PlayerPage> {
               onLoadFile: _loadDanmakuFile,
             )
           : null,
-      panelTitle: _tracksOpen ? '字幕与音轨' : (_chainOpen ? '链路' : '弹幕'),
-      onClosePanel: () => setState(() {
-        _tracksOpen = false;
-        _danmakuOpen = false;
-        _chainOpen = false;
-      }),
+      panelTitle: _tracksOpen ? '字幕与音轨' : (_chainOpen ? '链路' : (_infoOpen ? '播放信息' : '弹幕')),
+      onClosePanel: () => setState(() => _panel = null),
     );
   }
 }

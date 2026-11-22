@@ -113,6 +113,21 @@ void main() {
       'type': 'screen',
       'screen': {'id': 'tv-1', 'name': '客厅电视', 'form': 'tv'},
     });
+    await _frames(tester);
+    // The D-pad has one place, whatever the screen does: nothing playing, a text field to type into, playing.
+    final okKey = find.byKey(const Key('remote-key-ok'));
+    final okAt = tester.getCenter(okKey);
+    expect(find.text('屏幕上没有在播放'), findsOneWidget);
+    link.deliver({
+      'type': 'state',
+      'state': {
+        'title': '',
+        'text': {'value': '', 'hint': '搜索', 'secret': false},
+      },
+    });
+    await _frames(tester);
+    expect(find.byKey(const Key('remote-text')), findsOneWidget);
+    expect(tester.getCenter(okKey), okAt, reason: 'the text bar lies over 正在播放, it does not push the D-pad down');
     link.deliver({
       'type': 'state',
       'state': {
@@ -140,6 +155,8 @@ void main() {
     });
     await _frames(tester);
     expect(find.byKey(const Key('remote-title')), findsOneWidget);
+    expect(find.byKey(const Key('remote-text')), findsNothing);
+    expect(tester.getCenter(okKey), okAt, reason: 'playing does not move the D-pad');
     expect(find.text('第3集 · 线路一'), findsOneWidget);
     expect(find.byIcon(Icons.pause_rounded), findsOneWidget, reason: 'it plays');
     expect(find.text('电视模式：开'), findsOneWidget);

@@ -126,6 +126,8 @@ void main() {
     addTearDown(() => http('GET', '/demo/slow/set?delayMs=400&connectMs=300&kBps=300&totalKBps=0&reset=1'));
 
     final settings = MemorySettings();
+    // These tests start from the site's recommendations, whatever an earlier one left in the history.
+    await settings.setString('ui.startPage', 'home');
     await settings.setString('siteKey', 'demo');
     // As with 「允许手机遥控」 on; the engine is on this machine, so neither the screen nor the test needs to pair.
     await settings.setString(RemoteAgent.enabledKey, '1');

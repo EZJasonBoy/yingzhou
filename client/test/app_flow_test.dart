@@ -80,7 +80,10 @@ void main() {
       },
     ]);
 
-    await tester.tap(find.text('推荐片'));
+    // Something was watched: 首页 opens on 继续看. The title is opened from the site's recommendations here.
+    await tester.tap(find.text('推荐'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('推荐片').last);
     await tester.pumpAndSettle();
     expect(find.text('继续播放 第2集  01:01'), findsOneWidget);
     expect(find.text('从头播放'), findsOneWidget);
@@ -116,7 +119,9 @@ void main() {
         'updatedAt': 1,
       },
     ]);
-    await tester.tap(find.text('推荐片'));
+    await tester.tap(find.text('推荐'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('推荐片').last);
     await tester.pumpAndSettle();
     expect(find.text('继续播放 第3集  00:05'), findsOneWidget);
   });

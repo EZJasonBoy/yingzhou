@@ -56,6 +56,8 @@ void main() {
   testWidgets('live TV: tune in, guide, change channel, dead line fallback, fullscreen', (tester) async {
     MediaKit.ensureInitialized();
     final settings = MemorySettings();
+    // These tests start from the site's recommendations, whatever an earlier one left in the history.
+    await settings.setString('ui.startPage', 'home');
     await tester.pumpWidget(TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings)));
     await until(tester, () => shows('直播'), 'the shell');
     await tester.tap(find.text('直播').first);

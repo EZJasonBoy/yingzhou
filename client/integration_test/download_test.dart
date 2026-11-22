@@ -120,6 +120,8 @@ void main() {
     addTearDown(() => http('GET', '/demo/slow/set?refuse=0&delayMs=400&connectMs=300&kBps=300'));
 
     final settings = MemorySettings();
+    // These tests start from the site's recommendations, whatever an earlier one left in the history.
+    await settings.setString('ui.startPage', 'home');
     await settings.setString('siteKey', 'demo');
     await tester.pumpWidget(
       TvboxApp(

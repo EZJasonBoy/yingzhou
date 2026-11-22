@@ -41,9 +41,9 @@ void main() {
     expect(find.byKey(const Key('section-chips')), findsNothing);
 
     final mode = tester.getRect(find.byKey(const Key('user-mode')));
-    final theme = tester.getRect(find.byKey(const Key('theme-mode')));
-    expect(theme.left, greaterThan(mode.right), reason: 'the two cards of 外观 side by side');
-    expect((theme.top - mode.top).abs(), lessThan(1));
+    final start = tester.getRect(find.byKey(const Key('start-page')));
+    expect(start.left, greaterThan(mode.right), reason: 'the first two cards of 外观 side by side');
+    expect((start.top - mode.top).abs(), lessThan(1));
 
     expect(onScreen(tester, find.byKey(const Key('about-engine'))), isFalse, reason: '关于 is further down');
     await tester.tap(find.byKey(const Key('section-index-about')));

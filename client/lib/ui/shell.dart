@@ -44,6 +44,13 @@ class _AppShellState extends State<AppShell> {
   final _searchFocus = FocusNode();
 
   @override
+  void initState() {
+    super.initState();
+    // 我的, when that is what the user has the app open on (设置 → 外观); 首页 picks its own first tab.
+    if (AppScope.read(context).userMode.startsOn == StartPage.library) _index = _libraryPage;
+  }
+
+  @override
   void dispose() {
     _searchFocus.dispose();
     super.dispose();
@@ -65,6 +72,7 @@ class _AppShellState extends State<AppShell> {
     (icon: Icons.receipt_long_outlined, selected: Icons.receipt_long_rounded, label: '日志'),
   ];
 
+  static const _libraryPage = 3;
   static const _settingsPage = 6;
   static const _logPage = 7;
 

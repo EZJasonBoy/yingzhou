@@ -1,5 +1,12 @@
 import 'vod_models.dart';
 
+/// What a line is called on screen. Sites name their lines as they like (`超级无敌4k`, `ikm3u8`); [numbered] (simple
+/// mode) calls them 线路 1, 线路 2 … in the site's order instead. A line without a name is numbered either way.
+String lineTitle(List<PlayLine> lines, int index, {bool numbered = false}) {
+  final name = lines[index].name.trim();
+  return numbered || name.isEmpty ? '线路 ${index + 1}' : name;
+}
+
 /// What one episode is called on screen.
 class EpisodeLabel {
   const EpisodeLabel({required this.number, required this.text, required this.full, this.also});

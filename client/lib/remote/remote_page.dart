@@ -418,8 +418,17 @@ class _RemoteControlPageState extends State<RemoteControlPage> with WidgetsBindi
           builder: (context, c) => ListView(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
             children: [
-              if (text != null) _textBar(text),
-              if (p != null) _nowPlaying(p, scheme),
+              // 正在播放 and the screen's text field share one slot of a fixed height above the D-pad, playing or not,
+              // typing or not: the keys under it never move.
+              SizedBox(
+                height: 66 + MediaQuery.textScalerOf(context).scale(44),
+                child: Stack(
+                  children: [
+                    Positioned.fill(child: _nowPlaying(p, scheme)),
+                    if (text != null) Positioned(left: 0, top: 0, right: 0, child: _textBar(text)),
+                  ],
+                ),
+              ),
               const SizedBox(height: 12),
               Center(child: _dpad((c.maxWidth * 0.78).clamp(220, 320).toDouble(), scheme)),
               const SizedBox(height: 16),
@@ -467,9 +476,11 @@ class _RemoteControlPageState extends State<RemoteControlPage> with WidgetsBindi
     );
   }
 
+  /// The screen's text field, over 正在播放 (not above it, which would push the keys down).
   Widget _textBar(Map<String, Object?> field) {
     final hint = '${field['hint'] ?? ''}';
     return Card(
+      elevation: 6,
       child: Padding(
         padding: const EdgeInsets.all(8),
         child: TextField(
@@ -489,40 +500,61 @@ class _RemoteControlPageState extends State<RemoteControlPage> with WidgetsBindi
     );
   }
 
-  Widget _nowPlaying(Map<String, Object?> p, ColorScheme scheme) {
+  /// What the screen plays, with its seek bar, or that it plays nothing: always the same lines, so always the same
+  /// height. An error takes the place of the seek bar, with 重试.
+  Widget _nowPlaying(Map<String, Object?>? p, ColorScheme scheme) {
     final duration = _remote.duration;
     final position = _remote.position;
-    final seekable = p['seekable'] == true && duration > Duration.zero;
-    final error = '${p['error'] ?? ''}';
+    final seekable = p != null && p['seekable'] == true && duration > Duration.zero;
+    final error = p == null ? '' : '${p['error'] ?? ''}';
+    final max = seekable ? duration.inMilliseconds.toDouble() : 1.0;
+    final at = seekable ? (_seeking ?? position.inMilliseconds.toDouble()).clamp(0.0, max) : 0.0;
+    const figures = TextStyle(fontFeatures: [FontFeature.tabularFigures()]);
     return Card(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('${p['title'] ?? ''}', key: const Key('remote-title'), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
-            Text(error.isNotEmpty ? error : '${p['subtitle'] ?? ''}', style: TextStyle(color: error.isNotEmpty ? scheme.error : scheme.onSurfaceVariant, fontSize: 13), maxLines: 2),
-            if (error.isNotEmpty) TextButton(onPressed: () => _send('retry'), child: const Text('重试')),
-            if (seekable)
-              Row(
-                children: [
-                  Text(_clock(Duration(milliseconds: (_seeking ?? position.inMilliseconds.toDouble()).round())), style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()])),
-                  Expanded(
-                    child: Slider(
-                      key: const Key('remote-seek'),
-                      max: duration.inMilliseconds.toDouble(),
-                      value: (_seeking ?? position.inMilliseconds.toDouble()).clamp(0, duration.inMilliseconds.toDouble()),
-                      onChanged: (v) => setState(() => _seeking = v),
-                      // Once, when the finger is lifted.
-                      onChangeEnd: (v) {
-                        setState(() => _seeking = null);
-                        _send('seek', {'position': v.round()});
-                      },
+            Text(
+              p == null ? '屏幕上没有在播放' : '${p['title'] ?? ''}',
+              key: p == null ? null : const Key('remote-title'),
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: p == null ? scheme.onSurfaceVariant : null),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              p == null ? '开始播放后，这里显示进度' : (error.isNotEmpty ? error : '${p['subtitle'] ?? ''}'),
+              style: TextStyle(color: error.isNotEmpty ? scheme.error : scheme.onSurfaceVariant, fontSize: 13),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            SizedBox(
+              height: 48,
+              child: error.isNotEmpty
+                  ? Align(alignment: Alignment.centerLeft, child: TextButton(onPressed: () => _send('retry'), child: const Text('重试')))
+                  : Row(
+                      children: [
+                        Text(seekable ? _clock(Duration(milliseconds: at.round())) : '--:--', style: figures),
+                        Expanded(
+                          child: Slider(
+                            key: seekable ? const Key('remote-seek') : null,
+                            max: max,
+                            value: at,
+                            onChanged: seekable ? (v) => setState(() => _seeking = v) : null,
+                            // Once, when the finger is lifted.
+                            onChangeEnd: seekable
+                                ? (v) {
+                                    setState(() => _seeking = null);
+                                    _send('seek', {'position': v.round()});
+                                  }
+                                : null,
+                          ),
+                        ),
+                        Text(seekable ? _clock(duration) : (p?['kind'] == 'live' ? '直播' : '--:--'), style: figures),
+                      ],
                     ),
-                  ),
-                  Text(_clock(duration), style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()])),
-                ],
-              ),
+            ),
           ],
         ),
       ),

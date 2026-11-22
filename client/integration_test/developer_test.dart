@@ -1,5 +1,6 @@
 // Developer mode in the real desktop app, on a real video from the demo engine: the statistics over the picture are
-// libmpv's own, 链路 names the address the player was given, and the log has the steps.
+// libmpv's own, 链路 names the address the player was given, 播放信息 says the same in plain words, and the log has
+// the steps.
 //   engine: tvbox-engine --demo --port 19978
 //   flutter test integration_test/developer_test.dart -d windows [--dart-define=SHOT_DIR=<dir>]
 import 'dart:io';
@@ -70,6 +71,8 @@ void main() {
     MediaKit.ensureInitialized();
     DevLog.instance = DevLog();
     final settings = MemorySettings();
+    // These tests start from the site's recommendations, whatever an earlier one left in the history.
+    await settings.setString('ui.startPage', 'home');
     await settings.setString('siteKey', 'demo');
     await settings.setString(UserModeController.key, UserMode.developer.name);
     await tester.pumpWidget(TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings)));
@@ -117,6 +120,25 @@ void main() {
     print('LOG:\n${lines.join('\n')}');
     expect(lines.any((l) => l.contains(' 解析 ')), isTrue);
     expect(lines.any((l) => l.contains('出画面')), isTrue);
+
+    // 播放信息, the plain-words panel every mode has: on a real video its picture, speed and decoder are libmpv's.
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape); // closes 链路
+    await wait(tester, const Duration(milliseconds: 300));
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp); // the controls again
+    await wait(tester, const Duration(milliseconds: 300));
+    await tester.tap(find.byKey(const Key('info-button')));
+    await wait(tester, const Duration(seconds: 3));
+    final info = find.byKey(const Key('play-info'));
+    expect(info, findsOneWidget);
+    expect(chain, findsNothing, reason: 'one panel at a time');
+    final said = textsIn(info);
+    // ignore: avoid_print
+    print('INFO:${said.join(' | ')}');
+    expect(said.any((t) => RegExp(r'^(4K|2K|\d+p)（\d+×\d+）').hasMatch(t)), isTrue, reason: 'the picture in words, from libmpv: $said');
+    expect(said, contains('解码'));
+    expect(said.any((t) => t.startsWith('已缓冲 ')), isTrue);
+    expect(said.any((t) => t.contains('http')), isFalse, reason: 'no addresses in 播放信息');
+    await shot(tester, 'play-info-real');
 
     // Esc closes the panel, then leaves the player: back on the detail page.
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);

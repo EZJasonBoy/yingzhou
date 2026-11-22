@@ -86,6 +86,8 @@ void main() {
   Future<void> start(WidgetTester tester, String site) async {
     MediaKit.ensureInitialized();
     final settings = MemorySettings();
+    // These tests start from the site's recommendations, whatever an earlier one left in the history.
+    await settings.setString('ui.startPage', 'home');
     await settings.setString('siteKey', site);
     await tester.pumpWidget(TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings)));
   }

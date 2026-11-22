@@ -381,7 +381,7 @@ class PlayerPhoneInfo extends StatefulWidget {
     required this.episode,
     required this.onLine,
     required this.onEpisode,
-    this.showLines = true,
+    this.numberedLines = false,
     this.actions = const [],
     this.panel,
     this.panelTitle = '',
@@ -399,7 +399,8 @@ class PlayerPhoneInfo extends StatefulWidget {
   final ValueChanged<int> onEpisode;
 
   /// The lines are offered (not in simple mode, where the player changes line by itself).
-  final bool showLines;
+  /// Simple mode: the lines go by their numbers (线路 1, 线路 2 …), not by what the site calls them.
+  final bool numberedLines;
   final List<Widget> actions;
   final Widget? panel;
   final String panelTitle;
@@ -483,7 +484,7 @@ class _PlayerPhoneInfoState extends State<PlayerPhoneInfo> {
                     const SizedBox(height: 10),
                     SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: widget.actions)),
                   ],
-                  if (lines.length > 1 && widget.showLines) ...[
+                  if (lines.length > 1) ...[
                     const SizedBox(height: 14),
                     Text('线路', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 4),
@@ -496,7 +497,7 @@ class _PlayerPhoneInfoState extends State<PlayerPhoneInfo> {
                               padding: const EdgeInsets.only(right: 8),
                               child: ChoiceChip(
                                 key: Key('phone-line-$i'),
-                                label: Text(lines[i].name.isEmpty ? '线路 ${i + 1}' : lines[i].name),
+                                label: Text(lineTitle(lines, i, numbered: widget.numberedLines)),
                                 selected: i == widget.line,
                                 onSelected: (_) => widget.onLine(i),
                               ),

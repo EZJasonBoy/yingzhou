@@ -51,6 +51,8 @@
 </main>
 
 <div id="view-remote" hidden>
+  <!-- The header, and under it the text bar, which floats over the top of the page (never pushes the keys down). -->
+  <div class="head">
   <header class="top">
     <button id="screen-button" class="screen-button" type="button" aria-label="换一块屏幕">
       <img src="icon.svg" alt="" width="28" height="28">
@@ -64,17 +66,19 @@
     <input id="text-input" type="text" enterkeyhint="done" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="屏幕上的输入框">
     <button id="text-done" class="primary small" type="submit">完成</button>
   </form>
+  </div>
 
   <section id="tab-remote" class="tab">
-    <div id="now" class="now" hidden>
+    <!-- Always there and always the same size, playing or not: the keys under it keep their place. -->
+    <div id="now" class="now idle">
       <div class="now-text">
-        <b id="now-title"></b>
-        <small id="now-sub"></small>
+        <b id="now-title">屏幕上没有在播放</b>
+        <small id="now-sub">开始播放后，这里显示进度</small>
       </div>
       <div class="seek">
-        <span id="now-pos" class="time">00:00</span>
-        <input id="now-seek" class="range" type="range" min="0" max="1" step="1" value="0" aria-label="进度">
-        <span id="now-dur" class="time">00:00</span>
+        <span id="now-pos" class="time">--:--</span>
+        <input id="now-seek" class="range" type="range" min="0" max="1" step="1" value="0" aria-label="进度" disabled>
+        <span id="now-dur" class="time">--:--</span>
       </div>
     </div>
 

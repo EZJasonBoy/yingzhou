@@ -64,7 +64,8 @@ extension _PlayerRemoteGlue on _PlayerPageState {
       'fullscreen': _window.isFullScreen,
       // The TV layout on a desktop is always full screen.
       'canFullscreen': _window.supported && !_window.pinnedFullScreen,
-      'lines': [for (final l in lines) l.name],
+      // As the screen names them (simple mode numbers its lines).
+      'lines': [for (var i = 0; i < lines.length; i++) _lineName(i)],
       'line': _line,
       'episodes': [for (final e in _currentLine.episodes) e.name],
       'episode': _episode,

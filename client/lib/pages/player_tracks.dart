@@ -595,8 +595,8 @@ class PlayerSidePanel extends StatelessWidget {
               // A Material of its own: list tiles and switches in the panel draw their ink on it.
               child: Material(
                 color: scheme.surfaceContainer.withValues(alpha: 0.96),
-                // On a TV the remote's focus goes into the panel when it opens.
-                child: SizedBox(width: width, child: SafeArea(child: TvAutofocus(child: child))),
+                // On a TV the remote's focus goes into the panel when it opens, and stays in it.
+                child: SizedBox(width: width, child: SafeArea(child: TvFocusLayer(child: child))),
               ),
             ),
           ),
@@ -632,9 +632,12 @@ class _Stepper extends StatelessWidget {
     return Row(
       children: [
         IconButton.outlined(tooltip: minusTooltip, onPressed: onMinus, icon: Icon(minusIcon)),
-        SizedBox(
-          width: 120,
-          child: Text(label, textAlign: TextAlign.center, style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()])),
+        // Narrower when the row is short of room (a TV's larger buttons, with 归零 after them).
+        Flexible(
+          child: SizedBox(
+            width: 120,
+            child: Text(label, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()])),
+          ),
         ),
         IconButton.outlined(tooltip: plusTooltip, onPressed: onPlus, icon: Icon(plusIcon)),
         if (trailing != null) ...[const SizedBox(width: 8), trailing!],

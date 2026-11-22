@@ -87,8 +87,60 @@ void main() {
       expect(entry(e), findsOneWidget, reason: e);
     }
     expect(entry('日志'), findsNothing);
-    expect(find.text('继续看'), findsNothing);
+    expect(find.text('继续看'), findsOneWidget, reason: '继续看 is a tab of 首页 in every mode');
+    expect(find.text('推荐片'), findsOneWidget, reason: 'nothing watched yet: the site\'s recommendations come first');
     expect(find.byKey(const Key('home-switcher')), findsOneWidget);
+  });
+
+  testWidgets('standard: 首页 opens on 继续看 once something was watched, and 继续播放 carries on there', (tester) async {
+    await pumpApp(tester, await storeWith(null), history: [watched]);
+    expect(find.text('第2集 · 还剩 19 分钟'), findsOneWidget);
+    expect(find.byKey(const Key('home-switcher')), findsOneWidget, reason: 'the standard header stays');
+    await tester.tap(find.byKey(const Key('simple-resume')));
+    await pass(tester, const Duration(seconds: 1));
+    expect(player.opened, ['https://cdn.test/2.m3u8']);
+    await leave(tester);
+  });
+
+  testWidgets('the app opens on what 设置 says: 站点推荐, 我的, or 继续看', (tester) async {
+    Future<SettingsStore> starting(String page, [UserMode? mode]) async {
+      final store = await storeWith(mode);
+      await store.setString(UserModeController.startKey, page);
+      return store;
+    }
+
+    await pumpApp(tester, await starting('home'), history: [watched]);
+    expect(find.text('推荐片'), findsOneWidget, reason: 'the site\'s recommendations, although something was watched');
+    expect(find.byKey(const Key('simple-resume')), findsNothing);
+    expect(find.text('继续看'), findsOneWidget, reason: 'still a tab');
+
+    await pumpApp(tester, await starting('library'), history: [watched]);
+    expect(tester.widget<NavigationRail>(find.byType(NavigationRail)).selectedIndex, 3, reason: '我的 is the page showing');
+    expect(find.byKey(const Key('simple-resume')), findsNothing);
+
+    // Simple mode has no 我的: 继续看 stands in for it.
+    await pumpApp(tester, await starting('library', UserMode.simple), history: [watched]);
+    expect(tester.widget<NavigationRail>(find.byType(NavigationRail)).selectedIndex, 0);
+    expect(find.byKey(const Key('simple-resume')), findsOneWidget);
+  });
+
+  testWidgets('设置 → 外观: what the app opens on is chosen there; simple mode is not offered 我的', (tester) async {
+    final store = await storeWith(null);
+    await pumpApp(tester, store);
+    await tester.tap(entry('设置'));
+    await tester.pumpAndSettle();
+    final choice = find.byKey(const Key('start-page'));
+    await tester.ensureVisible(choice);
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: choice, matching: find.text('我的')), findsOneWidget);
+    await tester.tap(find.descendant(of: choice, matching: find.text('站点推荐')));
+    await tester.pumpAndSettle();
+    expect(store.getString(UserModeController.startKey), 'home');
+    expect(find.textContaining('下次打开映舟时生效'), findsOneWidget);
+
+    await tester.tap(find.descendant(of: find.byKey(const Key('user-mode')), matching: find.text('简单')));
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: find.byKey(const Key('start-page')), matching: find.text('我的')), findsNothing);
   });
 
   testWidgets('simple: three entries and 设置; 首页 opens on what was being watched, and 继续播放 carries on there', (tester) async {
@@ -117,10 +169,101 @@ void main() {
     expect(find.byKey(const Key('danmaku-toggle')), findsOneWidget);
     expect(find.text('倍速'), findsOneWidget);
     expect(find.byKey(const Key('stats-button')), findsNothing);
-    // The lines are not offered while the player can still change them itself.
+    // One line only: nothing to choose, so the row is left out.
     await tester.tap(find.text('选集'));
     await tester.pump();
     expect(find.byType(ChoiceChip), findsNothing);
+    await leave(tester);
+  });
+
+  testWidgets('simple: the lines are there to choose, by their numbers, on the detail page and in the player', (tester) async {
+    await pumpApp(tester, await storeWith(UserMode.simple), lines: [fakeLine('超级无敌4k', 'a'), fakeLine('ikm3u8', 'b')]);
+    await tester.tap(find.text('推荐片'));
+    await tester.pumpAndSettle();
+    expect(find.text('线路'), findsOneWidget);
+    expect(find.text('线路 1'), findsOneWidget);
+    expect(find.text('线路 2'), findsOneWidget);
+    expect(find.textContaining('超级无敌4k'), findsNothing, reason: 'what the site calls its lines is not shown in simple mode');
+
+    await tester.tap(find.byKey(const Key('detail-line-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('播放'));
+    await pass(tester, const Duration(seconds: 1));
+    expect(player.opened, ['https://cdn.test/b/1.m3u8'], reason: 'the line chosen on the detail page plays');
+    expect(find.text('线路 2'), findsOneWidget, reason: 'the bar says which line');
+
+    // In the player: 选集 has the lines on top.
+    await tester.tap(find.text('选集'));
+    await tester.pump();
+    expect(find.byKey(const Key('player-line-0')), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const Key('player-line-0')), matching: find.text('线路 1')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('player-line-0')));
+    await pass(tester, const Duration(seconds: 1));
+    expect(player.opened.last, 'https://cdn.test/a/1.m3u8', reason: 'the same episode on the line chosen');
+    await leave(tester);
+  });
+
+  testWidgets('播放信息 is in every mode: plain words, the line, and the way to another line', (tester) async {
+    await pumpApp(
+      tester,
+      await storeWith(UserMode.simple),
+      lines: [fakeLine('超级无敌4k', 'a'), fakeLine('ikm3u8', 'b')],
+      deadLines: {'超级无敌4k'},
+    );
+    await tester.tap(find.text('推荐片'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('播放'));
+    await pass(tester, const Duration(seconds: 1));
+    expect(player.opened, ['https://cdn.test/b/1.m3u8'], reason: 'the first line is dead: the second plays');
+    player.playTo(const Duration(minutes: 5));
+    player.bufferTo(const Duration(minutes: 5, seconds: 28));
+    await pass(tester, const Duration(milliseconds: 300));
+
+    await tester.tap(find.byKey(const Key('info-button')));
+    await pass(tester, const Duration(milliseconds: 1500));
+    final info = find.byKey(const Key('play-info'));
+    expect(info, findsOneWidget);
+    expect(find.descendant(of: info, matching: find.text('很顺')), findsOneWidget);
+    expect(find.descendant(of: info, matching: find.text('已缓冲 28 秒')), findsOneWidget);
+    expect(find.descendant(of: info, matching: find.text('采集站')), findsOneWidget, reason: 'the site it comes from');
+    expect(find.descendant(of: info, matching: find.textContaining('线路 2（共 2 条）')), findsOneWidget);
+    expect(find.descendant(of: info, matching: find.text('这一集换过的线路')), findsOneWidget);
+    expect(find.descendant(of: info, matching: find.textContaining('线路 1：')), findsOneWidget, reason: 'the line given up on, and why');
+    expect(find.descendant(of: info, matching: find.textContaining('http')), findsNothing, reason: 'no addresses outside the developer mode');
+    expect(find.byKey(const Key('play-info-stats')), findsNothing);
+    expect(find.byKey(const Key('play-info-chain')), findsNothing);
+
+    // The buffer running dry is said in words too.
+    player.bufferTo(const Duration(minutes: 5, seconds: 1));
+    await pass(tester, const Duration(milliseconds: 1500));
+    expect(find.descendant(of: info, matching: find.text('快见底了，可能会卡')), findsOneWidget);
+
+    // 换线路 leads to the lines.
+    await tester.tap(find.byKey(const Key('play-info-lines')));
+    await tester.pump();
+    expect(info, findsNothing, reason: 'the episodes replace it');
+    expect(find.byKey(const Key('player-line-0')), findsOneWidget);
+    await leave(tester);
+  });
+
+  testWidgets('播放信息 in the developer mode leads on to the statistics and 链路', (tester) async {
+    await pumpApp(tester, await storeWith(UserMode.developer), lines: [fakeLine('线路一', 'a'), fakeLine('线路二', 'b')]);
+    await tester.tap(find.text('推荐片'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('播放'));
+    await pass(tester, const Duration(seconds: 1));
+    await tester.tap(find.byKey(const Key('info-button')));
+    await pass(tester, const Duration(milliseconds: 300));
+    final info = find.byKey(const Key('play-info'));
+    expect(find.descendant(of: info, matching: find.textContaining('线路一（共 2 条）')), findsOneWidget, reason: 'the site\'s own names outside simple mode');
+    await tester.tap(find.byKey(const Key('play-info-stats')));
+    await pass(tester, const Duration(milliseconds: 300));
+    expect(find.byKey(const Key('player-stats')), findsOneWidget);
+    expect(find.text('收起完整统计'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('play-info-chain')));
+    await pass(tester, const Duration(milliseconds: 300));
+    expect(find.byKey(const Key('player-chain')), findsOneWidget);
+    expect(info, findsNothing, reason: 'one panel at a time');
     await leave(tester);
   });
 
@@ -148,7 +291,7 @@ void main() {
 
     await tester.tap(find.text('推荐片'));
     await tester.pumpAndSettle();
-    expect(find.text('线路'), findsNothing, reason: 'no lines to choose from');
+    expect(find.text('线路'), findsNothing, reason: 'one line: nothing to choose from');
     expect(find.byKey(const Key('detail-refresh')), findsNothing);
     expect(find.widgetWithText(OutlinedButton, '第1集'), findsOneWidget);
   });
@@ -164,7 +307,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('播放'));
     await pass(tester, const Duration(seconds: 1));
-    expect(find.text('这条线路打不开，已换到下一条'), findsOneWidget);
+    expect(find.text('线路 1 打不开，已换到线路 2'), findsOneWidget);
     expect(player.opened, ['https://cdn.test/b/1.m3u8']);
     await leave(tester);
   });

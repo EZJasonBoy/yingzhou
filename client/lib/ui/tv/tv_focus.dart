@@ -612,6 +612,47 @@ class _TvAutofocusState extends State<TvAutofocus> {
   Widget build(BuildContext context) => Focus(focusNode: _node, child: widget.child);
 }
 
+/// A layer over the screen that holds the remote's focus while it is there (a panel over the player): a focus scope,
+/// so the D-pad walks what is inside and stops at its edges instead of reaching whatever lies under it. On a TV it
+/// takes the focus when it appears: the first control in it, or the layer itself while it has none yet (the D-pad
+/// then goes in as soon as there is something). A [TvAutofocus] inside picks another control than the first.
+class TvFocusLayer extends StatefulWidget {
+  const TvFocusLayer({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<TvFocusLayer> createState() => _TvFocusLayerState();
+}
+
+class _TvFocusLayerState extends State<TvFocusLayer> {
+  final _scope = FocusScopeNode(debugLabel: 'TvFocusLayer');
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !DeviceFormScope.readIsTv(context)) return;
+      for (final n in _scope.traversalDescendants) {
+        if (n.context != null && n.canRequestFocus) {
+          n.requestFocus();
+          return;
+        }
+      }
+      _scope.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _scope.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => FocusScope(node: _scope, child: widget.child);
+}
+
 /// Scales its child up while anything inside it has the focus, on a TV (for buttons that keep their own look).
 class TvFocusScale extends StatefulWidget {
   const TvFocusScale({super.key, required this.child, this.scale = 1.08});

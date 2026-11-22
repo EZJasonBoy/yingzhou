@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>网页控制台 · 日志与崩溃</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&amp;family=Noto+Sans+SC:wght@400;500;600&amp;family=Noto+Serif+SC:wght@600&amp;display=swap">
+<style>
+body{margin:0;background:#13122b}
+a{color:#f4a08a;text-decoration:none}a:hover{color:#f7b6a4}
+.nv{height:44px;padding:0 12px;border-radius:10px;display:flex;align-items:center;gap:12px;font-size:15px;line-height:22px;color:#aaa6d2}
+.nv:hover{background:#1b1a3a;color:#ece9ff}
+.nv svg{flex:none}
+.row{display:grid;grid-template-columns:96px 40px 52px minmax(0,1fr);gap:14px;padding:7px 16px;align-items:baseline}
+.row:hover{background:#201e42}
+.t{font-family:ui-monospace,'Cascadia Mono',Consolas,monospace;font-size:12px;color:#8d89bb;font-variant-numeric:tabular-nums}
+.m{font-size:12px;line-height:18px;color:#aaa6d2}
+.msg{font-size:13px;line-height:20px;color:#ece9ff;overflow-wrap:anywhere}
+.chip{background:transparent;font-family:inherit;height:32px;padding:0 14px;border-radius:8px;border:1px solid #36335f;font-size:13px;color:#aaa6d2;display:flex;align-items:center;gap:6px}
+.btn{height:40px;padding:0 18px;border-radius:12px;border:1px solid #726eab;background:transparent;color:#ece9ff;font-family:inherit;font-size:14px;font-weight:500;display:inline-flex;align-items:center;gap:8px}
+.crash{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:14px 16px}
+</style>
+</helmet>
+<div style="width: 100%; min-height: 100vh; box-sizing: border-box; background: #13122b; color: #ece9ff; font-family: 'Noto Sans SC', 'Microsoft YaHei UI', 'PingFang SC', sans-serif; display: flex; flex-wrap: wrap">
+  <nav aria-label="控制台" style="flex: 1 0 232px; box-sizing: border-box; padding: 20px 14px; background: #0d0c22; display: flex; flex-direction: column; gap: 6px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 0 6px 12px">
+      <img src="/_blob/fe6f97f08daa9b59c906a0df93c38058" alt="" style="width: 32px; height: 32px; border-radius: 8px">
+      <span style="font-size: 16px; line-height: 24px; font-weight: 600">映舟控制台</span>
+    </div>
+    <button type="button" aria-label="换一块屏幕" style="margin-bottom: 10px; padding: 10px 12px; border: 1px solid #36335f; border-radius: 12px; background: #1b1a3a; color: #ece9ff; font-family: inherit; text-align: left; display: flex; align-items: center; gap: 10px">
+      <span style="width: 8px; height: 8px; border-radius: 50%; background: #84cfae; flex: none"></span>
+      <span style="display: flex; flex-direction: column; min-width: 0">
+        <span style="font-size: 15px; line-height: 22px; font-weight: 600">客厅电视</span>
+        <span style="font-size: 12px; line-height: 16px; color: #aaa6d2">已连接 · Android TV</span>
+      </span>
+      <svg width="14" height="14" viewBox="0 0 14 14" style="margin-left: auto; flex: none" aria-hidden="true"><path d="M3 5 L7 9 L11 5" fill="none" stroke="#aaa6d2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <a class="nv" href="Console-Playing.dc.html"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><rect x="2" y="4" width="16" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 7.5 L12 9.5 L8.5 11.5 Z" fill="currentColor"/><path d="M7 17.5 H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>遥控与播放</a>
+    <a class="nv" href="Console-Sources.dc.html"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5 H17 M3 10 H17 M3 15 H11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="15.5" cy="15" r="1.6" fill="currentColor"/></svg>订阅与站点</a>
+    <a class="nv" href="Console-Data.dc.html"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 12 V16 H17 V12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 3 V12 M6.5 8.5 L10 12 L13.5 8.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>数据</a>
+    <span class="nv" style="color: #f4a08a; font-weight: 600" aria-current="page"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5 H12 L15.5 6 V17.5 H5 Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7.5 9 H13 M7.5 12 H13 M7.5 15 H11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>日志与崩溃
+      <svg width="22" height="6" viewBox="0 0 22 6" style="margin-left: auto" aria-hidden="true"><path d="M1 4 q2.5 -3 5 0" fill="none" stroke="#ee8c86" stroke-width="2" stroke-linecap="round"/><path d="M6 4 q2.5 3 5 0" fill="none" stroke="#f0c670" stroke-width="2" stroke-linecap="round"/><path d="M11 4 q2.5 -3 5 0 q2.5 3 5 0" fill="none" stroke="#84cfae" stroke-width="2" stroke-linecap="round"/></svg>
+    </span>
+    <a class="nv" href="Console-Settings.dc.html"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6 H17 M3 10 H17 M3 14 H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="7" cy="6" r="2" fill="#0d0c22" stroke="currentColor" stroke-width="1.8"/><circle cx="13" cy="10" r="2" fill="#0d0c22" stroke="currentColor" stroke-width="1.8"/><circle cx="8.5" cy="14" r="2" fill="#0d0c22" stroke="currentColor" stroke-width="1.8"/></svg>设置</a>
+    <div style="margin-top: auto; padding: 14px 6px 0; font-size: 12px; line-height: 18px; color: #8d89bb">这台设备：书房的电脑<br><a href="#" style="color: #aaa6d2; text-decoration: underline">取消配对</a></div>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 28px 32px 36px; display: flex; flex-direction: column; gap: 20px">
+    <header style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+      <h1 style="margin: 0; font-family: 'Noto Serif SC', 'Songti SC', SimSun, serif; font-size: 28px; line-height: 36px; font-weight: 600">日志与崩溃</h1>
+      <div style="margin-left: auto; display: flex; gap: 10px; flex-wrap: wrap">
+        <button type="button" class="btn">
+          <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 3 H12 L15 6 V17 H6 Z M9 9 V14 M6.8 11.8 L9 14 L11.2 11.8" fill="none" stroke="#ece9ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>生成反馈
+        </button>
+        <button type="button" class="btn" style="border: 0; background: #f4a08a; color: #2a1520; font-weight: 600">
+          <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 12 V16 H17 V12 M10 3 V12 M6.5 8.5 L10 12 L13.5 8.5" fill="none" stroke="#2a1520" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>下载全部
+        </button>
+      </div>
+    </header>
+
+    <p style="margin: -8px 0 0; display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 20px; color: #aaa6d2">
+      <svg width="16" height="16" viewBox="0 0 20 20" style="flex: none; margin-top: 2px" aria-hidden="true"><path d="M10 2.5 L16 5 V9.5 C16 13.5 13.5 16.3 10 17.5 C6.5 16.3 4 13.5 4 9.5 V5 Z" fill="none" stroke="#84cfae" stroke-width="1.8" stroke-linejoin="round"/><path d="M7.3 9.8 L9.3 11.8 L12.8 8" fill="none" stroke="#84cfae" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      客厅电视 · Android TV 12 · 映舟 0.4.1468250 · 内置引擎。订阅地址、令牌和用户目录在离开电视之前已经遮掉，可以直接贴出去。
+    </p>
+
+    <section style="display: flex; flex-direction: column; gap: 10px">
+      <h2 style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600">崩溃记录 <span style="font-family: Barlow, sans-serif; font-weight: 500; color: #aaa6d2">2</span></h2>
+      <div style="border-radius: 14px; background: #1b1a3a; overflow: hidden">
+        <div class="crash" style="border-bottom: 1px solid #36335f">
+          <svg width="20" height="20" viewBox="0 0 24 24" style="flex: none" aria-hidden="true"><path d="M12 3.5 L21.5 20 H2.5 Z" fill="none" stroke="#ff8f9a" stroke-width="2" stroke-linejoin="round"/><path d="M12 10 V14.5 M12 17 V17.4" stroke="#ff8f9a" stroke-width="2.2" stroke-linecap="round"/></svg>
+          <span class="t" style="font-size: 13px; color: #aaa6d2">今天 20:14:31</span>
+          <span class="m" style="font-size: 13px">播放器</span>
+          <span class="msg" style="flex: 999 1 280px; font-weight: 600">Null check operator used on a null value</span>
+          <span style="font-size: 12px; line-height: 18px; padding: 1px 8px; border-radius: 6px; background: rgba(240,198,112,0.14); color: #f0c670">重复 3 次</span>
+          <span style="display: flex; gap: 16px; font-size: 13px"><a href="#detail">查看</a><a href="#detail">下载</a></span>
+        </div>
+        <div class="crash">
+          <svg width="20" height="20" viewBox="0 0 24 24" style="flex: none" aria-hidden="true"><path d="M12 3.5 L21.5 20 H2.5 Z" fill="none" stroke="#ff8f9a" stroke-width="2" stroke-linejoin="round"/><path d="M12 10 V14.5 M12 17 V17.4" stroke="#ff8f9a" stroke-width="2.2" stroke-linecap="round"/></svg>
+          <span class="t" style="font-size: 13px; color: #aaa6d2">11-20 22:31:07</span>
+          <span class="m" style="font-size: 13px">内置引擎</span>
+          <span class="msg" style="flex: 999 1 280px; font-weight: 600">引擎进程退出，退出码 137</span>
+          <span style="display: flex; gap: 16px; font-size: 13px"><a href="#detail">查看</a><a href="#detail">下载</a></span>
+        </div>
+      </div>
+    </section>
+
+    <section style="display: flex; flex-direction: column; gap: 10px">
+      <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+        <h2 style="margin: 0 6px 0 0; font-size: 16px; line-height: 24px; font-weight: 600">日志</h2>
+        <button type="button" class="chip" style="background: #ece9ff; border-color: #ece9ff; color: #13122b; font-weight: 600">全部 <span style="font-family: Barlow, sans-serif">128</span></button>
+        <button type="button" class="chip">信息 <span style="font-family: Barlow, sans-serif">119</span></button>
+        <button type="button" class="chip" style="color: #f0c670">警告 <span style="font-family: Barlow, sans-serif">8</span></button>
+        <button type="button" class="chip" style="color: #ff8f9a">错误 <span style="font-family: Barlow, sans-serif">1</span></button>
+        <span style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #aaa6d2; margin-left: 6px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #84cfae"></span>实时跟随</span>
+        <label style="margin-left: auto; flex: 0 1 300px; height: 36px; box-sizing: border-box; padding: 0 12px; border-radius: 10px; background: #1b1a3a; border: 1px solid #36335f; display: flex; align-items: center; gap: 8px">
+          <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="#8d89bb" stroke-width="2"/><path d="M16 16 L20 20" stroke="#8d89bb" stroke-width="2" stroke-linecap="round"/></svg>
+          <input type="text" placeholder="搜模块、内容或报错" aria-label="搜日志" style="flex: 1; min-width: 0; border: 0; background: transparent; color: #ece9ff; font-family: inherit; font-size: 13px; outline: none">
+        </label>
+      </div>
+
+      <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+        <div style="flex: 999 1 520px; min-width: 0; border-radius: 14px; background: #1b1a3a; padding: 8px 0; overflow: hidden">
+          <div class="row" style="border-bottom: 1px solid #36335f"><span class="m" style="color: #8d89bb">时间</span><span class="m" style="color: #8d89bb">级别</span><span class="m" style="color: #8d89bb">模块</span><span class="m" style="color: #8d89bb">内容</span></div>
+          <div class="row"><span class="t">20:13:58.112</span><span class="m">信息</span><span class="m">订阅</span><span class="msg">读取本地缓存（2 小时前更新）</span></div>
+          <div class="row"><span class="t">20:13:58.336</span><span class="m">信息</span><span class="m">线路</span><span class="msg">测了 4 条：线路 1 打不开，线路 2 最快</span></div>
+          <div class="row"><span class="t">20:13:59.180</span><span class="m">信息</span><span class="m">播放器</span><span class="msg">线路 2 出画面 · 840 ms</span></div>
+          <div class="row"><span class="t">20:14:20.006</span><span class="m" style="color: #f0c670">警告</span><span class="m">播放器</span><span class="msg" style="color: #f0c670">分片超时 5 秒，重试 1/2</span></div>
+          <div class="row"><span class="t">20:14:26.611</span><span class="m" style="color: #f0c670">警告</span><span class="m">播放器</span><span class="msg" style="color: #f0c670">缓冲见底，画面停住</span></div>
+          <div class="row" style="background: #24224a; box-shadow: inset 3px 0 0 #ff8f9a"><span class="t" style="color: #ece9ff">20:14:31.502</span><span class="m" style="color: #ff8f9a; font-weight: 600">错误</span><span class="m" style="color: #ece9ff">播放器</span><span class="msg" style="font-weight: 600">Null check operator used on a null value</span></div>
+          <div class="row"><span class="t">20:14:31.910</span><span class="m">信息</span><span class="m">应用</span><span class="msg">崩溃记录已保存在这台电视上</span></div>
+          <div class="row"><span class="t">20:15:02.004</span><span class="m">信息</span><span class="m">应用</span><span class="msg">重新打开播放页，从 12:40 接着播</span></div>
+          <div class="row"><span class="t">20:15:02.870</span><span class="m">信息</span><span class="m">播放器</span><span class="msg">线路 2 出画面 · 790 ms</span></div>
+        </div>
+
+        <aside id="detail" style="flex: 1 1 320px; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; padding: 18px; border-radius: 14px; background: #1b1a3a">
+          <div style="display: flex; align-items: center; gap: 8px">
+            <span style="font-size: 12px; line-height: 18px; padding: 1px 8px; border-radius: 6px; background: rgba(255,143,154,0.16); color: #ff8f9a; font-weight: 600">错误</span>
+            <span class="t">20:14:31.502 · 播放器</span>
+          </div>
+          <h3 style="margin: 0; font-size: 16px; line-height: 24px; font-weight: 600">Null check operator used on a null value</h3>
+          <dl style="margin: 0; display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 6px 12px; font-size: 13px; line-height: 20px">
+            <dt style="color: #aaa6d2">在哪</dt><dd style="margin: 0">星河往事 第二季 · 第 3 集 · 线路 2</dd>
+            <dt style="color: #aaa6d2">之前</dt><dd style="margin: 0">缓冲见底 5 秒后</dd>
+            <dt style="color: #aaa6d2">之后</dt><dd style="margin: 0">播放页关闭，记录已保存</dd>
+          </dl>
+          <div style="padding: 10px 12px; border-radius: 8px; background: #13122b; font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 12px; line-height: 19px; color: #aaa6d2; overflow-wrap: anywhere">
+            #0 _PlayerPageState._readBuffered<br>
+            #1 Timer._handleTimeout<br>
+            #2 _RawReceivePort._handleMessage<br>
+            <span style="color: #8d89bb">… 还有 14 行</span>
+          </div>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap">
+            <button type="button" class="btn" style="flex: 1 1 120px; justify-content: center">复制这一条</button>
+            <button type="button" class="btn" style="flex: 1 1 120px; justify-content: center">只下载这一条</button>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <p style="margin: 0; font-size: 12px; line-height: 18px; color: #8d89bb">「下载全部」存成一个文本文件，「生成反馈」打开 GitHub 的新问题页并把全文复制到这台设备的剪贴板。应用一打开就崩的时候这里连不上：记录存在电视上，下次能打开时还在。</p>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

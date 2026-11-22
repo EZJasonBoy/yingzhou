@@ -57,6 +57,8 @@ class FlowRecorder {
     tester.view.physicalSize = size * pixelRatio;
     addTearDown(tester.view.reset);
     final settings = MemorySettings();
+    // These tests start from the site's recommendations, whatever an earlier one left in the history.
+    await settings.setString('ui.startPage', 'home');
     await settings.setString('siteKey', siteKey);
     for (final e in prefs.entries) {
       await settings.setString(e.key, e.value);

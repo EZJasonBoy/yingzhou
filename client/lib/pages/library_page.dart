@@ -39,6 +39,17 @@ class _LibraryPageState extends State<LibraryPage> {
     if (widget.visible && !oldWidget.visible) _reload();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The page was on screen before the engine was there (the app opens on 我的): it loads once the engine is.
+    if (widget.visible && _data == null && AppScope.of(context).connected) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _data == null) _reload();
+      });
+    }
+  }
+
   void _reload() {
     final state = AppScope.read(context);
     if (!state.connected) return;

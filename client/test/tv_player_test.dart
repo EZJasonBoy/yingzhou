@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:tvbox_client/app_state.dart';
 import 'package:tvbox_client/engine/engine_client.dart';
 import 'package:tvbox_client/main.dart';
+import 'package:tvbox_client/pages/player_tracks.dart';
 import 'package:tvbox_client/ui/device_form.dart';
 import 'package:tvbox_client/ui/tv/tv_focus.dart';
 
@@ -169,6 +170,92 @@ void main() {
     await pass(tester, const Duration(seconds: 1));
     expect(find.text('片名 · 第2集'), findsNothing, reason: 'the second leaves the player');
     expect(find.byKey(const Key('detail-play')), findsOneWidget, reason: 'back on the detail page');
+    await leave(tester);
+  });
+
+  testWidgets('player: the focus stays in the panel or the bar that is open, at every edge', (tester) async {
+    await openPlayer(tester);
+    const left = LogicalKeyboardKey.arrowLeft, right = LogicalKeyboardKey.arrowRight;
+    const up = LogicalKeyboardKey.arrowUp, down = LogicalKeyboardKey.arrowDown;
+    final panel = find.byType(PlayerSidePanel);
+    final seeks = player.seeks.length;
+
+    /// Every key of [keys], each pressed past the edge: the focus never leaves the panel, nothing is sought, no
+    /// second panel opens.
+    Future<void> stayIn(String name, List<LogicalKeyboardKey> keys) async {
+      for (final k in keys) {
+        for (var i = 0; i < 8; i++) {
+          await key(tester, k);
+          expect(panel, findsOneWidget, reason: '$name: one panel after ${k.keyLabel} ×${i + 1}');
+          expect(focusIsIn(panel), isTrue, reason: '$name: the focus is still in the panel after ${k.keyLabel} ×${i + 1}');
+          expect(player.seeks.length, seeks, reason: '$name: ${k.keyLabel} does not seek behind the panel');
+        }
+      }
+    }
+
+    /// From the settings (menu key), ↓ to [chip] and OK.
+    Future<void> fromSettings(Key chip) async {
+      await key(tester, LogicalKeyboardKey.contextMenu);
+      // The chips further down the panel are built as the list scrolls to them.
+      bool onChip() => find.byKey(chip).evaluate().isNotEmpty && focusIsIn(find.byKey(chip));
+      for (var i = 0; i < 12 && !onChip(); i++) {
+        await key(tester, down);
+      }
+      expect(onChip(), isTrue, reason: '↓ reaches $chip');
+      await key(tester, LogicalKeyboardKey.select);
+      expect(panel, findsOneWidget, reason: 'the panel from the settings replaces them');
+      expect(focusIsIn(panel), isTrue, reason: 'and takes the focus');
+    }
+
+    await key(tester, LogicalKeyboardKey.contextMenu);
+    await stayIn('设置', [left, down, right, up]);
+    await key(tester, LogicalKeyboardKey.goBack);
+    expect(panel, findsNothing);
+
+    await key(tester, up);
+    await stayIn('选集', [left, down, right, up]);
+    await key(tester, LogicalKeyboardKey.goBack);
+
+    await fromSettings(const Key('tv-set-tracks'));
+    await stayIn('字幕与音轨', [down, left, right, up]);
+    await key(tester, LogicalKeyboardKey.goBack);
+
+    await fromSettings(const Key('tv-set-danmaku'));
+    await stayIn('弹幕设置', [down, left, right, up]);
+    await key(tester, LogicalKeyboardKey.goBack);
+
+    await fromSettings(const Key('tv-set-info'));
+    expect(find.byKey(const Key('play-info')), findsOneWidget, reason: '播放信息 is in the settings of the remote');
+    await stayIn('播放信息', [down, left, right, up]);
+    await key(tester, LogicalKeyboardKey.goBack);
+    expect(panel, findsNothing);
+    expect(focused(), isNot(isA<FocusScopeNode>()), reason: 'BACK gives the focus back to the picture');
+
+    // The bar (↓): its ends stop the D-pad; the picture does not seek under it.
+    await key(tester, down);
+    bool onButton() {
+      var found = false;
+      focused().context!.visitAncestorElements((e) {
+        found = e.widget is IconButton || e.widget is ButtonStyleButton;
+        return !found;
+      });
+      return found;
+    }
+    for (final k in [right, left]) {
+      for (var i = 0; i < 12; i++) {
+        await key(tester, k);
+        expect(onButton(), isTrue, reason: '${k.keyLabel} ×${i + 1} stays on a button of the bar');
+      }
+    }
+    expect(player.seeks.length, seeks, reason: 'walking the bar does not seek');
+
+    // The bar fades out under the focus: the picture has the keys again, ↑ opens one panel with the focus in it.
+    await pass(tester, const Duration(seconds: 5));
+    await key(tester, right);
+    expect(player.seeks.length, seeks + 1, reason: '→ seeks once the bar is gone');
+    await key(tester, up);
+    expect(panel, findsOneWidget);
+    expect(focusIsIn(find.byKey(const Key('tv-episode-0'))), isTrue);
     await leave(tester);
   });
 

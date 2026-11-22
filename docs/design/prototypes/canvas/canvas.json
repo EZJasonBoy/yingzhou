@@ -12,13 +12,27 @@
     "Simple-Phone-Home.dc.html": { "x": 2720, "y": 1240, "w": 390, "h": 844, "title": "简单 · 手机首页（晨）" },
     "Simple-Lock.dc.html": { "x": 3190, "y": 1240, "w": 390, "h": 844, "title": "简单 · 设置上锁（晨）" },
     "Dev-Player.dc.html": { "x": 0, "y": 2520, "w": 1440, "h": 900, "title": "开发者 · 播放统计与链路", "expand": "fill", "is_interactive": true },
-    "Dev-Log.dc.html": { "x": 1520, "y": 2520, "w": 1440, "h": 900, "title": "开发者 · 引擎日志", "expand": "fill", "is_interactive": true }
+    "Dev-Log.dc.html": { "x": 1520, "y": 2520, "w": 1440, "h": 900, "title": "开发者 · 引擎日志", "expand": "fill", "is_interactive": true },
+    "TV-Dial-Info.dc.html": { "x": 0, "y": 3856, "w": 1280, "h": 720, "title": "电视播放 · 信息条（OK）", "is_interactive": true },
+    "TV-Dial.dc.html": { "x": 1360, "y": 3856, "w": 1280, "h": 720, "title": "电视播放 · 拨盘（↑ 或 ↓）", "is_interactive": true },
+    "TV-Dial-Lines.dc.html": { "x": 2720, "y": 3856, "w": 1280, "h": 720, "title": "电视播放 · 拨盘 → 线路", "is_interactive": true },
+    "TV-Dial-PlayInfo.dc.html": { "x": 4080, "y": 3856, "w": 1280, "h": 720, "title": "电视播放 · 拨盘 → 播放信息", "is_interactive": true },
+    "TV-Switching.dc.html": { "x": 5440, "y": 3856, "w": 1280, "h": 720, "title": "电视播放 · 正在换线路", "is_interactive": true },
+    "Console-Playing.dc.html": { "x": 0, "y": 5012, "w": 1440, "h": 900, "title": "控制台 · 遥控与播放", "expand": "fill", "is_interactive": true },
+    "Console-Sources.dc.html": { "x": 1520, "y": 5012, "w": 1440, "h": 1024, "title": "控制台 · 订阅与站点", "expand": "fill", "is_interactive": true },
+    "Console-Data.dc.html": { "x": 3040, "y": 5012, "w": 1440, "h": 1048, "title": "控制台 · 数据", "expand": "fill", "is_interactive": true },
+    "Console-Logs.dc.html": { "x": 4560, "y": 5012, "w": 1440, "h": 900, "title": "控制台 · 日志与崩溃", "expand": "fill", "is_interactive": true },
+    "Console-Settings.dc.html": { "x": 6080, "y": 5012, "w": 1440, "h": 900, "title": "控制台 · 设置", "expand": "fill", "is_interactive": true },
+    "Console-Phone-More.dc.html": { "x": 7600, "y": 5012, "w": 390, "h": 844, "title": "控制台 · 手机上的「更多」", "is_interactive": true },
+    "Console-Phone-Logs.dc.html": { "x": 8070, "y": 5012, "w": 390, "h": 844, "title": "控制台 · 手机上的日志与崩溃", "is_interactive": true }
   },
-  "order": ["Main.dc.html", "Mode-Phone.dc.html", "Simple-TV-Home.dc.html", "Simple-TV-Player.dc.html", "Simple-Phone-Home.dc.html", "Simple-Lock.dc.html", "Dev-Player.dc.html", "Dev-Log.dc.html"],
+  "order": ["Main.dc.html", "Mode-Phone.dc.html", "Simple-TV-Home.dc.html", "Simple-TV-Player.dc.html", "Simple-Phone-Home.dc.html", "Simple-Lock.dc.html", "Dev-Player.dc.html", "Dev-Log.dc.html", "TV-Dial-Info.dc.html", "TV-Dial.dc.html", "TV-Dial-Lines.dc.html", "TV-Dial-PlayInfo.dc.html", "TV-Switching.dc.html", "Console-Playing.dc.html", "Console-Sources.dc.html", "Console-Data.dc.html", "Console-Logs.dc.html", "Console-Settings.dc.html", "Console-Phone-More.dc.html", "Console-Phone-Logs.dc.html"],
   "notes": {
     "row-pick": { "x": 0, "y": -300, "text": "第一次打开：选一种用法", "kind": "title1", "maxW": 1750 },
     "row-simple": { "x": 0, "y": 940, "text": "简单模式：打开就看", "kind": "title1", "maxW": 3580 },
-    "row-dev": { "x": 0, "y": 2220, "text": "开发者模式：看清每一步", "kind": "title1", "maxW": 2960 }
+    "row-dev": { "x": 0, "y": 2220, "text": "开发者模式：看清每一步", "kind": "title1", "maxW": 2960 },
+    "row-dial": { "x": 0, "y": 3556, "text": "电视播放页：拨盘（↑↓ 叫出，←→ 直接调，OK 进去）", "kind": "title1", "maxW": 6720 },
+    "row-console": { "x": 0, "y": 4712, "text": "网页控制台：配对后在电脑或手机的浏览器里", "kind": "title1", "maxW": 8460 }
   },
   "designSystems": [
     { "title": "映舟设计系统", "namespace": "yingzhou", "artifact": "https://claude.ai/artifact/7h61ihx9nu69YWYqqMJ6NS", "version": "1795286855-a118", "copiedAt": "2026-11-21T19:05:00Z" }

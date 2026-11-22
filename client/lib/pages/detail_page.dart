@@ -604,8 +604,9 @@ class _DetailPageState extends State<DetailPage> {
           if (mode.developer) _DevInfo(detail: d, line: line, runtime: AppScope.of(context).siteInfo(d.site)?.runtime.name ?? ''),
           if (d.lines.isNotEmpty) ...[
             const SizedBox(height: 28),
-            // Simple mode has no lines to choose from: the player takes the next one when a line fails.
-            if (!simple) ...[
+            // The line is the user's to choose in every mode. Simple mode numbers the lines (what the sites call
+            // them means little) and leaves the row out when there is only one.
+            if (!simple || d.lines.length > 1) ...[
               Text('线路', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
               const SizedBox(height: 10),
               Wrap(
@@ -614,7 +615,8 @@ class _DetailPageState extends State<DetailPage> {
                 children: [
                   for (var i = 0; i < d.lines.length; i++)
                     ChoiceChip(
-                      label: Text('${d.lines[i].name}  ${d.lines[i].episodes.length}'),
+                      key: Key('detail-line-$i'),
+                      label: Text(_lineChip(d.lines, i, simple)),
                       selected: i == _line,
                       onSelected: (_) => setState(() => _line = i),
                     ),
@@ -705,6 +707,15 @@ class _DetailPageState extends State<DetailPage> {
     final width = MediaQuery.sizeOf(context).width - padding.left - padding.right - 48;
     final columns = ((width + 8) / 92).floor().clamp(3, 8);
     return (width - 8 * (columns - 1)) / columns - 0.5;
+  }
+
+  /// A line on its chip: the site's name and how many episodes it has; in simple mode its number, and the episodes
+  /// only where the lines differ in that (one of them is ahead or behind).
+  static String _lineChip(List<PlayLine> lines, int i, bool simple) {
+    final count = lines[i].episodes.length;
+    if (!simple) return '${lines[i].name}  $count';
+    final differ = lines.any((l) => l.episodes.length != count);
+    return differ ? '${lineTitle(lines, i, numbered: true)} · $count 集' : lineTitle(lines, i, numbered: true);
   }
 
   Widget _kv(String k, String v, ColorScheme scheme) => Text.rich(

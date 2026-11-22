@@ -5,14 +5,17 @@ class _TvPlayerUi {
   /// The play / pause button of the bar: ↓ puts the focus there.
   final playButton = FocusNode(debugLabel: 'tv-play');
 
-  /// The 设置 panel of the remote (menu key): line, speed, subtitles, danmaku.
-  bool settingsOpen = false;
+  /// The bars, a focus scope of their own: the D-pad walks their buttons and stops at the ends.
+  final bars = FocusScopeNode(debugLabel: 'tv-bars');
 
   /// Holding ← / →: where the seek will land when the key is let go, and how long it has been held.
   Duration? slideTarget;
   int slideRepeats = 0;
 
-  void dispose() => playButton.dispose();
+  void dispose() {
+    playButton.dispose();
+    bars.dispose();
+  }
 }
 
 /// The player with a remote control, the way TVBox users know it:
@@ -24,10 +27,28 @@ class _TvPlayerUi {
 ///   (line, speed, subtitles and audio, danmaku);
 /// - channel up / down, page up / down and next / previous track change the episode; fast-forward / rewind seek 30 s;
 /// - BACK closes what is open (a panel, then the bar) before it leaves the player.
+///
+/// One layer has the focus at a time: the picture, the bar or the panel that is open. A panel is a focus scope that
+/// the D-pad cannot walk out of; the bar cannot take the focus while it is hidden or a panel lies over it.
 extension _PlayerTv on _PlayerPageState {
   bool get _tvMode => isTv(context);
 
-  bool get _tvPanelOpen => _anyPanelOpen || _tvUi.settingsOpen;
+  bool get _tvPanelOpen => _anyPanelOpen;
+
+  /// The bars on a TV. While they are hidden or a panel is open nothing in them can have the focus; if a button of
+  /// theirs had it, it goes back to the picture (or the panel takes it).
+  Widget _tvBars(BuildContext context) {
+    final focusable = _barsVisible && !_anyPanelOpen;
+    if (!focusable && _tvUi.bars.hasFocus && !_anyPanelOpen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_anyPanelOpen && !_focus.hasPrimaryFocus) _focus.requestFocus();
+      });
+    }
+    return ExcludeFocus(
+      excluding: !focusable,
+      child: FocusScope(node: _tvUi.bars, child: _buildControls(context)),
+    );
+  }
 
   KeyEventResult _onTvKey(KeyEvent event) {
     final key = event.logicalKey;
@@ -62,6 +83,12 @@ extension _PlayerTv on _PlayerPageState {
         _seekBy(Duration(seconds: TvKeys.isRewind(key) ? -30 : 30));
         return KeyEventResult.handled;
       }
+    }
+    if (_tvPanelOpen && !_panelScope.hasFocus) {
+      // A panel is open but the focus is not in it (it had nothing to take the focus yet, or the focus fell back to
+      // the picture): the key puts it back into the panel and does nothing else, never a seek or a second panel.
+      if (down) _panelScope.requestFocus();
+      return KeyEventResult.handled;
     }
     if (inside) {
       // The D-pad walks the bar or the panel, OK presses; every key keeps the bar up a little longer.
@@ -133,16 +160,8 @@ extension _PlayerTv on _PlayerPageState {
 
   /// BACK: the settings, then a panel, then the bar, then out of the player.
   void _tvBack() {
-    if (_tvUi.settingsOpen) {
-      _tvSet(() => _tvUi.settingsOpen = false);
-      _focus.requestFocus();
-    } else if (_anyPanelOpen) {
-      _tvSet(() {
-        _panelOpen = false;
-        _tracksOpen = false;
-        _danmakuOpen = false;
-        _chainOpen = false;
-      });
+    if (_anyPanelOpen) {
+      _tvSet(() => _panel = null);
       _focus.requestFocus();
     } else if (_controlsVisible && _player.state.playing) {
       _hideTimer?.cancel();
@@ -155,28 +174,15 @@ extension _PlayerTv on _PlayerPageState {
     }
   }
 
+  /// The menu key: the settings, in place of any other panel; again, closed.
   void _tvToggleSettings() {
-    final open = !_tvUi.settingsOpen;
-    _tvSet(() {
-      _panelOpen = false;
-      _tracksOpen = false;
-      _danmakuOpen = false;
-      _chainOpen = false;
-      _tvUi.settingsOpen = open;
-    });
+    final open = !_tvSettingsOpen;
+    _tvSet(() => _panel = open ? _PlayerPanel.tvSettings : null);
     if (!open) _focus.requestFocus();
   }
 
-  /// Opens one of the other panels from the settings.
-  void _tvOpen({bool tracks = false, bool danmaku = false, bool episodes = false, bool chain = false}) {
-    _tvSet(() {
-      _tvUi.settingsOpen = false;
-      _tracksOpen = tracks;
-      _danmakuOpen = danmaku;
-      _panelOpen = episodes;
-      _chainOpen = chain;
-    });
-  }
+  /// Opens one of the other panels from the settings, in their place.
+  void _tvOpen(_PlayerPanel panel) => _tvSet(() => _panel = panel);
 
   /// The episode list for the remote: lines on top, then the episodes, the one playing has the focus.
   Widget _buildTvEpisodePanel(BuildContext context) {
@@ -192,7 +198,7 @@ extension _PlayerTv on _PlayerPageState {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
         children: [
-          if (lines.length > 1 && _linesOffered) ...[
+          if (lines.length > 1) ...[
             Text('线路', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 15)),
             const SizedBox(height: 10),
             Wrap(
@@ -202,7 +208,7 @@ extension _PlayerTv on _PlayerPageState {
                 for (var i = 0; i < lines.length; i++)
                   _tvChip(
                     context,
-                    lines[i].name.isEmpty ? '线路 ${i + 1}' : lines[i].name,
+                    _lineName(i),
                     selected: i == _line,
                     key: Key('tv-line-$i'),
                     onTap: () {
@@ -279,7 +285,7 @@ extension _PlayerTv on _PlayerPageState {
                 ),
             ],
           ),
-          if (lines.length > 1 && _linesOffered) ...[
+          if (lines.length > 1) ...[
             heading('线路'),
             Wrap(
               spacing: 10,
@@ -288,7 +294,7 @@ extension _PlayerTv on _PlayerPageState {
                 for (var i = 0; i < lines.length; i++)
                   _tvChip(
                     context,
-                    lines[i].name.isEmpty ? '线路 ${i + 1}' : lines[i].name,
+                    _lineName(i),
                     selected: i == _line,
                     key: Key('tv-set-line-$i'),
                     onTap: () {
@@ -304,7 +310,7 @@ extension _PlayerTv on _PlayerPageState {
             spacing: 10,
             runSpacing: 10,
             children: [
-              _tvChip(context, '字幕与音轨', icon: Icons.subtitles_outlined, key: const Key('tv-set-tracks'), onTap: () => _tvOpen(tracks: true)),
+              _tvChip(context, '字幕与音轨', icon: Icons.subtitles_outlined, key: const Key('tv-set-tracks'), onTap: () => _tvOpen(_PlayerPanel.tracks)),
               _tvChip(
                 context,
                 _danmakuPrefs.enabled ? '弹幕：开' : '弹幕：关',
@@ -313,7 +319,7 @@ extension _PlayerTv on _PlayerPageState {
                 key: const Key('tv-set-danmaku-toggle'),
                 onTap: _toggleDanmaku,
               ),
-              _tvChip(context, '弹幕设置', icon: Icons.tune_rounded, key: const Key('tv-set-danmaku'), onTap: () => _tvOpen(danmaku: true)),
+              _tvChip(context, '弹幕设置', icon: Icons.tune_rounded, key: const Key('tv-set-danmaku'), onTap: () => _tvOpen(_PlayerPanel.danmaku)),
             ],
           ),
           heading('选集'),
@@ -322,7 +328,12 @@ extension _PlayerTv on _PlayerPageState {
             '${EpisodeNaming.brief(EpisodeNaming.clean(_currentEpisode.name), columns: 24)}  ·  共 ${_currentLine.episodes.length} 集',
             icon: Icons.playlist_play_rounded,
             key: const Key('tv-set-episodes'),
-            onTap: () => _tvOpen(episodes: true),
+            onTap: () => _tvOpen(_PlayerPanel.episodes),
+          ),
+          heading('信息'),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: _tvChip(context, '播放信息', icon: Icons.info_outline_rounded, key: const Key('tv-set-info'), onTap: () => _tvOpen(_PlayerPanel.info)),
           ),
           if (_dev) ...[
             heading('开发者'),
@@ -331,7 +342,7 @@ extension _PlayerTv on _PlayerPageState {
               runSpacing: 10,
               children: [
                 _tvChip(context, _statsOpen ? '播放统计：开' : '播放统计：关', icon: Icons.query_stats_rounded, selected: _statsOpen, key: const Key('tv-set-stats'), onTap: _toggleStats),
-                _tvChip(context, '片源从哪来', icon: Icons.account_tree_outlined, key: const Key('tv-set-chain'), onTap: () => _tvOpen(chain: true)),
+                _tvChip(context, '片源从哪来', icon: Icons.account_tree_outlined, key: const Key('tv-set-chain'), onTap: () => _tvOpen(_PlayerPanel.chain)),
               ],
             ),
           ],

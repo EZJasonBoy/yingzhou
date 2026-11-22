@@ -692,10 +692,21 @@
 
     renderText(s.text && typeof s.text === 'object' ? s.text : null);
 
-    $('now').hidden = !p;
+    // 正在播放 above the D-pad keeps its place and its size whether something plays or not.
+    $('now').classList.toggle('idle', !p);
     $('play-empty').hidden = !!p;
     $('play-body').hidden = !p;
-    if (!p) return;
+    if (!p) {
+      setText($('now-title'), '屏幕上没有在播放');
+      setText($('now-sub'), '开始播放后，这里显示进度');
+      const bar = seekBars[0];
+      bar.input.disabled = true;
+      bar.input.value = '0';
+      fill(bar.input);
+      setText(bar.pos, '--:--');
+      setText(bar.dur, '--:--');
+      return;
+    }
 
     const live = p.kind === 'live';
     setText($('now-title'), p.title);

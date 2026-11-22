@@ -12,15 +12,17 @@ import '../ui/device_form.dart';
 import '../ui/poster.dart';
 import '../ui/tv/tv_focus.dart';
 import '../ui/tv/tv_widgets.dart';
+import '../ui/user_mode.dart';
 import 'detail_page.dart';
 import 'home_switcher.dart';
 import 'simple_home.dart';
 
-/// 首页：current site's recommendations and categories.
+/// 首页：继续看 (what was being watched, and the favourites: simple_home.dart), then the current site's
+/// recommendations and categories as the next tabs. Which of the first two it opens on is the user's choice
+/// ([StartPage], 设置 → 外观).
 ///
-/// In simple mode ([simple]) it starts on 继续看 (what was being watched, and the favourites: simple_home.dart), the
-/// site's recommendations and categories follow as the next tabs, and the header has one button with the site's
-/// name that opens a panel from the right: the sites, and a step up to the entries and subscriptions.
+/// In simple mode ([simple]) the header has one button with the site's name that opens a panel from the right (the
+/// sites, and a step up to the entries and subscriptions), and the categories have no filters.
 class BrowsePage extends StatefulWidget {
   const BrowsePage({super.key, required this.onOpenSources, this.simple = false});
 
@@ -97,7 +99,8 @@ class _SiteBrowser extends StatefulWidget {
 
   final SiteInfo site;
 
-  /// Simple mode: 继续看 comes first, and the categories have no filters.
+  /// Simple mode: the categories have no filters, and 继续看 stays even when the site has nothing to show (there
+  /// is no 我的 to find it in).
   final bool simple;
 
   /// Set to this page's refresh while its home is loaded, so the header's button can ask the site again.
@@ -108,7 +111,8 @@ class _SiteBrowser extends StatefulWidget {
 }
 
 class _SiteBrowserState extends State<_SiteBrowser> {
-  /// The site's home, and (simple mode) whether anything was watched or kept: 继续看 is where the page opens then.
+  /// The site's home, and whether the page opens on 继续看: that is what the user wants the app to open on
+  /// ([StartPage.resume]) and something was watched or kept.
   late Future<(HomeResult, bool)> _home;
 
   @override
@@ -121,8 +125,9 @@ class _SiteBrowserState extends State<_SiteBrowser> {
   int _refreshes = 0;
 
   void _load({bool refresh = false}) {
-    final client = AppScope.read(context).client;
-    final library = widget.simple ? _watchedAnything(client) : Future.value(false);
+    final app = AppScope.read(context);
+    final client = app.client;
+    final library = app.userMode.startsOn == StartPage.resume ? _watchedAnything(client) : Future.value(false);
     _home = client.home(widget.site.key, refresh: refresh).then((home) async => (home, await library));
   }
 
@@ -177,17 +182,17 @@ class _SiteBrowserState extends State<_SiteBrowser> {
             onAction: () => setState(_load),
           );
         }
-        final (home, watched) = snap.data!;
+        final (home, onResume) = snap.data!;
         final simple = widget.simple;
         final hasRecommend = home.list.isNotEmpty;
-        final tabs = [if (simple) '继续看', if (hasRecommend) '推荐', for (final c in home.classes) c.name];
-        if (tabs.isEmpty) {
+        if (!simple && !hasRecommend && home.classes.isEmpty) {
           return const StatusView(icon: Icons.inbox, message: '这个站点没有返回分类');
         }
+        final tabs = ['继续看', if (hasRecommend) '推荐', for (final c in home.classes) c.name];
         return DefaultTabController(
           length: tabs.length,
-          // Nothing watched yet: what the site recommends is the better start.
-          initialIndex: simple && !watched && tabs.length > 1 ? 1 : 0,
+          // Nothing watched yet, or the user starts on the site: what the site recommends comes first.
+          initialIndex: !onResume && tabs.length > 1 ? 1 : 0,
           child: Column(
             children: [
               Align(
@@ -199,7 +204,7 @@ class _SiteBrowserState extends State<_SiteBrowser> {
               Expanded(
                 child: TabBarView(
                   children: [
-                    if (simple) const SimpleHomeTab(),
+                    const SimpleHomeTab(),
                     if (hasRecommend) _VodGrid.fixed(items: home.list),
                     for (final c in home.classes)
                       _CategoryView(

@@ -95,3 +95,64 @@ class UserModeSettings extends StatelessWidget {
     );
   }
 }
+
+/// What each [StartPage] is called and does, for 设置.
+extension StartPageText on StartPage {
+  String get label => switch (this) {
+    StartPage.resume => '继续看',
+    StartPage.home => '站点推荐',
+    StartPage.library => '我的',
+  };
+
+  IconData get icon => switch (this) {
+    StartPage.resume => Icons.play_circle_outline_rounded,
+    StartPage.home => Icons.home_outlined,
+    StartPage.library => Icons.video_library_outlined,
+  };
+
+  String get summary => switch (this) {
+    StartPage.resume => '首页的「继续看」：上次没看完的那部、最近看过的和收藏。还没看过东西时是站点的推荐。',
+    StartPage.home => '首页上这个站点的推荐；「继续看」在它左边的标签里。',
+    StartPage.library => '「我的」：观看记录、收藏和下载。',
+  };
+}
+
+/// 设置 → 外观 → 打开映舟时先显示: 继续看, the site's recommendations, or 我的 (not in simple mode, which has no
+/// such entry). The same in every mode; it takes effect the next time the app starts.
+class StartPageSettings extends StatelessWidget {
+  const StartPageSettings({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = AppScope.of(context).userMode;
+    final scheme = Theme.of(context).colorScheme;
+    final choices = [
+      for (final p in StartPage.values)
+        if (p != StartPage.library || !mode.simple) p,
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('打开映舟时先显示', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+              const SizedBox(height: 10),
+              SegmentedButton<StartPage>(
+                key: const Key('start-page'),
+                showSelectedIcon: false,
+                segments: [for (final p in choices) ButtonSegment(value: p, icon: Icon(p.icon), label: Text(p.label))],
+                selected: {mode.startsOn},
+                onSelectionChanged: (s) => mode.setStartPage(s.first),
+              ),
+              const SizedBox(height: 8),
+              Text('${mode.startsOn.summary}下次打开映舟时生效。', key: const Key('start-page-summary'), style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

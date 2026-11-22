@@ -87,6 +87,8 @@ void main() {
   testWidgets('browse the demo drives and play their videos in the desktop app', (tester) async {
     MediaKit.ensureInitialized();
     final settings = MemorySettings();
+    // These tests start from the site's recommendations, whatever an earlier one left in the history.
+    await settings.setString('ui.startPage', 'home');
     await settings.setString('siteKey', 'demo');
     await tester.pumpWidget(TvboxApp(state: AppState(clientFactory: (url) => EngineClient(url), engineUrl: engineUrl, settings: settings)));
     await until(tester, find.text('星河往事 第二季'));

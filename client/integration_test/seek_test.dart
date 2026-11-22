@@ -218,6 +218,8 @@ void main() {
     await real(tester, () => http('PUT', '/api/v1/settings', {'streamCache': streamCache}));
     addTearDown(() => http('PUT', '/api/v1/settings', {'streamCache': true}));
     final settings = MemorySettings();
+    // These tests start from the site's recommendations, whatever an earlier one left in the history.
+    await settings.setString('ui.startPage', 'home');
     await settings.setString('siteKey', 'demo');
     await tester.pumpWidget(
       TvboxApp(

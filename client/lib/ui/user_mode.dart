@@ -12,15 +12,24 @@ import '../settings.dart';
 ///   video comes from, and the log.
 enum UserMode { simple, standard, developer }
 
+/// What the app shows when it opens (设置 → 外观 → 打开映舟时先显示), in every mode.
+///
+/// - [resume]: 首页 on 继续看 when something was watched or kept, otherwise on what the site recommends.
+/// - [home]: 首页 on what the site recommends.
+/// - [library]: 我的. Simple mode has no such entry: there it means [resume].
+enum StartPage { resume, home, library }
+
 /// The user's [UserMode] and the lock on 设置, kept in the client's settings.
 class UserModeController extends ChangeNotifier {
   UserModeController([this._settings])
     : _mode = UserMode.values.asNameMap()[_settings?.getString(key) ?? ''],
+      _start = StartPage.values.asNameMap()[_settings?.getString(startKey) ?? ''] ?? StartPage.resume,
       // Nothing chosen and no engine ever connected: the very first start.
       firstStart = _settings != null && _settings.getString(key) == null && _settings.getString('engineUrl') == null;
 
   static const key = 'ui.userMode';
   static const pinKey = 'ui.settingsLock';
+  static const startKey = 'ui.startPage';
 
   final SettingsStore? _settings;
   UserMode? _mode;
@@ -35,6 +44,23 @@ class UserModeController extends ChangeNotifier {
 
   bool get simple => mode == UserMode.simple;
   bool get developer => mode == UserMode.developer;
+
+  // ---- what the app opens on
+
+  StartPage _start;
+
+  /// What the user chose in 设置.
+  StartPage get startPage => _start;
+
+  /// What the app opens on in the mode it is in: simple mode has no 我的 to open on.
+  StartPage get startsOn => simple && _start == StartPage.library ? StartPage.resume : _start;
+
+  Future<void> setStartPage(StartPage page) async {
+    if (page == _start) return;
+    _start = page;
+    notifyListeners();
+    await _settings?.setString(startKey, page.name);
+  }
 
   Future<void> set(UserMode mode) async {
     if (mode == _mode) return;
