@@ -374,6 +374,34 @@ DriveEntry   {name, path, dir, size, modified, type: folder|video|subtitle|other
 
 `subtitle` / `audio` 是给这部片选的字幕和音轨，客户端写、客户端读，引擎不解释：`off`（关闭字幕）、`lang:<语言>`、`name:<轨道名>`，空为播放器默认。
 
+## 备份
+
+把订阅、引擎设置、观看历史和收藏存成一个文件，换设备、换引擎时再导进去。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/backup` | 备份（见下） |
+| POST | `/backup?dryRun=1` | 请求体是一个备份：回答导入它会改什么，什么都不写 |
+| POST | `/backup` | `{backup: {…}, include: {subscriptions, history, favorites, settings}}`：导入，回答实际改了什么 |
+
+```json
+{
+  "format": "yingzhou-backup", "version": 1,
+  "exportedAt": 1795097938765,
+  "from": {"name": "客厅电脑"},
+  "subscriptions": [{"id": "a1b2c3d4", "name": "家里的", "url": "https://…/tv.json", "usedAt": 1795097000000}],
+  "settings": {"githubProxy": false, "doh": "", …},
+  "history": [{"site", "vodId", "name", "positionMs", "updatedAt", …}],
+  "favorites": [{"site", "vodId", "name", "addedAt", …}]
+}
+```
+
+- `exportedAt` 是毫秒时间戳；`from.name` 是引擎在局域网里的名字，没有时是它的平台。`subscriptions` 和 `/subscriptions` 一样，**地址是明文**（文件是用来还原的，不脱敏）；`settings` 和 `/settings` 一样；`history`、`favorites` 是全部。
+- 回答（预览和导入相同）：`{subscriptions: {add, skip}, history: {add, update, keep}, favorites: {add, skip}, settings: {keys: [...]}}`。
+- 导入从不删除：地址相同的订阅跳过（这里的名字不变）；同一部片（站点和 `vodId` 相同）的观看记录取 `updatedAt` 晚的那条，备份里的晚就 `update`，这里的晚或一样就 `keep`，记录保留原来的时间；收藏没有的才加；设置只在 `include.settings` 为 `true` 时写，`keys` 是值真正变了的那几项。导入设置后不会重新加载配置，由客户端决定。
+- `include` 里没写的部分：订阅、历史、收藏照常导入，设置不导入。预览只给一个备份时按全部（含设置）回答；也可以和导入一样给 `{backup, include}`。
+- 不是映舟的备份（不是 JSON 对象、`format` 不对、没有 `version`）回答 400 `BAD_BACKUP`「这不是映舟的备份文件」；`version` 比引擎认识的新时 400 `BACKUP_TOO_NEW`；内容不完整时 400 `BAD_BACKUP`「备份文件不完整或已经损坏」；导入时没有 `backup` 回答 400 `BAD_REQUEST`。
+
 ## Python 蜘蛛
 
 只有桌面 / NAS 的独立引擎有这组接口（安卓内置引擎没有 Python，返回 404，客户端据此不显示「Python 蜘蛛」设置）。谁能用引擎谁就能看；改动只接受本机的请求（403 `LOCAL_ONLY`），因为 Python 的位置是引擎要运行的程序，安装是往那台机器上放软件。
@@ -445,11 +473,11 @@ Python 站点调用失败时的错误码：`PY_UNAVAILABLE`（没有可用的 Py
 | 屏幕 → 引擎 | `{"type":"state","state":{…}}` | 屏幕现在的状态（见下）。引擎留着最近的一份，并转给所有遥控端 |
 | 引擎 → 屏幕 | `{"type":"controllers","count","names":[…]}` | 遥控端来了或走了；`names` 是它们配对时的设备名（本机是"本机"） |
 | 引擎 → 屏幕 | `{"type":"command","from","id","name","args":{…}}` | 一个遥控端的命令。`from` 是那个遥控端在引擎里的会话号，`id` 是遥控端自己给的（可以没有） |
-| 屏幕 → 引擎 | `{"type":"result","to","id","ok","message"}` | 命令的结果，`to` 填命令的 `from`。做不了时 `ok=false`，`message` 是给拿着手机的人看的原因 |
+| 屏幕 → 引擎 | `{"type":"result","to","id","ok","message","data"}` | 命令的结果，`to` 填命令的 `from`。做不了时 `ok=false`，`message` 是给拿着手机的人看的原因（引擎只留前 200 字）。`data` 可以没有：命令回答的内容（一页日志、一条崩溃记录、几项设置），必须是 JSON 对象，不是对象时引擎把它丢掉、结果照转；`ok=false` 时也可以带 |
 | 遥控端 → 引擎 | `{"type":"command","id","name","args":{…}}` | 转给屏幕 |
 | 引擎 → 遥控端 | `{"type":"screen","screen":{id,name,platform,form,version}}` | 连上后的第一条 |
 | 引擎 → 遥控端 | `{"type":"state","state":{…}}` | 连上后立即一条（屏幕已经报过状态的话），之后每次变化一条 |
-| 引擎 → 遥控端 | `{"type":"result","id","ok","message"}` | 自己发的那条命令的结果（只发给发命令的那个遥控端） |
+| 引擎 → 遥控端 | `{"type":"result","id","ok","message","data"}` | 自己发的那条命令的结果（只发给发命令的那个遥控端）；屏幕带了 `data` 就原样带上，没带就没有这个字段 |
 | 引擎 → 遥控端 | `{"type":"gone"}` | 屏幕断开了；随后连接以 4410 关闭 |
 
 关闭码：
@@ -490,14 +518,30 @@ Python 站点调用失败时的错误码：`PY_UNAVAILABLE`（没有可用的 Py
     "groups": ["央视", …], "group": 0,             // 只有直播有：频道分组，group 是正在浏览的分组
     "subtitles": [{"id": "off", "name": "关闭"}, {"id", "name"}, …], "subtitleId": "…",   // 只有点播有；没有字幕时是空数组
     "audios": [{"id", "name"}, …], "audioId": "…",
-    "danmaku": true                   // 只有点播有：弹幕开关
+    "danmaku": true,                  // 只有点播有：弹幕开关
+    "info": {                         // 只有点播有：「播放信息」那几项
+      "health": "waiting" | "smooth" | "enough" | "thin",   // 正在缓冲 / 很顺（缓冲 ≥ 10 秒）/ 够用（≥ 3 秒）/ 快见底
+      "bufferSeconds": 12.4,          // 已缓冲的秒数
+      "width": 1920, "height": 1080,  // 不知道时 null，下同
+      "fps": 25.0, "bytesPerSecond": 3355443, "hwdec": true,   // hwdec：硬件解码 true、软件解码 false
+      "droppedFrames": 2,
+      "source": "某站", "line": "线路一", "lineCount": 3,
+      "how": "直链 · 直连片源",        // 播放地址怎么来的，和应用里的写法一样
+      "switched": ["线路二：打不开（…）"]   // 这一集换过的线路和原因
+    },
+    "chain": {                        // 只有开发者模式才有：「片源从哪来」，已脱敏
+      "steps": [{"title": "订阅", "detail": "<订阅地址>", "ms": 120, "ok": true}, …],   // ms 可以没有；还没到的那步 ok=false 并带 pending=true
+      "text": "片名：…"               // 应用里「复制诊断信息」复制的那段
+    }
   }
 }
 ```
 
+`info` 里的画面、网速、解码几项是播放器（libmpv）自己报的，只在有遥控端连着时读，跟着状态大约 5 秒更新一次；没有 libmpv 的播放器没有这几项（null）。`chain` 和 `info.switched` 离开设备前和诊断信息一样经过脱敏。
+
 ### 命令
 
-`name` 和 `args`。前五个由客户端的外壳处理，其余交给正在播放的页面（点播播放页或直播页）；没有在播放时回答 `ok=false`「屏幕上现在没有在播放」。
+`name` 和 `args`。前五个和下面「应用自己的数据」里的命令由客户端的外壳处理（在哪一页都行），其余交给正在播放的页面（点播播放页或直播页）；没有在播放时回答 `ok=false`「屏幕上现在没有在播放」。
 
 | 命令 | 参数 | 作用 |
 |---|---|---|
@@ -523,6 +567,32 @@ Python 站点调用失败时的错误码：`PY_UNAVAILABLE`（没有可用的 Py
 | `stop` | — | 点播：退出播放页；直播：退出全屏 |
 
 **按键是真的按键**：客户端把 `key` 合成为 Flutter 的按键事件（方向键、`select`、`goBack`、`contextMenu`、媒体键），走和电视盒子遥控器完全相同的路径，所以焦点移动、每个页面自己的按键处理都不用为遥控另写。`back` 没有任何页面处理时，客户端像安卓的系统返回键那样关掉最上面的页面。不提供、也不打算提供的：控制操作系统的鼠标键盘、系统音量、唤醒和关机。
+
+### 应用自己的数据
+
+日志、崩溃记录、内置引擎的输出和应用自己的设置在客户端里，不在引擎上；网页控制台用下面这些命令向屏幕要，屏幕在结果的 `data` 里回答。诊断相关的内容离开设备之前都经过和「复制诊断信息」相同的脱敏（订阅地址、令牌、签名参数、用户目录），网页拿到的可以直接贴出去。一条回答最长约 380 KB（屏幕的消息上限是 512 KB），更长的日志分页，更长的文本只带前面（日志只带最后几行）。
+
+| 命令 | 参数 | `data` |
+|---|---|---|
+| `diag.summary` | — | `{app:{version, platform, form}, engine:{version, kind}, crashes:[{id, time, source, label, title, repeated}], logCount, hasEngineLog}`。`kind`：`embedded`（安卓应用里的引擎）、`local`（本机，电脑自带的引擎）、`remote`（别的设备上）。`crashes` 新的在前，`time` 是 ISO-8601（UTC），`source` 是 `flutter` / `platform` / `zone` / `android` / `engine`，`label` 是应用里的叫法（界面错误、引擎退出…），`title` 是第一句 |
+| `diag.log` | `{after?, limit?}` | `{entries:[{seq, time, level, module, message, detail}], next, more}`：序号大于 `after` 的日志，旧的在前，最多 `limit` 条（默认 200，最多 500）。`seq` 从 1 起递增、应用运行期间不重复；`level` 是 `info` / `warn` / `error`；`detail` 是字符串到字符串的对象。下次带 `after=next` 就接上；`more=true` 表示后面还有。`after` 比最新的序号还大（应用重新启动过）时从头给 |
+| `diag.crash` | `{id}` | `{text}`：`diag.summary` 列出的那一条崩溃记录的全文。没有这条时 `ok=false` |
+| `diag.engineLog` | `{lines?}` | `{text, title, hasEngineLog}`：内置引擎输出的最后 `lines` 行（默认 300，最多 2000）。电脑上是自带引擎的 `engine.log`，安卓上是这个应用的 logcat；用的是别的设备上的引擎时 `text` 为空、`hasEngineLog=false` |
+| `diag.report` | — | `{text}`：和「复制诊断信息」相同的全文 |
+| `setting.get` | `{keys?}` | `{values:{键: 值}, locked}`：不带 `keys` 是下表全部；不在下表里的键不回答。`locked`：简单模式设了 4 位密码 |
+| `setting.set` | `{key, value, pin?}` | 改好了回答 `{values:{key: 新值}, locked}`；键不在下表、值不对时 `ok=false` 和一句原因。`locked` 时要带 `pin`（和设置里的同一个 4 位密码），没带或不对时 `ok=false`，`data` 是 `{locked: true}` |
+
+能从手机上读写的设置只有这几项：
+
+| 键 | 值 | 说明 |
+|---|---|---|
+| `ui.userMode` | `simple` / `standard` / `developer` | 用法 |
+| `ui.startPage` | `resume` / `home` / `library` | 打开映舟时先显示 |
+| `danmaku.enabled` | `true` / `false` | 弹幕默认开或关（默认开） |
+| `player.osdClock` | `off` / `osd` / `always` | 屏显时间（默认 `osd`） |
+| `play.probeOnDetail` | `true` / `false` | 打开详情时测线路（手机默认关，其他默认开） |
+
+「诊断与反馈」页的二维码打开网页控制台的日志页：`http://<引擎的局域网地址>/remote/#page=logs`；引擎就在这台设备上时带上现在的配对码，`#page=logs&code=<配对码>`（和配对二维码一样，配对过的手机用不上它）。
 
 ## 兼容端点（不在 `/api/v1` 下）
 
