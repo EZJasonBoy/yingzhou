@@ -93,6 +93,7 @@ fun main(args: Array<String>) {
         .let { if ("--strict-tls" in args) it else LenientTls.apply(it) }
         .build()
     val locator = ConfigLocator("$local/file/")
+    val labRoute = labGoRoute(System.getenv("YINGZHOU_LAB_GO_SOURCE"), System.getenv("YINGZHOU_LAB_GO_PORT"))
     val networkProxy = NetworkProxy()
     val configClient = networkProxy.client(client, NetworkProxy.CONFIG)
     val moduleClient = networkProxy.client(client, NetworkProxy.MODULES)
@@ -145,7 +146,7 @@ fun main(args: Array<String>) {
             platform = "jvm-" + System.getProperty("os.name").lowercase().substringBefore(' '),
             capabilities = Capabilities(jar = false, js = false, py = false, sniff = false),
         ),
-        loader = ConfigLoader(configClient, locator, dataCache),
+        loader = ConfigLoader(configClient, locator, dataCache, labRoute),
         http = SiteHttp(client),
         configHttp = SiteHttp(configClient),
         playbackHttp = SiteHttp(playbackClient),

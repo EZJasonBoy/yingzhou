@@ -768,7 +768,7 @@ class Engine(
 
     private suspend fun load(url: String): ConfigLoader.Result = try {
         val trace = kotlin.coroutines.coroutineContext[tvbox.engine.core.cache.LoadTrace]
-        loader.load(url, stored = trace?.stored == true).also { trace?.add(url, it.text, it.fetchedAt) }
+        loader.load(url, stored = trace?.stored == true).also { trace?.add(url, it.text, it.fetchedAt, it.cacheKey) }
     } catch (e: ConfigLoader.LoadException) {
         throw EngineException.ConfigLoadFailed(e.message ?: "load failed")
     }
@@ -834,7 +834,7 @@ class Engine(
     private fun summary(a: Active): ConfigSummary = ConfigSummary(
         subscriptionId = a.subscriptionId,
         url = a.url,
-        fetchedUrl = githubProxy?.route(a.url) ?: a.url,
+        fetchedUrl = loader.routedUrl(a.url) ?: githubProxy?.route(a.url) ?: a.url,
         repos = repoInfos(a),
         sites = a.config.sites.size,
         parses = a.config.parses.size,

@@ -23,6 +23,9 @@ class SiteHttpException(message: String, cause: Throwable? = null) : IOException
  */
 class SiteHttp(private val client: OkHttpClient) {
 
+    fun withReadTimeout(timeoutMs: Long): SiteHttp =
+        SiteHttp(client.newBuilder().readTimeout(timeoutMs, TimeUnit.MILLISECONDS).build())
+
     suspend fun get(
         url: String,
         params: List<Pair<String, String>> = emptyList(),

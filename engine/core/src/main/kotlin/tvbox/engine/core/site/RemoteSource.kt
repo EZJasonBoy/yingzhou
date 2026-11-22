@@ -65,10 +65,11 @@ class RemoteSource(
     private suspend fun call(params: List<Pair<String, String>>, client: SiteHttp = http): String {
         val extend = ext.resolve(bean.ext)
         val all = if (extend.isEmpty()) params else params + ("extend" to extend)
+        val transport = if (bean.timeout > 0) client.withReadTimeout(timeoutMs) else client
         return if (URLEncoder.encode(extend, "UTF-8").length >= 1000) {
-            client.postForm(bean.api, all, timeoutMs = timeoutMs)
+            transport.postForm(bean.api, all, timeoutMs = timeoutMs)
         } else {
-            client.get(bean.api, all, timeoutMs = timeoutMs)
+            transport.get(bean.api, all, timeoutMs = timeoutMs)
         }
     }
 

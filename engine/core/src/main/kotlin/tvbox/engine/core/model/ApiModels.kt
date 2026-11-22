@@ -103,7 +103,7 @@ data class ConfigSummary(
     val subscriptionId: String,
     /** The config actually loaded (for a repository, the chosen entry's url), as the subscription wrote it. */
     val url: String,
-    /** Where [url] is really fetched from, when the GitHub proxy setting changes that; otherwise equal to [url]. */
+    /** The effective address when a subscription route or GitHub proxy applies, otherwise [url]. */
     val fetchedUrl: String = "",
     /**
      * Entries of a multi-repository subscription; empty for a plain config. An entry can be a list itself

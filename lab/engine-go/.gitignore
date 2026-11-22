@@ -1,0 +1,8 @@
+/engine-go
+*.exe
+*.test
+*.jar
+*.dex
+/out/
+/source.json
+/config.json

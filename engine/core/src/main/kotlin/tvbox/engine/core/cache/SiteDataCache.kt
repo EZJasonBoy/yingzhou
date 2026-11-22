@@ -83,8 +83,8 @@ class LoadTrace(val stored: Boolean = false) : AbstractCoroutineContextElement(K
     /** When the oldest of the loaded texts was downloaded. */
     @Volatile var fetchedAt = 0L
 
-    fun add(url: String, text: String, at: Long) {
-        loaded += url to DataCache.hash(text)
+    fun add(url: String, text: String, at: Long, cacheKey: String = url) {
+        loaded += url to DataCache.hash(if (cacheKey == url) text else "$cacheKey\u0000$text")
         if (at > 0 && (fetchedAt == 0L || at < fetchedAt)) fetchedAt = at
     }
 }
