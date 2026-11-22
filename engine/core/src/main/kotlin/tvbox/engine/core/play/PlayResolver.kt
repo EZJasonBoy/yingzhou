@@ -54,29 +54,33 @@ class PlayResolver(
     fun rules(config: TvboxConfig): PlayRules =
         rules.takeIf { it.first == config.rulesJson }?.second ?: PlayRules.parse(config.rulesJson).also { rules = config.rulesJson to it }
 
-    suspend fun resolve(raw: RawPlay, config: TvboxConfig): PlayInfo {
+    /**
+     * [sniff] false leaves a page that needs sniffing to the caller (`kind=sniff`) even when the engine could sniff it:
+     * the line probe reports such a line as it is instead of opening a browser for it.
+     */
+    suspend fun resolve(raw: RawPlay, config: TvboxConfig, sniff: Boolean = true): PlayInfo {
         val url = replaceProxy(raw.url)
         val info = if (raw.parse == 0 && raw.jx == 0) {
             PlayInfo(kind = "direct", url = url, headers = raw.headers)
         } else {
             val parser = chooseParser(raw, config) ?: throw PlayResolveException("this video needs a parser, but the config has none")
             try {
-                sniffIfNeeded(runParser(parser, url, raw, config), config)
+                sniffIfNeeded(runParser(parser, url, raw, config), config, sniff)
             } catch (e: Exception) {
                 if (parser.type == 1 || parser.type == 4) throw e
                 // TVBox stops here; racing the JSON parsers gives the video another chance.
-                superParse(url, config)?.let { sniffIfNeeded(it, config) } ?: throw e
+                superParse(url, config)?.let { sniffIfNeeded(it, config, sniff) } ?: throw e
             }
         }
         return withPlaylist(info)
     }
 
     /** Resolves `kind=sniff` here when the engine can sniff; otherwise the client gets the page to sniff itself. */
-    private suspend fun sniffIfNeeded(info: PlayInfo, config: TvboxConfig): PlayInfo {
+    private suspend fun sniffIfNeeded(info: PlayInfo, config: TvboxConfig, sniff: Boolean): PlayInfo {
         val request = info.sniff ?: return info
         val playRules = rules(config)
         val withScripts = request.copy(scripts = playRules.scriptsFor(request.pageUrl))
-        val sniffer = sniffer ?: return info.copy(sniff = withScripts)
+        val sniffer = sniffer?.takeIf { sniff } ?: return info.copy(sniff = withScripts)
         val found = sniffer.sniff(withScripts) { playRules.isMedia(request.pageUrl, it) }
             ?: throw PlayResolveException("sniffing found no video on the page")
         return PlayInfo(kind = "direct", url = found.url, headers = request.headers + found.headers, parsedBy = info.parsedBy)
@@ -223,6 +227,28 @@ class PlayResolver(
                 sb.append("&h=").append(Base64Compat.encode(json.toByteArray(), urlSafe = true, padding = false))
             }
             return sb.toString()
+        }
+
+        /**
+         * The source address and headers inside an engine playlist address made by [playlistUrl] (with whatever the
+         * engine added after them, `&k=` or `&d=1`); null when [address] is not one.
+         */
+        fun unwrapPlaylist(base: String, address: String): Pair<String, Map<String, String>>? {
+            if (!address.startsWith(base)) return null
+            var url = ""
+            var headers = emptyMap<String, String>()
+            for (part in address.substring(base.length).split('&')) {
+                val name = part.substringBefore('=')
+                val value = part.substringAfter('=', "")
+                when (name) {
+                    "url" -> url = java.net.URLDecoder.decode(value, "UTF-8")
+                    "h" -> headers = runCatching {
+                        com.google.gson.JsonParser.parseString(String(Base64Compat.decode(value))).asJsonObject.entrySet()
+                            .associate { (k, v) -> k to (if (v.isJsonPrimitive) v.asString else v.toString()) }
+                    }.getOrDefault(emptyMap())
+                }
+            }
+            return if (url.isEmpty()) null else url to headers
         }
     }
 }

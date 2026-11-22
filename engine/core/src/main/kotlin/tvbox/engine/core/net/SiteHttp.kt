@@ -14,8 +14,8 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-/** A request to a site failed (network, HTTP status, timeout). */
-class SiteHttpException(message: String, cause: Throwable? = null) : IOException(message, cause)
+/** A request to a site failed (network, HTTP status, timeout). [status] is the HTTP status when there was one, else 0. */
+class SiteHttpException(message: String, cause: Throwable? = null, val status: Int = 0) : IOException(message, cause)
 
 /**
  * Suspending HTTP for site calls. No User-Agent is set, so OkHttp sends its default `okhttp/x.y.z`,
@@ -67,11 +67,31 @@ class SiteHttp(private val client: OkHttpClient) {
         return execute(request, timeoutMs) { it.peekBody(maxBytes).string() }
     }
 
+    /**
+     * GET handing the response to [read] as soon as its headers are in, for a caller that reads the body as it arrives
+     * and stops when it has seen enough (the line probe times the start of a video this way). [read] runs on OkHttp's
+     * thread and must catch what reading throws; the call is cancelled with the coroutine. An HTTP error status throws
+     * as for [get], with [SiteHttpException.status]. [connectTimeoutMs] (when above 0) gives up sooner on a host that
+     * does not answer at all, which then fails with a connect timeout rather than [timeoutMs]'s.
+     */
+    suspend fun <T> open(
+        url: String,
+        headers: Map<String, String> = emptyMap(),
+        timeoutMs: Long = DEFAULT_TIMEOUT_MS,
+        connectTimeoutMs: Long = 0,
+        read: (Response) -> T,
+    ): T {
+        val base = url.toHttpUrlOrNull() ?: throw SiteHttpException("invalid url: $url")
+        return execute(Request.Builder().url(base).headers(headers), timeoutMs, connectTimeoutMs, read)
+    }
+
     private suspend fun execute(builder: Request.Builder, timeoutMs: Long): Pair<String, String> =
         execute(builder, timeoutMs) { (it.body?.string() ?: "") to it.request.url.toString() }
 
-    private suspend fun <T> execute(builder: Request.Builder, timeoutMs: Long, read: (Response) -> T): T {
-        val call = client.newBuilder().callTimeout(timeoutMs, TimeUnit.MILLISECONDS).build().newCall(builder.build())
+    private suspend fun <T> execute(builder: Request.Builder, timeoutMs: Long, connectTimeoutMs: Long = 0, read: (Response) -> T): T {
+        val call = client.newBuilder().callTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+            .apply { if (connectTimeoutMs > 0) connectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS) }
+            .build().newCall(builder.build())
         return suspendCancellableCoroutine { cont ->
             cont.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
@@ -82,7 +102,7 @@ class SiteHttp(private val client: OkHttpClient) {
                 override fun onResponse(call: Call, response: Response) {
                     response.use {
                         if (!it.isSuccessful) {
-                            cont.resumeWithException(SiteHttpException("HTTP ${it.code} from ${call.request().url.host}"))
+                            cont.resumeWithException(SiteHttpException("HTTP ${it.code} from ${call.request().url.host}", status = it.code))
                             return
                         }
                         val value = try {
