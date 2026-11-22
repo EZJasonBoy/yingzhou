@@ -46,12 +46,13 @@ void main() {
     List<Map<String, Object>>? lines,
     Set<String> deadLines = const {},
     bool ask = false,
+    List<Map<String, Object>> extraSites = const [],
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     player = FakePlayer();
-    final engine = fakeEngine(hasConfig: true, history: history, lines: lines, deadLines: deadLines);
+    final engine = fakeEngine(hasConfig: true, history: history, lines: lines, deadLines: deadLines, extraSites: extraSites);
     await tester.pumpWidget(
       DeviceFormScope.fixed(
         form,
@@ -98,8 +99,8 @@ void main() {
     for (final e in ['我的', '源', '网盘', '日志']) {
       expect(entry(e), findsNothing, reason: e);
     }
-    expect(find.byKey(const Key('home-switcher')), findsNothing, reason: 'the site is named, not switched');
-    expect(find.byKey(const Key('home-site-name')), findsOneWidget);
+    expect(find.byKey(const Key('home-switcher')), findsNothing, reason: 'one button instead of three menus');
+    expect(find.byKey(const Key('home-source-panel')), findsOneWidget);
     expect(find.text('推荐'), findsOneWidget, reason: 'the site\'s recommendations are still a tab');
     expect(find.text('电影'), findsOneWidget, reason: 'and so are its categories');
     expect(find.text('第2集 · 还剩 19 分钟'), findsOneWidget);
@@ -109,13 +110,34 @@ void main() {
     expect(player.opened, ['https://cdn.test/2.m3u8'], reason: 'straight into the episode, not the detail page');
     expect(player.seeks, contains(const Duration(seconds: 61)));
 
-    // The player keeps subtitles and episodes; speed and danmaku are left out.
+    // The player keeps speed, danmaku, subtitles and episodes; the developer's tools are not there.
     expect(find.byKey(const Key('tracks-button')), findsOneWidget);
     expect(find.text('选集'), findsOneWidget);
-    expect(find.byKey(const Key('danmaku-button')), findsNothing);
-    expect(find.byKey(const Key('danmaku-toggle')), findsNothing);
+    expect(find.byKey(const Key('danmaku-button')), findsOneWidget);
+    expect(find.byKey(const Key('danmaku-toggle')), findsOneWidget);
+    expect(find.text('倍速'), findsOneWidget);
     expect(find.byKey(const Key('stats-button')), findsNothing);
+    // The lines are not offered while the player can still change them itself.
+    await tester.tap(find.text('选集'));
+    await tester.pump();
+    expect(find.byType(ChoiceChip), findsNothing);
     await leave(tester);
+  });
+
+  testWidgets('simple: the site button opens the sources from the right; a site chosen there is browsed', (tester) async {
+    await pumpApp(tester, await storeWith(UserMode.simple), extraSites: [
+      {'key': 'cms2', 'name': '第二个采集站', 'type': 1, 'searchable': true, 'quickSearch': true, 'filterable': true, 'runtime': 'cms'},
+    ]);
+    await tester.tap(find.byKey(const Key('home-source-panel')));
+    await tester.pumpAndSettle();
+    final panel = find.byKey(const Key('source-panel'));
+    expect(panel, findsOneWidget);
+    expect(tester.getRect(panel).right, tester.view.physicalSize.width, reason: 'against the right edge');
+    expect(find.descendant(of: panel, matching: find.text('选择站点')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('sheet-site-cms2')));
+    await tester.pumpAndSettle();
+    expect(panel, findsNothing, reason: 'choosing closes it');
+    expect(find.descendant(of: find.byKey(const Key('home-source-panel')), matching: find.text('第二个采集站')), findsOneWidget);
   });
 
   testWidgets('simple: with nothing watched yet 首页 opens on the recommendations', (tester) async {

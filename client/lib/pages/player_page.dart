@@ -49,8 +49,8 @@ part 'player_tv.dart';
 /// seconds, or the stream breaks off long before the end) is replaced by the next line that has the episode, carrying
 /// on from the position reached. Every line gets one turn; a line the user picked by hand is not switched away from.
 ///
-/// Modes (ui/user_mode.dart). Simple: the bar keeps play, previous / next, subtitles and episodes; speed, danmaku
-/// and the choice of line are left out, and a line that fails is replaced with a plain sentence. Developer: I shows
+/// Modes (ui/user_mode.dart). Simple: the choice of line is left out (a line that fails is replaced, with a plain
+/// sentence, and the lines only show once none is left to try); speed, danmaku, subtitles and episodes stay. Developer: I shows
 /// playback statistics over the picture, 链路 where the video comes from, and every step is written to the log
 /// (player_dev.dart, diagnostics/dev_log.dart).
 ///
@@ -1040,7 +1040,7 @@ class _PlayerPageState extends State<PlayerPage> {
       _back();
     } else if (_dev && key == LogicalKeyboardKey.keyI) {
       _toggleStats();
-    } else if (_tracks.handleKey(key) || (!_simple && _danmakuKey(key))) {
+    } else if (_tracks.handleKey(key) || _danmakuKey(key)) {
       // Subtitles and audio: C, J, Z, X, A; danmaku: D.
     } else {
       return KeyEventResult.ignored;
@@ -1311,9 +1311,8 @@ class _PlayerPageState extends State<PlayerPage> {
                 const Spacer(),
                 if (_desktop) _VolumeControl(player: _player, onToggleMute: _toggleMute),
                 // The remote has the 设置 panel (menu key) for the speed, which also holds line, subtitles and danmaku.
-                // Simple mode keeps neither: play, previous / next, subtitles and episodes are what is left.
-                if (!_tvMode && !_simple) _SpeedButton(player: _player, speeds: _speeds),
-                if (_tvMode && !_simple)
+                if (!_tvMode) _SpeedButton(player: _player, speeds: _speeds),
+                if (_tvMode)
                   TextButton.icon(
                     key: const Key('tv-settings-button'),
                     onPressed: _tvToggleSettings,
@@ -1324,24 +1323,22 @@ class _PlayerPageState extends State<PlayerPage> {
                   TextButton(key: const Key('stats-button'), onPressed: _toggleStats, child: Text('统计', style: TextStyle(color: _statsOpen ? TvColors.coral : Colors.white))),
                   TextButton(key: const Key('chain-button'), onPressed: _openChain, child: const Text('链路', style: TextStyle(color: Colors.white))),
                 ],
-                if (!_simple) ...[
-                  IconButton(
-                    key: const Key('danmaku-toggle'),
-                    tooltip: _danmakuPrefs.enabled ? '关闭弹幕 (D)' : '打开弹幕 (D)',
-                    onPressed: _toggleDanmaku,
-                    icon: Icon(_danmakuPrefs.enabled ? Icons.chat_bubble_rounded : Icons.chat_bubble_outline_rounded, color: Colors.white),
-                  ),
-                  TextButton(
-                    key: const Key('danmaku-button'),
-                    onPressed: () => setState(() {
-                      _panelOpen = false;
-                      _tracksOpen = false;
-                      _chainOpen = false;
-                      _danmakuOpen = true;
-                    }),
-                    child: const Text('弹幕', style: TextStyle(color: Colors.white)),
-                  ),
-                ],
+                IconButton(
+                  key: const Key('danmaku-toggle'),
+                  tooltip: _danmakuPrefs.enabled ? '关闭弹幕 (D)' : '打开弹幕 (D)',
+                  onPressed: _toggleDanmaku,
+                  icon: Icon(_danmakuPrefs.enabled ? Icons.chat_bubble_rounded : Icons.chat_bubble_outline_rounded, color: Colors.white),
+                ),
+                TextButton(
+                  key: const Key('danmaku-button'),
+                  onPressed: () => setState(() {
+                    _panelOpen = false;
+                    _tracksOpen = false;
+                    _chainOpen = false;
+                    _danmakuOpen = true;
+                  }),
+                  child: const Text('弹幕', style: TextStyle(color: Colors.white)),
+                ),
                 TextButton.icon(
                   key: const Key('tracks-button'),
                   onPressed: () => setState(() {
@@ -1549,16 +1546,14 @@ class _PlayerPageState extends State<PlayerPage> {
           TextButton(key: const Key('stats-button'), onPressed: _toggleStats, child: Text('统计', style: TextStyle(color: _statsOpen ? TvColors.coral : Colors.white))),
           TextButton(key: const Key('chain-button'), onPressed: () => _openPanel(chain: true), child: const Text('链路', style: TextStyle(color: Colors.white))),
         ],
-        if (!_simple) ...[
-          _SpeedButton(player: _player, speeds: _speeds),
-          IconButton(
-            key: const Key('danmaku-toggle'),
-            tooltip: _danmakuPrefs.enabled ? '关闭弹幕' : '打开弹幕',
-            onPressed: _toggleDanmaku,
-            icon: Icon(_danmakuPrefs.enabled ? Icons.chat_bubble_rounded : Icons.chat_bubble_outline_rounded, color: Colors.white),
-          ),
-          TextButton(key: const Key('danmaku-button'), onPressed: () => _openPanel(danmaku: true), child: const Text('弹幕', style: TextStyle(color: Colors.white))),
-        ],
+        _SpeedButton(player: _player, speeds: _speeds),
+        IconButton(
+          key: const Key('danmaku-toggle'),
+          tooltip: _danmakuPrefs.enabled ? '关闭弹幕' : '打开弹幕',
+          onPressed: _toggleDanmaku,
+          icon: Icon(_danmakuPrefs.enabled ? Icons.chat_bubble_rounded : Icons.chat_bubble_outline_rounded, color: Colors.white),
+        ),
+        TextButton(key: const Key('danmaku-button'), onPressed: () => _openPanel(danmaku: true), child: const Text('弹幕', style: TextStyle(color: Colors.white))),
         TextButton(key: const Key('tracks-button'), onPressed: () => _openPanel(tracks: true), child: const Text('字幕', style: TextStyle(color: Colors.white))),
         TextButton(onPressed: () => _openPanel(episodes: true), child: const Text('选集', style: TextStyle(color: Colors.white))),
       ],
@@ -1600,7 +1595,6 @@ class _PlayerPageState extends State<PlayerPage> {
           PhoneAction(key: const Key('phone-stats'), icon: Icons.query_stats_rounded, label: '统计', selected: _statsOpen, onPressed: _toggleStats),
           PhoneAction(key: const Key('phone-chain'), icon: Icons.account_tree_outlined, label: '链路', onPressed: () => _openPanel(chain: true)),
         ],
-        if (!_simple) ...[
         StreamBuilder<double>(
           stream: _player.stream.rate,
           initialData: _player.state.rate,
@@ -1625,7 +1619,6 @@ class _PlayerPageState extends State<PlayerPage> {
           onPressed: _toggleDanmaku,
         ),
         PhoneAction(key: const Key('phone-danmaku-panel'), icon: Icons.tune_rounded, label: '弹幕设置', onPressed: () => _openPanel(danmaku: true)),
-        ],
         PhoneAction(key: const Key('phone-tracks'), icon: Icons.subtitles_outlined, label: '字幕', onPressed: () => _openPanel(tracks: true)),
         if (mobile.pipSupported) PhoneAction(icon: Icons.picture_in_picture_alt_rounded, label: '小窗', onPressed: _enterPip),
       ],

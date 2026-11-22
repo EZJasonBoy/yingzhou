@@ -41,8 +41,7 @@ extension _PlayerTv on _PlayerPageState {
       return KeyEventResult.handled;
     }
     if (TvKeys.isMenu(key)) {
-      // Simple mode has no settings panel: the bar's buttons are all there is.
-      if (down && !_simple) _tvToggleSettings();
+      if (down) _tvToggleSettings();
       return KeyEventResult.handled;
     }
     // Keys that mean the same wherever the focus is.
@@ -280,7 +279,7 @@ extension _PlayerTv on _PlayerPageState {
                 ),
             ],
           ),
-          if (lines.length > 1) ...[
+          if (lines.length > 1 && _linesOffered) ...[
             heading('线路'),
             Wrap(
               spacing: 10,

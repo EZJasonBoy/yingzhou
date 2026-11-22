@@ -19,8 +19,8 @@ import 'simple_home.dart';
 /// 首页：current site's recommendations and categories.
 ///
 /// In simple mode ([simple]) it starts on 继续看 (what was being watched, and the favourites: simple_home.dart), the
-/// site's recommendations and categories follow as the next tabs, and the header only names the site: choosing
-/// another subscription or site is done in 设置, which may be locked.
+/// site's recommendations and categories follow as the next tabs, and the header has one button with the site's
+/// name that opens a panel from the right: the sites, and a step up to the entries and subscriptions.
 class BrowsePage extends StatefulWidget {
   const BrowsePage({super.key, required this.onOpenSources, this.simple = false});
 
@@ -240,15 +240,7 @@ class _Header extends StatelessWidget {
           Text('首页', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
           const SizedBox(width: 16),
           if (simple)
-            Expanded(
-              child: Text(
-                site?.name ?? '',
-                key: const Key('home-site-name'),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
-              ),
-            )
+            Flexible(child: Align(alignment: Alignment.centerLeft, child: SourcePanelChip(siteName: site?.name ?? '选择站点')))
           else
             const Flexible(child: HomeSwitcher()),
           const SizedBox(width: 4),
