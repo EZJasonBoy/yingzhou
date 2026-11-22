@@ -116,8 +116,8 @@ class UpdateService extends ChangeNotifier {
   /// The package of [release] for this device; null when it has none.
   ReleaseAsset? assetOf(ReleaseInfo release) => assetFor(release, backend.assetKeys);
 
-  Future<void> startDownload(ReleaseInfo release, ReleaseAsset asset) async {
-    if (download?.running ?? false) return;
+  Future<String?> startDownload(ReleaseInfo release, ReleaseAsset asset) async {
+    if (download?.running ?? false) return null;
     final d = download = UpdateDownload(asset, release.urlOf(asset));
     notifyListeners();
     var lastShown = 0;
@@ -145,6 +145,7 @@ class UpdateService extends ChangeNotifier {
       d.error = backend.describe(e);
     }
     notifyListeners();
+    return d.path;
   }
 
   void cancelDownload() {

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -85,6 +87,7 @@ void main() {
     expect(backend.downloads.single, ('https://github.com/Sa1koro/yingzhou/releases/download/v0.4.0/yingzhou-windows-x64-setup.exe', 'yingzhou-windows-x64-setup.exe', ''));
     expect(backend.expectedSizes.single, 1234, reason: 'the size the manifest gives');
     expect(text(tester, 'update-downloaded'), '已下载到 C:/Users/me/Downloads/yingzhou-windows-x64-setup.exe');
+    expect(backend.revealed, isEmpty);
     await tester.tap(find.byKey(const Key('update-reveal')));
     await tester.pumpAndSettle();
     expect(backend.revealed.single, 'C:/Users/me/Downloads/yingzhou-windows-x64-setup.exe');
@@ -149,7 +152,10 @@ void main() {
       keys: const ['android-arm64-v8a'],
       result: newerRelease(route: UpdateRoute.mirror, mirror: 'https://ghfast.top/'),
     );
+    backend.canOpen = false;
+    backend.revealError = PlatformException(code: 'INSTALLER', message: '允许映舟安装未知应用后，请返回点「安装更新」');
     final (state, _) = await pumpApp(tester, backend);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await state.setGithubProxy(enabled: true, prefix: 'https://ghfast.top/');
     await state.setNetworkProxy('proxy.lan:8080', updates: true, scopes: {});
     await tester.pumpAndSettle();
@@ -157,17 +163,21 @@ void main() {
     await tester.pumpAndSettle();
     expect(text(tester, 'update-route'), '更新信息：经加速前缀 ghfast.top（经代理 proxy.lan:8080）');
 
-    await tester.tap(find.byKey(const Key('update-download')));
+    await tester.tap(find.text('下载并安装'));
     await tester.pumpAndSettle();
     expect(backend.downloads.single, ('https://github.com/Sa1koro/yingzhou/releases/download/v0.4.0/yingzhou-android-arm64-v8a.apk', 'yingzhou-android-arm64-v8a.apk', 'proxy.lan:8080'));
     expect(backend.downloadMirrors.single, 'https://ghfast.top/');
     expect(backend.opened, isEmpty);
-    await tester.tap(find.byKey(const Key('update-reveal')));
+    final apk = backend.revealed.single;
+    expect(apk, endsWith('.apk'));
+    expect(find.text('允许映舟安装未知应用后，请返回点「安装更新」'), findsOneWidget);
+    backend.revealError = null;
+    await tester.tap(find.text('安装更新'));
     await tester.pumpAndSettle();
-    expect(backend.revealed.single, endsWith('.apk'));
+    expect(backend.revealed, [apk, apk]);
+    expect(backend.downloads, hasLength(1));
 
     // A box without a browser: the address, to take elsewhere.
-    backend.canOpen = false;
     await tester.tap(find.byKey(const Key('update-page')));
     await tester.pumpAndSettle();
     expect(backend.opened.last, 'https://github.com/Sa1koro/yingzhou/releases/tag/v0.4.0');
@@ -176,6 +186,56 @@ void main() {
     await tester.tap(find.text('以后再说'));
     await tester.pumpAndSettle();
     expect(text(tester, 'update-status-route'), '获取途径：经加速前缀 ghfast.top（经代理 proxy.lan:8080）');
+  });
+
+  testWidgets('a cancelled Android download and a download finishing after dismissal do not open the installer', (tester) async {
+    final backend = FakeUpdateBackend(keys: const ['android-armeabi-v7a'], result: newerRelease());
+    final gate = Completer<void>();
+    backend.downloadGate = gate.future;
+    await pumpApp(tester, backend);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.tap(find.byKey(const Key('update-check')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('下载并安装'));
+    await tester.pump();
+    await tester.tap(find.text('取消下载'));
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('update-download-error')), findsOneWidget);
+    expect(backend.revealed, isEmpty);
+
+    final retry = Completer<void>();
+    backend.downloadGate = retry.future;
+    await tester.tap(find.text('重新下载'));
+    await tester.pump();
+    await tester.tap(find.text('以后再说'));
+    await tester.pumpAndSettle();
+    retry.complete();
+    await tester.pumpAndSettle();
+    expect(backend.revealed, isEmpty);
+    await tester.tap(find.byKey(const Key('update-show')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('安装更新'));
+    await tester.pumpAndSettle();
+    expect(backend.revealed.single, endsWith('.apk'));
+    expect(backend.downloads, hasLength(2));
+    expect(backend.opened, isEmpty);
+  });
+
+  testWidgets('a TV remote can start the in-app update from the automatic prompt without a browser', (tester) async {
+    final backend = FakeUpdateBackend(keys: const ['android-armeabi-v7a'], result: newerRelease())..canOpen = false;
+    final (_, service) = await pumpApp(tester, backend, tv: true);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await service.setAutoCheck(true);
+    await tester.pump(const Duration(seconds: 21));
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pumpAndSettle();
+    expect(focusedWithin(const Key('update-download')), isTrue);
+    expect(backend.downloads, isEmpty);
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pumpAndSettle();
+    expect(backend.revealed.single, endsWith('armeabi-v7a.apk'));
+    expect(backend.opened, isEmpty);
   });
 
   testWidgets('automatic check: off does nothing; on, a newer version is shown once; on a TV with the D-pad', (tester) async {

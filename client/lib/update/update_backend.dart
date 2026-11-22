@@ -9,6 +9,8 @@ abstract class UpdateBackend {
 
   bool get supported;
 
+  bool get opensPackageInstaller;
+
   /// Fetches `latest.json` through [mirror] when set, with a direct fallback.
   Future<UpdateCheckResult> check({String mirror = '', String proxy = ''});
 
