@@ -300,7 +300,9 @@ class LineProbeTest {
         val lines = (1..6).map { ProbeLine("线路$it", url("/hang.m3u8?n=$it")) }
         val got = ConcurrentLinkedQueue<ProbeResult>()
         val job = launch(Dispatchers.IO) {
-            lineProbe().probe(ProbeRequest("cms", lines), "scope", direct).collect { got += it }
+            // No line may give up on its own before the cancel (that would rightly let the fourth start): a first-byte
+            // budget far longer than the wait, also on a busy machine.
+            lineProbe(budgets.copy(firstByteMs = 10_000, requestMs = 20_000)).probe(ProbeRequest("cms", lines), "scope", direct).collect { got += it }
         }
         val until = System.nanoTime() + 2_000_000_000L
         while (requests.size < 3 && System.nanoTime() < until) delay(20)
