@@ -32,12 +32,13 @@ void main() {
     await pumpApp(tester, size: const Size(1440, 480), form: DeviceForm.desktop);
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
-    for (final id in ['look', 'network', 'about']) {
+    for (final id in ['look', 'play', 'network', 'about']) {
       expect(find.byKey(Key('section-index-$id')), findsOneWidget, reason: id);
     }
-    // This engine has no stream cache and no danmaku services: 播放 has no card, so it has no entry and no heading.
-    expect(find.byKey(const Key('section-index-play')), findsNothing);
-    expect(find.descendant(of: find.byKey(const Key('settings-list')), matching: find.text('播放')), findsNothing);
+    // This engine has no downloads, no cache to clear and no Python: 下载与数据 has no card, so it has no entry and
+    // no heading. (播放 always has the line probe's setting, which is this device's own.)
+    expect(find.byKey(const Key('section-index-data')), findsNothing);
+    expect(find.descendant(of: find.byKey(const Key('settings-list')), matching: find.text('下载与数据')), findsNothing);
     expect(find.byKey(const Key('section-chips')), findsNothing);
 
     final mode = tester.getRect(find.byKey(const Key('user-mode')));
@@ -80,9 +81,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('section-index-look')), findsOneWidget);
     // Down the list to 关于: the page scrolls along.
-    // The focus starts on the first group, 外观; 网络 and 关于 are below it (the groups with nothing in them on
+    // The focus starts on the first group, 外观; 播放, 网络 and 关于 are below it (the groups with nothing in them on
     // this engine are left out).
-    for (var i = 0; i < 2; i++) {
+    for (var i = 0; i < 3; i++) {
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
       await tester.pumpAndSettle();
     }
