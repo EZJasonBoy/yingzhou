@@ -12,6 +12,7 @@ import '../engine/danmaku_models.dart';
 import '../engine/engine_client.dart';
 import '../engine/episode_names.dart';
 import '../engine/library_models.dart';
+import '../engine/line_probe.dart';
 import '../engine/media_extras_api.dart';
 import '../engine/models.dart' show EngineException;
 import '../engine/source_finder.dart';
@@ -22,6 +23,7 @@ import '../remote/remote_host.dart';
 import '../settings.dart';
 import '../ui/device_form.dart';
 import '../ui/episode_buttons.dart';
+import '../ui/line_probe_view.dart';
 import '../ui/theme.dart';
 import '../ui/tv/tv_app.dart' show tvTheme;
 import '../ui/tv/tv_focus.dart';
@@ -32,6 +34,7 @@ import 'danmaku_panel.dart';
 import 'player_dev.dart';
 import 'player_info.dart';
 import 'player_mobile.dart';
+import 'player_switching.dart';
 import 'player_tracks.dart';
 import 'seek_bar.dart';
 import 'touch_gestures.dart';
@@ -183,6 +186,13 @@ class _PlayerPageState extends State<PlayerPage> {
   /// False once the user picked the line by hand: the page does not switch away from that choice.
   bool _autoLine = true;
 
+  /// What the line probe (线路体检) found, shared with the detail page, and the 「正在换线路」 card
+  /// (player_switching.dart). The page's part is at "the line probe and the 正在换线路 card" below.
+  late final LineProbes _probes;
+  late final _switching = LineSwitching(onDue: () {
+    if (mounted) setState(() {});
+  });
+
   /// How often the position has moved forward since the media was opened; above zero there is a picture.
   int _advances = 0;
   Duration _lastPosition = Duration.zero;
@@ -269,6 +279,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _client = app.client;
     _settings = app.settings;
     _userMode = app.userMode;
+    _probes = app.lineProbes..addListener(_probesChanged);
     final savedVolume = double.tryParse(_settings.getString(_volumeKey) ?? '');
     if (savedVolume != null) _player.setVolume(savedVolume.clamp(0, 100));
     _subs.add(
@@ -397,6 +408,8 @@ class _PlayerPageState extends State<PlayerPage> {
     _remoteDetach();
     _tracks.dispose();
     _danmakuPrefs.dispose();
+    _probes.removeListener(_probesChanged);
+    _switching.dispose();
     _mobile?.dispose();
     for (final s in _subs) {
       s.cancel();
@@ -445,6 +458,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _originEpisode = episode;
     _failedLines.clear();
     _failedNotes.clear();
+    _switching.newRound();
     _triedSources.clear();
     _autoLine = true;
     _open(_line, episode);
@@ -461,6 +475,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _originEpisode = same ?? _originEpisode.clamp(0, lines[line].episodes.length - 1);
     _failedLines.clear();
     _failedNotes.clear();
+    _switching.newRound();
     _autoLine = false;
     _open(line, _originEpisode, resume: resume);
   }
@@ -469,6 +484,7 @@ class _PlayerPageState extends State<PlayerPage> {
   void _retry() {
     _failedLines.clear();
     _failedNotes.clear();
+    _switching.newRound();
     _open(_originLine, _originEpisode, resume: _resumeAt);
   }
 
@@ -488,13 +504,14 @@ class _PlayerPageState extends State<PlayerPage> {
     return _simple || _detail.lines[line].name.trim().isEmpty ? label : '「$label」';
   }
 
-  /// The next line, going round from the current one, that has the episode and has not failed in this round.
+  /// The next line, going round from the current one, that has the episode and has not failed in this round, nor
+  /// was found dead by the line probe.
   (int, int)? _nextLine() {
     final lines = _detail.lines;
     final wanted = lines[_originLine].episodes[_originEpisode].name;
     for (var step = 1; step < lines.length; step++) {
       final line = (_line + step) % lines.length;
-      if (_failedLines.contains(line)) continue;
+      if (_failedLines.contains(line) || _probeOf(line)?.state == LineProbeState.dead) continue;
       final episode = lines[line].findEpisode(index: _originEpisode, name: wanted);
       if (episode != null) return (line, episode);
     }
@@ -519,6 +536,7 @@ class _PlayerPageState extends State<PlayerPage> {
     final failed = _lineLabel(_line);
     _failedLines.add(_line);
     _failedNotes.add('${_lineName(_line)}：$reason');
+    _switching.lineFailed(_line, why);
     final next = _autoLine ? _nextLine() : null;
     _log(DevLevel.warn, '线路', '$failed$why：$reason', {'站点': _detail.site, '选集': _currentEpisode.name, '选集地址': _currentEpisode.id});
     if (next != null) {
@@ -526,19 +544,24 @@ class _PlayerPageState extends State<PlayerPage> {
       _log(DevLevel.info, '线路', '换到${_lineLabel(next.$1)}$from');
       // Simple mode says it in plain words, with the numbers its lines go by.
       _showOsd(_simple ? '$failed 打不开，已换到${_lineLabel(next.$1)}$from' : '$failed$why，已切到${_lineLabel(next.$1)}', const Duration(seconds: 4));
+      _switching.switching();
       _open(next.$1, next.$2, resume: resume, automatic: true);
       return;
     }
     final tried = _failedLines.length;
+    // The lines the probe found dead were not tried.
+    final skipped = _probeSkipped();
     final String text;
     if (lines.length < 2) {
       text = reason;
     } else if (!_autoLine) {
-      text = '$reason\n$failed是手动选的，不会自动换线路';
+      text = _switching.held ? '$reason\n已停在$failed，不会自动换线路' : '$reason\n$failed是手动选的，不会自动换线路';
     } else if (tried < 2) {
-      text = '$reason\n其他线路没有这一集';
+      text = skipped > 0 ? '$reason\n其他 $skipped 条线路刚测过，打不开' : '$reason\n其他线路没有这一集';
     } else {
-      text = '${tried == lines.length ? '所有 $tried 条线路都试过了' : '有这一集的 $tried 条线路都试过了'}，都没能播放\n最后一条$failed：$reason';
+      text =
+          '${tried == lines.length ? '所有 $tried 条线路都试过了' : '有这一集的 $tried 条线路都试过了'}，都没能播放\n最后一条$failed：$reason'
+          '${skipped > 0 ? '\n另外 $skipped 条线路刚测过，打不开' : ''}';
     }
     // Every line had its turn: another site may have the title (only when the lines were changed automatically).
     if (_autoLine && widget.sources?.auto == true && widget.sources!.finder.siteCount > 0 && _detail.name.trim().isNotEmpty) {
@@ -612,6 +635,7 @@ class _PlayerPageState extends State<PlayerPage> {
         _originLine = at.$1;
         _originEpisode = at.$2;
         _failedLines.clear();
+        _switching.failed.clear();
       });
       final from = resume != null && resume > Duration.zero ? '，从 ${_TimeLabel.format(resume)} 接着播' : '';
       _failedNotes.clear();
@@ -628,11 +652,12 @@ class _PlayerPageState extends State<PlayerPage> {
   /// No picture a while after the player got the address: the line is dead.
   void _armWatchdog(int seq) {
     _watchdog?.cancel();
-    _watchdog = Timer(_startTimeout, () {
+    final timeout = _startTimeoutFor(_line);
+    _watchdog = Timer(timeout, () {
       _watchdog = null;
       if (!mounted || seq != _requestSeq || _started || _error != null || _player.state.completed) return;
       if (_player.state.playing) {
-        _lineFailed('没有画面', '等了 ${_startTimeout.inSeconds} 秒还没有画面');
+        _lineFailed('没有画面', '等了 ${timeout.inSeconds} 秒还没有画面');
       } else {
         // Paused before anything showed: that is the user's doing. Look again later.
         _armWatchdog(seq);
@@ -654,6 +679,7 @@ class _PlayerPageState extends State<PlayerPage> {
     _lastPosition = Duration.zero;
     _resumeAt = _pendingSeek = resume;
     _opening = true;
+    _switching.opening();
     _clearSeekingTo();
     _cacheKey = '';
     _engineRanges = const [];
@@ -770,6 +796,7 @@ class _PlayerPageState extends State<PlayerPage> {
 
   /// The first picture of what was opened: how long it took, for the log and 链路.
   void _firstPicture() {
+    _switchingPicture();
     final ms = _sinceOpen?.elapsedMilliseconds;
     if (ms == null) return;
     _firstFrameMs = ms;
@@ -792,6 +819,11 @@ class _PlayerPageState extends State<PlayerPage> {
         if (played?.relay.isNotEmpty == true) _onRelay ? '经引擎' : '直连片源',
       ].join(' · '),
       switched: List.of(_failedNotes),
+      probes: [
+        if (_probeRun != null)
+          for (var i = 0; i < _detail.lines.length; i++) (name: _lineName(i), probe: _probeOf(i), playing: i == _line),
+      ],
+      wording: probeWording(_userMode.mode),
       onLines: _detail.lines.length < 2
           ? null
           : () => setState(() {
@@ -1063,6 +1095,7 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (_tvMode && _switchingKey(event)) return KeyEventResult.handled;
     if (_tvMode) return _onTvKey(event);
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
@@ -1107,6 +1140,8 @@ class _PlayerPageState extends State<PlayerPage> {
   Widget build(BuildContext context) {
     final pip = _mobile?.inPip ?? false;
     final inline = _inline(context);
+    // 「正在换线路」 over the picture, in place of the spinner and the notices (upright on a phone, under it).
+    final switching = _switchingShown && !inline;
     // The side panels over the picture; upright on a phone they open under it instead (see _buildPhoneInfo).
     final sidePanels = !inline && !pip;
     // Everything drawn over the picture (bars, panels, notices) is dark whatever the app's theme is: it sits on video.
@@ -1171,8 +1206,8 @@ class _PlayerPageState extends State<PlayerPage> {
                   ),
                 // Developer mode: the statistics, under the top bar; clicks go through to the picture.
                 if (_statsOpen && !pip) Positioned(left: 16, top: 64, child: IgnorePointer(child: PlayerStatsOverlay(player: _player))),
-                if (!pip) _buildStatus(),
-                if (_osd != null && !pip)
+                if (!pip && !switching) _buildStatus(),
+                if (_osd != null && !pip && !switching)
                   IgnorePointer(
                     child: Align(
                       alignment: const Alignment(0, -0.55),
@@ -1186,6 +1221,7 @@ class _PlayerPageState extends State<PlayerPage> {
                       ),
                     ),
                   ),
+                if (switching) _buildSwitching(),
                 // The panel, in a focus scope of its own (keyed by which panel it is, so one that replaces another
                 // starts afresh and takes the remote's focus).
                 if (_buildPanel(context, sidePanels) case final panel?)
@@ -1469,7 +1505,7 @@ class _PlayerPageState extends State<PlayerPage> {
                             for (var i = 0; i < _detail.lines.length; i++)
                               ChoiceChip(
                                 key: Key('player-line-$i'),
-                                label: Text(_lineName(i)),
+                                label: _lineChipLabel(i),
                                 selected: i == _line,
                                 onSelected: (_) {
                                   setState(() => _panelOpen = false);
@@ -1513,6 +1549,162 @@ class _PlayerPageState extends State<PlayerPage> {
 
   /// The lines are there to choose from in every mode. Simple mode leaves them out when there is only one.
   bool get _linesShown => !_simple || _detail.lines.length > 1;
+
+  // ------------------------------------------------------------------ the line probe and the 正在换线路 card
+
+  /// No picture this long after the player got the address, on a line the probe did not find alive while other
+  /// lines were probed (it was not measured, needs sniffing, or was found dead): it is given up sooner.
+  static const _untestedTimeout = Duration(seconds: 8);
+
+  /// The probe of the episode this round plays (from the detail page, or asked for again); null when there is none.
+  LineProbeRun? get _probeRun {
+    final lines = _detail.lines;
+    if (_originLine >= lines.length || _originEpisode >= lines[_originLine].episodes.length) return null;
+    return _probes.find(_client, _detail, _originLine, _originEpisode);
+  }
+
+  /// What the probe found of [line] for this round's episode (the wave while it is measured); null when it was not
+  /// probed. The TV's 线路 panel and what the remote shows of the player read it here.
+  LineProbe? _probeOf(int line) => _probeRun?.of(line);
+
+  /// How long [line] gets to show a picture: the full 15 seconds when nothing was probed, the line was picked by
+  /// hand, or the probe found it alive (or is still measuring it); 8 seconds otherwise.
+  Duration _startTimeoutFor(int line) {
+    final run = _probeRun;
+    if (!_autoLine || run == null || run.failed) return _startTimeout;
+    final state = run.of(line)?.state;
+    return state == null || !(state.alive || state == LineProbeState.testing) ? _untestedTimeout : _startTimeout;
+  }
+
+  /// A line's chip in the player's panels: its name, and what the probe found of it.
+  Widget _lineChipLabel(int line) {
+    final probe = _probeOf(line);
+    final wording = probeWording(_userMode.mode);
+    if (!LineProbeBadge.shows(probe, wording)) return Text(_lineName(line));
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [Text(_lineName(line)), const SizedBox(width: 8), LineProbeBadge(key: Key('player-line-probe-$line'), probe: probe!, wording: wording)],
+    );
+  }
+
+  /// The lines of this round's episode that were not tried because the probe found them dead.
+  int _probeSkipped() {
+    final lines = _detail.lines;
+    final wanted = lines[_originLine].episodes[_originEpisode].name;
+    var n = 0;
+    for (var i = 0; i < lines.length; i++) {
+      if (_failedLines.contains(i) || _probeOf(i)?.state != LineProbeState.dead) continue;
+      if (lines[i].findEpisode(index: _originEpisode, name: wanted) != null) n++;
+    }
+    return n;
+  }
+
+  /// A probe learned something. The line being opened turned out dead before it showed anything: the next line is
+  /// tried at once rather than when the wait runs out (only while the page changes line by itself, and when there
+  /// is another line to go to).
+  void _probesChanged() {
+    if (!mounted) return;
+    setState(() {});
+    final probe = _probeOf(_line);
+    if (probe == null || probe.state != LineProbeState.dead || !_autoLine || _started || _error != null || _failedLines.contains(_line)) return;
+    if (_nextLine() == null) return;
+    _lineFailed('打不开', probe.reason.isEmpty ? '刚测过，打不开' : '刚测过，打不开：${probe.reason}');
+  }
+
+  /// The card is up: no picture yet, the page still changing line by itself, nothing else open over the picture.
+  bool get _switchingShown =>
+      _switching.due && _autoLine && !_started && _error == null && _detail.lines.length > 1 && !_anyPanelOpen && !(_mobile?.inPip ?? false);
+
+  /// The card's title and sentence.
+  (String, String) _switchingWords() {
+    final failed = _failedLines.isEmpty ? null : _failedLines.last;
+    final from = _resumeAt;
+    return LineSwitching.words(
+      trying: _lineLabel(_line),
+      failed: failed == null ? null : _lineLabel(failed),
+      failedWhy: failed == null ? '' : (_switching.failed[failed] ?? ''),
+      from: from != null && from > Duration.zero ? _TimeLabel.format(from) : null,
+      simple: _simple,
+    );
+  }
+
+  Widget _buildSwitching({bool bare = false}) {
+    final lines = _detail.lines;
+    final wanted = lines[_originLine].episodes[_originEpisode].name;
+    final (title, sentence) = _switchingWords();
+    return LineSwitchingCard(
+      key: const ValueKey('line-switching'),
+      title: title,
+      sentence: sentence,
+      rows: LineSwitching.rows(
+        count: lines.length,
+        name: _lineName,
+        hasEpisode: (i) => lines[i].findEpisode(index: _originEpisode, name: wanted) != null,
+        trying: _line,
+        failed: _switching.failed,
+        probe: _probeOf,
+      ),
+      wording: probeWording(_userMode.mode),
+      scope: _switching.scope,
+      bare: bare,
+      onPick: _switchingPick,
+      onStay: _switchingStay,
+      onClose: _switchingClose,
+    );
+  }
+
+  /// 「选一条」: the lines (at the top of the episodes); upright on a phone they are on the page under the card.
+  void _switchingPick() {
+    setState(() {
+      if (_inline(context)) {
+        _switching.dismiss();
+      } else {
+        _panelOpen = true;
+      }
+    });
+  }
+
+  /// 「停在这里」: no more changing line by itself; the line being tried gets its full time from now on.
+  void _switchingStay() {
+    setState(() {
+      _autoLine = false;
+      _switching
+        ..held = true
+        ..dismiss();
+    });
+    if (_watchdog != null) _armWatchdog(_requestSeq);
+    _focus.requestFocus();
+  }
+
+  /// BACK on the card: it goes until the page changes line by itself again; the spinner is back.
+  void _switchingClose() {
+    setState(_switching.dismiss);
+    _focus.requestFocus();
+  }
+
+  /// The picture came: the card goes. After a change of line a sentence stays a moment, unless the notice of the
+  /// change is still up.
+  void _switchingPicture() {
+    if (!_switching.picture() || !mounted) return;
+    setState(() {});
+    if (_switching.failed.isEmpty || _osd != null) return;
+    final from = _resumeAt;
+    _showOsd('已换到${_lineLabel(_line)}${from != null && from > Duration.zero ? '，从 ${_TimeLabel.format(from)} 接着播' : ''}', const Duration(seconds: 3));
+  }
+
+  /// On a TV, while the card is up, it holds the focus: a key that comes to the page from outside it puts the focus
+  /// back (and does nothing else); BACK closes it wherever the focus is. The menu and media keys go on as usual.
+  bool _switchingKey(KeyEvent event) {
+    if (!_switchingShown || _inline(context)) return false;
+    final key = event.logicalKey;
+    if (TvKeys.isBack(key)) {
+      if (event is KeyDownEvent) _switchingClose();
+      return true;
+    }
+    if (_switching.scope.hasFocus || TvKeys.isMenu(key) || TvKeys.isPlayPause(key) || TvKeys.isChannelUp(key) || TvKeys.isChannelDown(key)) return false;
+    if (event is KeyDownEvent) _switching.scope.requestFocus();
+    return true;
+  }
 
   // ------------------------------------------------------------------ phones and tablets
 
@@ -1701,7 +1893,9 @@ class _PlayerPageState extends State<PlayerPage> {
         PhoneAction(key: const Key('phone-info'), icon: Icons.info_outline_rounded, label: '信息', onPressed: () => _openPanel(info: true)),
         if (mobile.pipSupported) PhoneAction(icon: Icons.picture_in_picture_alt_rounded, label: '小窗', onPressed: _enterPip),
       ],
-      panel: _tracksOpen
+      panel: _switchingShown
+          ? _buildSwitching(bare: true)
+          : _tracksOpen
           ? TracksPanel(tracks: _tracks)
           : _chainOpen
           ? PlayerChainPanel(chain: _chain)
@@ -1717,8 +1911,8 @@ class _PlayerPageState extends State<PlayerPage> {
               onLoadFile: _loadDanmakuFile,
             )
           : null,
-      panelTitle: _tracksOpen ? '字幕与音轨' : (_chainOpen ? '链路' : (_infoOpen ? '播放信息' : '弹幕')),
-      onClosePanel: () => setState(() => _panel = null),
+      panelTitle: _switchingShown ? _switchingWords().$1 : (_tracksOpen ? '字幕与音轨' : (_chainOpen ? '链路' : (_infoOpen ? '播放信息' : '弹幕'))),
+      onClosePanel: _switchingShown ? _switchingClose : () => setState(() => _panel = null),
     );
   }
 }
