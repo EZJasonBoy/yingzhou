@@ -80,14 +80,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('section-index-look')), findsOneWidget);
     // Down the list to 关于: the page scrolls along.
-    // The focus starts on the first group, 外观; 网络 and 关于 are below it (the groups with nothing in them on
-    // this engine are left out).
-    for (var i = 0; i < 2; i++) {
+    // The focus starts on the first group, 外观; 关于 is the last one below it (the groups with nothing in them on
+    // this engine are left out, so how many presses it takes depends on what the engine and the TV have).
+    final entry = Focus.of(tester.element(find.descendant(of: find.byKey(const Key('section-index-about')), matching: find.text('关于'))));
+    for (var i = 0; i < 6 && !entry.hasFocus; i++) {
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
       await tester.pumpAndSettle();
     }
     expect(onScreen(tester, find.byKey(const Key('about-engine'))), isTrue);
-    final entry = Focus.of(tester.element(find.descendant(of: find.byKey(const Key('section-index-about')), matching: find.text('关于'))));
     expect(entry.hasFocus, isTrue, reason: 'the focus is on the entry');
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pumpAndSettle();

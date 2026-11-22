@@ -26,10 +26,13 @@ import '../ui/theme.dart';
 import '../ui/tv/tv_app.dart' show tvTheme;
 import '../ui/tv/tv_focus.dart';
 import '../ui/user_mode.dart';
+import '../ui/yz_tokens.dart';
 import 'browse_page.dart' show errorText;
 import 'danmaku_layer.dart';
 import 'danmaku_panel.dart';
+import 'osd_clock_settings.dart';
 import 'player_dev.dart';
+import 'player_dial.dart';
 import 'player_info.dart';
 import 'player_mobile.dart';
 import 'player_tracks.dart';
@@ -58,8 +61,9 @@ part 'player_tv.dart';
 /// Seeking: the bar seeks once, when it is let go ([SeekBar]), and shows what is buffered — what the player holds
 /// and, for streams the engine caches, what the engine has on disk. The player's own cache is set up for where the
 /// video comes from ([PlayerCache]).
-/// The panels over the picture. At most one is open: opening one closes the one before.
-enum _PlayerPanel { episodes, tracks, danmaku, chain, info, tvSettings }
+/// The panels over the picture. At most one is open: opening one closes the one before. On a TV they open next to
+/// the dial (player_tv.dart), and three are only there: 线路, 倍速 and 更多设置.
+enum _PlayerPanel { episodes, tracks, danmaku, chain, info, lines, speed, more }
 
 class PlayerPage extends StatefulWidget {
   const PlayerPage({super.key, required this.detail, required this.line, required this.episode, this.startPosition, this.sources});
@@ -129,7 +133,6 @@ class _PlayerPageState extends State<PlayerPage> {
   set _chainOpen(bool open) => _setOpen(_PlayerPanel.chain, open);
   bool get _infoOpen => _isOpen(_PlayerPanel.info);
   set _infoOpen(bool open) => _setOpen(_PlayerPanel.info, open);
-  bool get _tvSettingsOpen => _isOpen(_PlayerPanel.tvSettings);
 
   bool get _anyPanelOpen => _panel != null;
 
@@ -799,7 +802,8 @@ class _PlayerPageState extends State<PlayerPage> {
               if (inline) {
                 _panel = null;
               } else {
-                _panelOpen = true;
+                // On a TV, the dial's own 线路 panel.
+                _panel = _tvMode ? _PlayerPanel.lines : _PlayerPanel.episodes;
               }
             }),
       onStats: _dev ? _toggleStats : null,
@@ -1171,7 +1175,10 @@ class _PlayerPageState extends State<PlayerPage> {
                   ),
                 // Developer mode: the statistics, under the top bar; clicks go through to the picture.
                 if (_statsOpen && !pip) Positioned(left: 16, top: 64, child: IgnorePointer(child: PlayerStatsOverlay(player: _player))),
-                if (!pip) _buildStatus(),
+                // Under the dial and its panels on a TV nothing takes the focus, the buttons of an error included.
+                if (!pip) ExcludeFocus(excluding: _tvMode && _tvLayerOpen, child: _buildStatus()),
+                // A TV's dial and the panels next to it, or the time in a corner (player_tv.dart); notices stay above them.
+                if (_tvMode) _buildTvLayer(context),
                 if (_osd != null && !pip)
                   IgnorePointer(
                     child: Align(
@@ -1205,13 +1212,14 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 
   /// The open panel, over the picture. Upright on a phone the panels open under the picture instead
-  /// ([_buildPhoneInfo]); the TV's 设置 has no such place and always opens here.
+  /// ([_buildPhoneInfo]); on a TV next to the dial ([_buildTvLayer]).
   Widget? _buildPanel(BuildContext context, bool sidePanels) {
     final panel = _panel;
-    if (panel == null || (!sidePanels && panel != _PlayerPanel.tvSettings)) return null;
+    if (panel == null || !sidePanels || _tvMode) return null;
     return switch (panel) {
-      _PlayerPanel.episodes => _tvMode ? _buildTvEpisodePanel(context) : _buildEpisodePanel(context),
-      _PlayerPanel.tvSettings => _buildTvSettings(context),
+      _PlayerPanel.episodes => _buildEpisodePanel(context),
+      // Only on a TV.
+      _PlayerPanel.lines || _PlayerPanel.speed || _PlayerPanel.more => null,
       _PlayerPanel.tracks => PlayerSidePanel(onClose: () => setState(() => _tracksOpen = false), child: TracksPanel(tracks: _tracks)),
       _PlayerPanel.chain => PlayerSidePanel(width: 420, onClose: () => setState(() => _chainOpen = false), child: PlayerChainPanel(chain: _chain)),
       _PlayerPanel.info => PlayerSidePanel(onClose: () => setState(() => _infoOpen = false), child: _buildInfo()),
@@ -1368,7 +1376,6 @@ class _PlayerPageState extends State<PlayerPage> {
                   builder: (context, snap) => IconButton(
                     tooltip: '播放 / 暂停 (空格)',
                     iconSize: 32,
-                    focusNode: _tvUi.playButton,
                     onPressed: _player.playOrPause,
                     icon: Icon(snap.data == true ? Icons.pause_rounded : Icons.play_arrow_rounded, color: Colors.white),
                   ),
@@ -1383,27 +1390,17 @@ class _PlayerPageState extends State<PlayerPage> {
                 IgnorePointer(child: _TimeLabel(player: _player)),
                 const Spacer(),
                 if (_desktop) _VolumeControl(player: _player, onToggleMute: _toggleMute),
-                // The remote has the 设置 panel (menu key) for the speed, which also holds line, subtitles and danmaku.
-                if (!_tvMode) _SpeedButton(player: _player, speeds: _speeds),
-                if (_tvMode)
-                  TextButton.icon(
-                    key: const Key('tv-settings-button'),
-                    onPressed: _tvToggleSettings,
-                    icon: const Icon(Icons.tune_rounded, color: Colors.white),
-                    label: const Text('设置', style: TextStyle(color: Colors.white)),
-                  ),
+                _SpeedButton(player: _player, speeds: _speeds),
                 if (_dev) ...[
                   TextButton(key: const Key('stats-button'), onPressed: _toggleStats, child: Text('统计', style: TextStyle(color: _statsOpen ? TvColors.coral : Colors.white))),
                   TextButton(key: const Key('chain-button'), onPressed: _openChain, child: const Text('链路', style: TextStyle(color: Colors.white))),
                 ],
-                // On a TV 播放信息 is in the 设置 panel.
-                if (!_tvMode)
-                  IconButton(
-                    key: const Key('info-button'),
-                    tooltip: '播放信息',
-                    onPressed: () => setState(() => _infoOpen = true),
-                    icon: const Icon(Icons.info_outline_rounded, color: Colors.white),
-                  ),
+                IconButton(
+                  key: const Key('info-button'),
+                  tooltip: '播放信息',
+                  onPressed: () => setState(() => _infoOpen = true),
+                  icon: const Icon(Icons.info_outline_rounded, color: Colors.white),
+                ),
                 IconButton(
                   key: const Key('danmaku-toggle'),
                   tooltip: _danmakuPrefs.enabled ? '关闭弹幕 (D)' : '打开弹幕 (D)',

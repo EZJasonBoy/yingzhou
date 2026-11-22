@@ -352,8 +352,9 @@ void main() {
     expect(p['speed'], 1.0);
     expect(p['speeds'], contains(1.5));
 
-    // The episode list is open on the screen and has the focus: commands do not care.
+    // The episode list is open on the screen (↑ the dial, OK its 选集) and has the focus: commands do not care.
     await press(tester, hub, 'up');
+    await press(tester, hub, 'ok');
     expect(find.byKey(const Key('tv-episode-0')), findsOneWidget);
 
     expect((await hub.screen.command(tester, 'pause'))['ok'], isTrue);
