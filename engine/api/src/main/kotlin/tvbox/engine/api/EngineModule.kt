@@ -26,6 +26,11 @@ import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.ktor.http.CacheControl
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -42,6 +47,7 @@ import tvbox.engine.core.model.HistoryEntry
 import tvbox.engine.core.model.LiveList
 import tvbox.engine.core.model.PlayInfo
 import tvbox.engine.core.model.PlayRequest
+import tvbox.engine.core.model.ProbeRequest
 import tvbox.engine.core.util.Base64Compat
 import tvbox.engine.core.search.SearchEvent
 import tvbox.engine.api.access.AccessControl
@@ -265,6 +271,40 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
                 val request = call.receive<PlayRequest>()
                 call.respond(forClient(call.drivePlay(options.drives, request) ?: engine.resolvePlay(request), call))
             }
+            // 线路体检: each line resolved as above and the start of its video fetched; a `line` event per line as it
+            // finishes, then `end` (docs/design/line-probe.md).
+            post("/play/probe") {
+                val request = call.receive<ProbeRequest>()
+                val drives = options.drives?.takeIf { tvbox.engine.core.drive.DriveService.driveOf(request.site) != null }
+                val results = engine.probeLines(request, drives?.let { d -> { play -> call.drivePlay(d, play)!! } })
+                call.response.cacheControl(CacheControl.NoCache(null))
+                call.respondTextWriter(ContentType.Text.EventStream) {
+                    val writer = this
+                    val lock = Mutex()
+                    suspend fun send(text: String) = lock.withLock {
+                        writer.write(text)
+                        writer.flush()
+                    }
+                    try {
+                        coroutineScope {
+                            // Nothing tells the engine that a client went away until it writes to it. A comment line
+                            // now and then finds out within a second, and the failed write cancels the probe, so the
+                            // lines still waiting are never fetched.
+                            val keepAlive = launch {
+                                while (true) {
+                                    delay(PROBE_KEEP_ALIVE_MS)
+                                    send(":\n\n")
+                                }
+                            }
+                            results.collect { result -> send("event: line\ndata: ${EngineJson.encodeToString(result)}\n\n") }
+                            keepAlive.cancel()
+                            send("event: end\ndata: {}\n\n")
+                        }
+                    } catch (e: java.io.IOException) {
+                        // The client went away (it left the detail page): that is how a probe ends early.
+                    }
+                }
+            }
 
             route("/history") {
                 get { call.respond(engine.library.history(call.parameters["limit"]?.toIntOrNull() ?: 100)) }
@@ -308,6 +348,9 @@ fun Application.engineModule(engine: Engine, options: EngineModuleOptions = Engi
         }
     }
 }
+
+/** How often `/play/probe` writes a comment line while it waits for lines (see there). */
+private const val PROBE_KEEP_ALIVE_MS = 400L
 
 private fun RoutingCall.site(): String = parameters["site"]!!
 
