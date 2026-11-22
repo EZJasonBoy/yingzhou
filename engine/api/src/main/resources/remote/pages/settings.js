@@ -5,9 +5,10 @@
 
 /** The app's setting for danmaku being on when playing starts. */
 const DANMAKU_KEY = 'danmaku.enabled';
-/** The screen keeps booleans as the strings 'true' / 'false'. */
+/** Switches: read as booleans (older screens may answer 'true' / 'false'), sent as booleans. */
 const BOOLEANS = ['play.probeOnDetail', DANMAKU_KEY];
-const KEYS = ['ui.userMode', 'ui.startPage', 'play.probeOnDetail', 'player.osdClock', DANMAKU_KEY];
+const NAME_KEY = 'remote.screenName';
+const KEYS = ['ui.userMode', 'ui.startPage', 'play.probeOnDetail', 'player.osdClock', DANMAKU_KEY, NAME_KEY];
 
 const MODES = [
   ['simple', '简单', '打开就看：上次没看完的、收藏和推荐。按钮少，线路坏了自动换。能做的事和另外两种一样，只是摆得靠后。'],
@@ -95,7 +96,7 @@ export default function mount(root, core) {
       return;
     }
     const before = values[key];
-    const sent = BOOLEANS.indexOf(key) >= 0 ? String(!!value) : value;
+    const sent = BOOLEANS.indexOf(key) >= 0 ? !!value : value;
     values[key] = sent;
     renderApp();
     const r = await core.command('setting.set', pin ? { key, value: sent, pin } : { key, value: sent }, 8000);
@@ -291,14 +292,38 @@ export default function mount(root, core) {
 
   const tvCard = h('section', { class: 'card settings-card' });
 
+  /** The screen's name, changed when the field is left or Enter is pressed (screens that predate it: shown only). */
+  function nameField(screen) {
+    const current = String(screen.name || '');
+    if (appState !== 'yes' || !(NAME_KEY in values)) return h('div', { class: 'opt' }, h('span', null, current || '映舟'));
+    const field = h('input', { class: 'in', id: 'set-screen-name', type: 'text', value: current, maxlength: '40', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
+    const save = () => {
+      const name = field.value.trim();
+      if (!name) {
+        field.value = current;
+        return;
+      }
+      if (name !== current) setApp(NAME_KEY, name);
+    };
+    field.addEventListener('change', save);
+    field.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        field.blur();
+      }
+    });
+    return field;
+  }
+
   function renderTv() {
     const screen = core.screen() || {};
     tvCard.textContent = '';
     tvCard.append(
       h('h2', { class: 'card-title', text: '这台电视' }),
-      h('span', { class: 'lab', text: '在局域网里叫什么' }),
-      h('div', { class: 'opt' }, h('span', null, String(screen.name || '映舟'), h('small', { text: [core.fmt.platformLabel(screen.platform, screen.form), screen.version ? '映舟 ' + screen.version : ''].filter(Boolean).join(' · ') }))),
-      h('p', { class: 'note-faint', text: '名字在电视上的映舟里改。配对过哪些设备、撤销配对，在电视上的「设置 → 局域网」里管。' }),
+      h('label', { class: 'lab', for: 'set-screen-name', text: '在局域网里叫什么' }),
+      nameField(screen),
+      h('small', { class: 'note-faint', text: [core.fmt.platformLabel(screen.platform, screen.form), screen.version ? '映舟 ' + screen.version : ''].filter(Boolean).join(' · ') }),
+      h('p', { class: 'note-faint', text: '改名以后这块屏幕会用新名字重新连上，网页跟着重连一下。配对过哪些设备、撤销配对，在电视上的「设置 → 局域网」里管。' }),
       h('div', { class: 'divider' }),
       h('span', { class: 'lab', text: '这台设备' }),
       h('div', { class: 'opt' }, h('span', null, core.thisDevice(), h('small', { text: '已配对，令牌存在这个浏览器里' })), h('button', { type: 'button', class: 'link danger', text: '取消配对', onclick: core.forget })),

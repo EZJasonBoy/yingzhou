@@ -300,7 +300,7 @@ void main() {
       prepare();
       final all = (await remote.perform('setting.get', const {}))!;
       expect(all.data, {
-        'values': {'ui.userMode': 'standard', 'ui.startPage': 'resume', 'danmaku.enabled': true, 'player.osdClock': 'osd', 'play.probeOnDetail': true},
+        'values': {'ui.userMode': 'standard', 'ui.startPage': 'resume', 'danmaku.enabled': true, 'player.osdClock': 'osd', 'play.probeOnDetail': true, 'remote.screenName': ''},
         'locked': false,
       });
       await store.setString('engineUrl', 'http://127.0.0.1:9978');
@@ -332,6 +332,14 @@ void main() {
       expect(store.getString('player.osdClock'), 'always');
       expect((await set('play.probeOnDetail', false)).error, isNull);
       expect(store.getString('play.probeOnDetail'), 'false');
+      expect((await set('play.probeOnDetail', 'true')).error, isNull, reason: 'the strings the app keeps are taken too');
+      expect(store.getString('play.probeOnDetail'), 'true');
+      expect((await set('remote.screenName', '  卧室电视 ')).data, {
+        'values': {'remote.screenName': '卧室电视'},
+        'locked': false,
+      });
+      expect(store.getString('remote.screenName'), '卧室电视');
+      expect((await set('remote.screenName', '')).error, '名字要有 1 到 40 个字');
 
       for (final (key, value) in [
         ('ui.userMode', 'expert'),

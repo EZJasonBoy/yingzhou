@@ -627,6 +627,9 @@ Python 站点调用失败时的错误码：`PY_UNAVAILABLE`（没有可用的 Py
 | `danmaku.enabled` | `true` / `false` | 弹幕默认开或关（默认开） |
 | `player.osdClock` | `off` / `osd` / `always` | 屏显时间（默认 `osd`） |
 | `play.probeOnDetail` | `true` / `false` | 打开详情时测线路（手机默认关，其他默认开） |
+| `remote.screenName` | 1 到 40 个字 | 这块屏幕在局域网里的名字。改了以后屏幕用新名字重新登记，遥控端会先收到 `gone` 再连上 |
+
+开关（`danmaku.enabled`、`play.probeOnDetail`）读出来是布尔值，写的时候布尔值和字符串 `"true"` / `"false"` 都可以。
 
 「诊断与反馈」页的二维码打开网页控制台的日志页：`http://<引擎的局域网地址>/remote/#page=logs`；引擎就在这台设备上时带上现在的配对码，`#page=logs&code=<配对码>`（和配对二维码一样，配对过的手机用不上它）。
 

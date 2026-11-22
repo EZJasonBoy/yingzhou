@@ -171,7 +171,14 @@ class _RemoteScreenState extends State<RemoteScreen> {
     if (RemoteAppSettings.handles(name)) {
       final app = _app;
       if (app == null) return '屏幕还没有准备好';
-      return await RemoteAppSettings(settings: app.settings, userMode: app.userMode, form: _form).perform(name, args);
+      return await RemoteAppSettings(
+        settings: app.settings,
+        userMode: app.userMode,
+        form: _form,
+        screenName: () => _agent?.screenName ?? '',
+        // After the answer has gone out: renaming reconnects, which would drop it.
+        onScreenName: (n) => Future<void>.delayed(const Duration(milliseconds: 300), () => _agent?.setScreenName(n)),
+      ).perform(name, args);
     }
     switch (name) {
       case 'key':

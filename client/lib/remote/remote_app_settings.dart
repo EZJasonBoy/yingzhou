@@ -1,3 +1,5 @@
+import 'package:flutter/widgets.dart' show StringCharacters;
+
 import '../settings.dart';
 import '../ui/user_mode.dart';
 import 'remote_agent.dart';
@@ -8,10 +10,15 @@ import 'remote_host.dart' show RemoteArgs;
 ///
 /// In simple mode with the code on 设置 set, a change needs the same four digits ([UserModeController.matches]).
 class RemoteAppSettings {
-  RemoteAppSettings({required this.settings, required this.userMode, this.form = ''});
+  RemoteAppSettings({required this.settings, required this.userMode, this.form = '', this.screenName, this.onScreenName});
 
   final SettingsStore settings;
   final UserModeController userMode;
+
+  /// What remotes call this screen now, and how to rename it ([RemoteAgent.setScreenName], which reconnects under
+  /// the new name). Without them the name is only kept.
+  final String Function()? screenName;
+  final void Function(String name)? onScreenName;
 
   /// The layout of this screen (`phone`, `tv` …): what some defaults depend on.
   final String form;
@@ -29,8 +36,11 @@ class RemoteAppSettings {
   /// Test the lines when a detail page opens (`true` / `false`); off on phones unless switched on, to save data.
   static const probeOnDetailKey = 'play.probeOnDetail';
 
+  /// What this screen is called on the LAN (`RemoteAgent.nameKey`), 1 to 40 characters.
+  static const screenNameKey = RemoteAgent.nameKey;
+
   /// Every key a remote may use, in the order `setting.get` answers.
-  static const keys = [userModeKey, startPageKey, danmakuKey, osdClockKey, probeOnDetailKey];
+  static const keys = [userModeKey, startPageKey, danmakuKey, osdClockKey, probeOnDetailKey, screenNameKey];
 
   static const _osdClocks = ['off', 'osd', 'always'];
 
@@ -46,6 +56,7 @@ class RemoteAppSettings {
     danmakuKey => settings.getString(danmakuKey) != 'false',
     osdClockKey => _osdClocks.contains(settings.getString(osdClockKey)) ? settings.getString(osdClockKey) : 'osd',
     probeOnDetailKey => _flag(settings.getString(probeOnDetailKey)) ?? form != 'phone',
+    screenNameKey => screenName?.call() ?? settings.getString(screenNameKey) ?? '',
     _ => null,
   };
 
@@ -98,10 +109,21 @@ class RemoteAppSettings {
           await userMode.setStartPage(page);
         }
       case danmakuKey || probeOnDetailKey:
-        if (value is! bool) {
+        // A boolean; the strings 'true' / 'false' are taken too (how the app keeps them).
+        final on = value is bool ? value : (value is String ? _flag(value) : null);
+        if (on == null) {
           wrong = '这一项只能是开（true）或关（false）';
         } else {
-          await settings.setString(key, '$value');
+          await settings.setString(key, '$on');
+        }
+      case screenNameKey:
+        final name = value is String ? value.trim() : '';
+        if (name.isEmpty || name.characters.length > 40) {
+          wrong = '名字要有 1 到 40 个字';
+        } else if (onScreenName != null) {
+          onScreenName!(name);
+        } else {
+          await settings.setString(key, name);
         }
       case osdClockKey:
         if (value is! String || !_osdClocks.contains(value)) {
@@ -112,7 +134,7 @@ class RemoteAppSettings {
     }
     if (wrong != null) return RemoteResult.failed(wrong);
     return RemoteResult.ok({
-      'values': {key: read(key)},
+      'values': {key: key == screenNameKey ? (value as String).trim() : read(key)},
       'locked': locked,
     });
   }
