@@ -89,7 +89,7 @@ TVBox 的订阅生态很大，能好好用它的地方却几乎只有安卓。�
 | Android TV · 电视盒子 | `yingzhou-android-arm64-v8a.apk`；32 位的老盒子用 `armeabi-v7a` | ✅ 真机验证 |
 | Android 手机 · 平板（7.0 起） | 同上，一个安装包 | 🧪 只在模拟器上验证过 |
 | 引擎（NAS 等） | Docker 镜像 `ghcr.io/sa1koro/yingzhou-engine` | 🧪 CI 自检通过，未在 NAS 上验证 |
-| iOS | — | 计划中：纯客户端，连局域网或 NAS 上的引擎 |
+| iOS / iPadOS | [实验分支构建](https://github.com/Sa1koro/yingzhou/actions/workflows/ios-lab.yml?query=branch%3Alab%2Fengine-go) | 内置轻量 Go 引擎，可切换局域网或 NAS 上的引擎；真机包需签名 |
 
 - Windows、macOS、Linux 的包里带着引擎和精简过的 Java 运行时，不用另装 Java（Linux 的播放器 libmpv 用系统的，装 deb 时 apt 会带上）。
 - Windows 版没有数字签名，第一次运行时 SmartScreen 可能拦一下，点「更多信息 → 仍要运行」。macOS 版是临时签名，第一次需右键 → 打开。

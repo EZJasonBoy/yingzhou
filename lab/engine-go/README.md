@@ -2,6 +2,26 @@
 
 这个本机服务读取原始 TVBox 订阅，将有适配器的站点导出为映舟可导入的 Type 4 订阅。游戏直播、急救、酷狗、兔小贝等站点直接通过 Go 访问各自的官网。Windows x64 还可以在独立的 AppContainer 内调用提前编译的原蜘蛛，运行时无需为这些蜘蛛安装 Java。Flutter 客户端仍连接映舟引擎。
 
+## iOS / iPadOS
+
+iOS 15 及以上的实验版默认使用内置 Go。打开「源 → 引擎」选择「本机 Go」或「远程引擎」。在极简模式从「设置 → 内容」进入。选择本机 Go 后直接添加原始订阅地址，例如 `http://肥猫.net`。选择远程引擎时填写桌面、安卓或 NAS 的映舟引擎地址并按提示配对。订阅、收藏和播放进度保存在各自的引擎，切回来会恢复。
+
+本机 Go 支持单份 HTTP(S) JSON 订阅、已适配站点的分类、搜索、详情和直连播放。此次用相同 Go 服务在 Windows 读取肥猫得到 13 个入口，其中 12 个是纯 Go 站点，干饭提供目录。搜索《人工呼吸法》解出 1280 × 720 视频帧，酷狗《慌啥子嘛》解出 44.1 kHz 音频帧。依赖原始 JAR、JS、Python 或网页嗅探的线路可以选择有对应能力的远程引擎。下文的 32 个入口是 Windows x64 原生蜘蛛宿主的覆盖范围。
+
+在 macOS 安装 Xcode、Flutter 3.50.0、CocoaPods 和 Go，在仓库根目录执行以下命令。
+
+```sh
+cd client
+flutter pub get --enforce-lockfile
+flutter build ios --release --no-codesign
+flutter build ios --simulator --debug
+flutter test -d <模拟器设备ID> integration_test/ios_go_engine_test.dart
+```
+
+GitHub Actions 为本分支构建设备 IPA 和模拟器 App。模拟器测试在设备内提供一个示例订阅，经 Flutter 调用 Go 取得播放地址，检查播放器播放本地音频，并在重启后读取原订阅。真机安装需要用自己的 Apple 开发身份签名。下载构建产物可前往 [iOS Go engine 构建记录](https://github.com/Sa1koro/yingzhou/actions/workflows/ios-lab.yml?query=branch%3Alab%2Fengine-go)。
+
+在其他开发机上，可以从本目录运行 `go run . -mobile-data ./state.local -listen 127.0.0.1:9980` 启动相同的移动端 API。在映舟的「引擎地址」填写 `http://127.0.0.1:9980`，再在订阅框输入原始源地址。
+
 ## 直接导入原始地址
 
 在 `lab/engine-go` 目录运行以下命令。Go 启动时读取订阅并选择本机支持的站点，搜索、详情和播放在请求时执行。
@@ -10,7 +30,7 @@
 go run . -source 'http://肥猫.net' -listen 127.0.0.1:9980
 ```
 
-2026-11-22 在 Windows x64 实测，原始地址用 Go 引擎的请求头返回 40 个站点。上面的命令导出 13 个，其中 12 个使用 Go 适配器，干饭只提供目录。加上匹配的 `-spider-native` 后，导出 32 个，其中 12 个走纯 Go，20 个走编译后的原蜘蛛。逐站播放结果见后文。iOS 本地执行仍待验证。
+2026-11-22 在 Windows x64 实测，原始地址用 Go 引擎的请求头返回 40 个站点。上面的命令导出 13 个，其中 12 个使用 Go 适配器，干饭只提供目录。加上匹配的 `-spider-native` 后，导出 32 个，其中 12 个走纯 Go，20 个走编译后的原蜘蛛。逐站播放结果见后文。
 
 发行版映舟可在「订阅」里添加 `http://127.0.0.1:9980/config.json`。要在普通订阅框直接输入原始地址，使用本分支构建的桌面引擎，在启动映舟的终端设置下面两个变量。如果 Go 监听 `9987`，第二个变量也填 `9987`。
 

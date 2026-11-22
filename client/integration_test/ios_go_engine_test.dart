@@ -2,11 +2,14 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:tvbox_client/app_state.dart';
 import 'package:tvbox_client/engine/engine_client.dart';
+import 'package:tvbox_client/engine/go_engine.dart';
+import 'package:tvbox_client/engine/models.dart';
+import 'package:tvbox_client/settings.dart';
 
 Uint8List audioFixture() {
   const sampleRate = 8000;
@@ -31,14 +34,6 @@ Uint8List audioFixture() {
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   testWidgets('iOS embeds Go, plays through a subscription and restores it after restart', (tester) async {
-    const channel = MethodChannel('yingzhou/go_engine');
-    Future<EngineClient> start() async {
-      final port = await channel.invokeMethod<int>('start', {'port': 0});
-      expect(port, inInclusiveRange(1, 65535));
-      return EngineClient(Uri.parse('http://127.0.0.1:$port'));
-    }
-
-    addTearDown(() => channel.invokeMethod<void>('stop'));
     final origin = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => origin.close(force: true));
     final base = 'http://127.0.0.1:${origin.port}';
@@ -50,31 +45,47 @@ void main() {
     });
     origin.listen((request) async {
       final response = request.response;
+      response.headers.contentType = ContentType.json;
       if (request.uri.path == '/config.json') {
-        response.headers.contentType = ContentType.json;
         response.write(config);
       } else if (request.uri.path == '/clip.wav') {
         response.headers.contentType = ContentType('audio', 'wav');
         response.contentLength = wave.length;
         response.add(wave);
+      } else if (request.uri.path == '/api/v1/info') {
+        response.write(jsonEncode({'name': 'remote-fixture', 'version': '1', 'platform': 'remote', 'protocol': 1}));
+      } else if (request.uri.path == '/api/v1/subscriptions') {
+        response.write('[]');
+      } else if (request.uri.path == '/api/v1/settings') {
+        response.write('{}');
+      } else if (request.uri.path == '/api/v1/config') {
+        response.statusCode = HttpStatus.notFound;
+        response.write(
+          jsonEncode({
+            'error': {'code': 'NO_CONFIG', 'message': 'No active subscription'},
+          }),
+        );
       } else {
         response.statusCode = HttpStatus.notFound;
       }
       await response.close();
     });
 
-    final first = await start();
-    addTearDown(first.close);
-    final info = await first.info();
-    expect(info.protocol, 1);
-    expect(info.capabilities['jar'], isNot(true));
-    final subscription = await first.addSubscription('$base/config.json');
-    expect((await first.activate(subscription.id)).sites, 1);
-    expect((await first.sites()).single.key, 'fixture');
-    expect((await first.home('fixture')).list, isEmpty);
-    final detail = await first.detail('fixture', '$base/clip.wav');
+    final state = AppState(clientFactory: (url) => EngineClient(url), settings: MemorySettings(), goEngine: createGoEngine());
+    addTearDown(state.dispose);
+    await state.start();
+    expect(state.usingBuiltInGo, isTrue);
+    expect(state.info?.capabilities['go'], isTrue, reason: state.error);
+    expect(state.info?.capabilities['jar'], isNot(true));
+    final localUrl = Uri.parse(state.engineUrl);
+    await state.importSubscription('$base/config.json');
+    final subscription = state.subscriptions.singleWhere((entry) => entry.url == '$base/config.json');
+    expect(state.summary?.subscriptionId, subscription.id, reason: state.error);
+    expect(state.browsableSites.single.key, 'fixture');
+    expect((await state.client.home('fixture')).list, isEmpty);
+    final detail = await state.client.detail('fixture', '$base/clip.wav');
     final line = detail.lines.single;
-    final playback = await first.resolvePlay('fixture', line.name, line.episodes.single.id);
+    final playback = await state.client.resolvePlay('fixture', line.name, line.episodes.single.id);
     expect(playback.isDirect, isTrue);
     expect(playback.url, '$base/clip.wav');
 
@@ -84,11 +95,17 @@ void main() {
     await player.open(Media(playback.url));
     await player.stream.position.firstWhere((position) => position.inMilliseconds >= 250).timeout(const Duration(seconds: 30));
     await player.stop();
-    await channel.invokeMethod<void>('stop');
-    final restored = await start();
-    addTearDown(restored.close);
-    expect((await restored.config()).subscriptionId, subscription.id);
-    expect((await restored.sites()).single.key, 'fixture');
-    await restored.removeSubscription(subscription.id);
+    await state.connect(base);
+    expect(state.info?.name, 'remote-fixture', reason: state.error);
+    expect(state.usingBuiltInGo, isFalse);
+    expect(state.subscriptions, isEmpty);
+    final stopped = EngineClient(localUrl);
+    addTearDown(stopped.close);
+    await expectLater(stopped.info(), throwsA(isA<EngineException>()));
+    await state.useBuiltInGo();
+    expect(state.info?.capabilities['go'], isTrue, reason: state.error);
+    expect(state.summary?.subscriptionId, subscription.id);
+    expect(state.browsableSites.single.key, 'fixture');
+    await state.removeSubscription(subscription.id);
   }, skip: !Platform.isIOS);
 }

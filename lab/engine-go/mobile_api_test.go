@@ -138,7 +138,7 @@ func TestMobileLifecycleWithOriginalSubscription(t *testing.T) {
 
 func TestMobileBrowseProtocol(t *testing.T) {
 	origin := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		fmt.Fprint(writer, `{"sites":[{"key":"station","type":3,"api":"csp_Test"}]}`)
+		fmt.Fprint(writer, `{"sites":[{"key":"station","type":3,"api":"csp_Test"},{"key":"bili","type":3,"api":"csp_Bili","ext":{"class":[{"type_id":"m","type_name":"电影"}],"filters":{"m":[{"key":"g","name":"类型"}]}}}]}`)
 	}))
 	defer origin.Close()
 	service, err := newMobileEngine(t.TempDir(), origin.Client())
@@ -157,6 +157,10 @@ func TestMobileBrowseProtocol(t *testing.T) {
 	callMobile(t, "GET", route+"home", nil, 200, &home)
 	if !strings.Contains(string(home["classes"]), `"id":"m"`) || !strings.Contains(string(home["list"]), `"site":"station"`) || !strings.Contains(string(home["filters"]), `"value":"c"`) {
 		t.Fatal(home)
+	}
+	callMobile(t, "GET", base+"/sites/bili/home", nil, 200, &home)
+	if !strings.Contains(string(home["filters"]), `"values":[]`) {
+		t.Fatal("empty filter values must remain a list for Flutter")
 	}
 	var page Page
 	callMobile(t, "GET", route+"category?tid=m&pg=2&f="+url.QueryEscape(`{"genre":"comedy"}`), nil, 200, &page)

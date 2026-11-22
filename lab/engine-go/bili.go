@@ -127,7 +127,7 @@ func (provider *biliProvider) Home(ctx context.Context, site Site) (Home, error)
 	}
 	for category, filters := range categories.Filters {
 		for _, filter := range filters {
-			option := Filter{Key: filter.Key, Name: filter.Name}
+			option := Filter{Key: filter.Key, Name: filter.Name, Values: make([]FilterValue, 0, len(filter.Values))}
 			for _, value := range filter.Values {
 				option.Values = append(option.Values, FilterValue{Name: value.Name, Value: value.Value})
 			}

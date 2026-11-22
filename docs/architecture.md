@@ -34,7 +34,9 @@
 | Android 手机/TV | Flutter | **同进程内置**（Kotlin 直接打进 APK，Ktor 监听 127.0.0.1） | `DexClassLoader` 原生加载，含带 `.so` 的加固 jar |
 | Windows / macOS / Linux | Flutter | 内置引擎（精简 JRE 子进程，可关闭）或连 NAS | dex 转换 + 安卓桩类；加固 jar 计划走 unidbg（未实现） |
 | NAS / 服务器 | — | Docker 镜像（amd64 / arm64） | 同桌面 |
-| iOS / iPadOS | Flutter | **无**，连局域网引擎；外出用 Tailscale 等连回家 | 由远程引擎负责 |
+| iOS / iPadOS（`lab/engine-go`） | Flutter | 同进程静态链接 Go，或选择远程引擎 | 本机使用已适配的 Go 站点，原 jar 由远程引擎负责 |
+
+iOS 通过一个 Flutter 原生通道启动和停止 Go 服务。Go 绑定系统分配的回环端口，界面通过已有的 `/api/v1` 协议加载订阅、浏览和播放。应用保存引擎选择和远程地址，Go 将订阅、收藏与播放进度存放在应用专属目录。详见 [iOS 实验版的构建和验证](../lab/engine-go/README.md#ios--ipados)。
 
 最兼容的引擎是一台安卓设备（盒子、旧手机）：ART 原生运行所有 jar。
 

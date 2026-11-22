@@ -27,7 +27,15 @@ class EngineClient {
 
   // ---- engine and subscriptions ----
 
-  Future<EngineInfo> info() async => EngineInfo.fromJson(await _send('GET', 'info'));
+  Future<EngineInfo> info() async {
+    try {
+      return EngineInfo.fromJson(await _send('GET', 'info'));
+    } on FormatException {
+      throw const EngineException('INVALID_ENGINE', '这个地址没有返回映舟引擎信息，请检查引擎地址');
+    } on TypeError {
+      throw const EngineException('INVALID_ENGINE', '这个地址返回的引擎信息格式无效');
+    }
+  }
 
   Future<List<Subscription>> subscriptions() async => [
     for (final s in await _send('GET', 'subscriptions') as List<dynamic>) Subscription.fromJson(s as Map<String, dynamic>),
