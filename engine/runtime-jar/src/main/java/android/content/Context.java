@@ -55,18 +55,15 @@ public class Context {
     private static final ActivityManager AM = new ActivityManager();
     private static final AlarmManager ALARM = new AlarmManager();
     private static final ClipboardManager CLIPBOARD = new ClipboardManager();
-    private final Resources resources;
+    private static final Resources RES = new Resources();
     private static final ApplicationInfo APP_INFO = new ApplicationInfo();
     /** 网络族服务桩（调用方带 checkcast，必须是真实类型；见 getSystemService） */
     private static final android.net.wifi.WifiManager WIFI = new android.net.wifi.WifiManager();
     private static final android.net.ConnectivityManager CONNECTIVITY = new android.net.ConnectivityManager();
-    public Context() {
-        this(null, new Resources());
-    }
+    /** Assets 句柄（壳通解）：壳 native 拿它做 AAssetManager_fromJava */
+    private static final AssetManager ASSETS = new AssetManager();
 
-    public Context(ClassLoader loader, Resources resources) {
-        this.classLoader = loader;
-        this.resources = resources;
+    public Context() {
     }
 
     /** 当前蜘蛛/壳真实实现的加载器；不能固定返回运行时桩的应用加载器。 */
@@ -133,11 +130,11 @@ public class Context {
     // ---------------- 资源 / 包 ----------------
 
     public Resources getResources() {
-        return resources;
+        return RES;
     }
 
     public AssetManager getAssets() {
-        return getResources().getAssets();
+        return ASSETS;
     }
 
     public PackageManager getPackageManager() {

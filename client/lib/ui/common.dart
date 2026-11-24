@@ -4,13 +4,12 @@ import 'engine_image.dart';
 
 /// Centered status message with an optional action, for empty / error states.
 class StatusView extends StatelessWidget {
-  const StatusView({super.key, required this.icon, required this.message, this.actionLabel, this.onAction, this.extraAction});
+  const StatusView({super.key, required this.icon, required this.message, this.actionLabel, this.onAction});
 
   final IconData icon;
   final String message;
   final String? actionLabel;
   final VoidCallback? onAction;
-  final Widget? extraAction;
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +27,6 @@ class StatusView extends StatelessWidget {
               const SizedBox(height: 16),
               FilledButton.tonal(onPressed: onAction, child: Text(actionLabel!)),
             ],
-            ?extraAction,
           ],
         ),
       ),

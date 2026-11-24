@@ -1,8 +1,6 @@
 package android.app;
 
 import android.content.Context;
-import android.content.ContextWrapper;
-import android.content.res.Resources;
 
 /**
  * Application stub（补源码版本：此前只有历史编译产物、无源码）。
@@ -16,17 +14,10 @@ import android.content.res.Resources;
  * 桌面端没有 Activity 生命周期与组件回调，故注册方法为 no-op（回调永不被触发），
  * 接口本身按 AOSP 签名补齐，保证实现类/调用方都能正常链接。
  */
-public class Application extends ContextWrapper {
+public class Application extends Context {
 
     public Application() {
-        this(null, new Resources());
-    }
-
-    public Application(ClassLoader loader, Resources resources) {
-        super(null);
-        attachBaseContext(new Context(loader, resources) {
-            @Override public Context getApplicationContext() { return Application.this; }
-        });
+        super();
     }
 
     /** 与 Android 同名的嵌套接口（缺它即触发上面的 ClassNotFoundException） */

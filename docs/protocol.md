@@ -9,7 +9,6 @@
 - 基础路径：`/api/v1`。JSON 使用 UTF-8，字段名 camelCase。
 - 鉴权：`Authorization: Bearer <token>`，令牌由配对得到（见下面"鉴权与配对"）。本机的调用方不需要令牌。
 - 错误：HTTP 状态码 + `{"error": {"code": "SITE_TIMEOUT", "message": "…"}}`。
-- 引擎能定位源故障时，`error.diagnostic` 包含 `stage`、`site`、`kind`、`cause`，以及可选的 `archive`、`initCause`。`stage` 如 `jar.fetch`、`spider.init`、`spider.detail`，`cause` 是可分享的原因摘要，`archive` 是包地址的 12 位标识，`initCause` 是同一个包共享初始化时的原因。旧客户端可以继续只读 `code`、`message`。
 - 流式结果用 **SSE**（`text/event-stream`）；引擎主动推送的事件用 **WebSocket** `/api/v1/events` **（未实现）**。遥控（见"遥控"）的两条 WebSocket 已实现。
 - 版本：`GET /api/v1/info` 返回 `protocol` 版本号，不兼容的改动升主版本。
 
@@ -94,7 +93,6 @@ tvsig=<过期时间，秒，36 进制>.<设备 id 或 local>.<HMAC-SHA256 前 16
 | `stored` | `true`：引擎启动时用的是上次下载后保存的副本，网络上的还没核对过（或核对失败） |
 | `refreshing` | `true`：正在后台核对副本。客户端隔一两秒再取一次 `/config`，直到它变成 `false`；这期间配置可能被换成新的（`fetchedAt`、站点数会变） |
 | `refreshError` | 最近一次下载失败的原因；没失败为空 |
-| `refreshDiagnostic` | 可选的结构化诊断。`config.fetch` 表示订阅地址、DNS 或 HTTP 请求出错，`config.parse` 表示取回的文档解析失败。仍可使用上次成功的配置 |
 
 引擎启动时先用保存的副本激活上次的订阅（不等网络），再在后台下载：内容没变就只更新 `fetchedAt` 并把 `stored` 置回 `false`；变了就换成新的；下载失败就继续用副本并写明 `refreshError`。没有副本时（第一次、或缓存被清空）和以前一样等下载完成。
 
@@ -142,7 +140,7 @@ tvsig=<过期时间，秒，36 进制>.<设备 id 或 local>.<HMAC-SHA256 前 16
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/sites` | `[{key, name, type, searchable, quickSearch, filterable, changeable, runtime: cms|js|jar|py|remote}]`；`changeable` 是配置里的 `changeable`（默认 1），客户端据此决定能不能自动换到 / 换离这个站点；旧引擎没有这个字段，客户端当作 true |
-| GET | `/sites/{key}/home` | `{classes: [Class], filters: {typeId: [Filter]}, list: [VodCard], warning?}`。仅推荐调用失败时保留已有分类，`warning` 与 `error.diagnostic` 同形 |
+| GET | `/sites/{key}/home` | `{classes: [Class], filters: {typeId: [Filter]}, list: [VodCard]}` |
 | GET | `/sites/{key}/category?tid=&pg=&f=` | `f` 为 URL 编码的 JSON 筛选值；返回 `Page<VodCard>` |
 | GET | `/sites/{key}/detail?id=` | `VodDetail` |
 | GET | `/sites/{key}/search?wd=&pg=` | `Page<VodCard>`（单站） |
@@ -160,7 +158,7 @@ event: site      data: {"site":"b","status":"error","code":"SITE_TIMEOUT"}
 event: end       data: {"sites":40,"ms":9120}
 ```
 
-`status: "error"` 的站点事件可带同形的 `diagnostic`，其他站点继续返回结果。客户端可按"片名 + 年份"合并不同站点的同一部片。
+客户端可按"片名 + 年份"合并不同站点的同一部片。
 
 ## 播放
 

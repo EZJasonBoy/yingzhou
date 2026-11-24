@@ -30,7 +30,6 @@ String buildDiagnosticReport({
   required List<CrashRecord> records,
   String logTitle = '引擎日志',
   String log = '',
-  Iterable<String> sourceIssues = const [],
   DateTime? now,
   int maxRecords = 5,
   int maxStackLines = 40,
@@ -43,12 +42,6 @@ String buildDiagnosticReport({
     ..writeln('设备形态：${DiagnosticEnvironment.formLabel(env.form)}（${env.form}）')
     ..writeln('引擎：${env.engine}')
     ..writeln('生成时间：${CrashRecord.formatTime(now ?? DateTime.now())}');
-  if (sourceIssues.isNotEmpty) {
-    b
-      ..writeln()
-      ..writeln('== 本次运行最近的源故障（新的在前）==')
-      ..writeln(sourceIssues.join('\n'));
-  }
   b
     ..writeln()
     ..writeln(

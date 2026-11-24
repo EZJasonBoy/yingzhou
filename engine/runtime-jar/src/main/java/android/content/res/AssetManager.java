@@ -1,78 +1,40 @@
 package android.content.res;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FilterInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.Enumeration;
-import java.util.TreeSet;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
-
+/**
+ * AssetManager stub —— 加固壳 native 取「宿主 Assets 句柄」用（壳通解）。
+ *
+ * <p><b>为什么只要这么点：</b>壳的 native 调 {@code Context.getAssets()} 拿到本对象后，
+ * 交给 {@code AAssetManager_fromJava(env, mgr)}，随后是 {@code AAssetManager_open(name, mode)}
+ * → {@code AAsset_getBuffer/getLength/read/close}。这些 **AAssetManager_* / AAsset_* 符号**
+ * 由 unidbg 的 libandroid 虚拟模块提供（见 {@code NativeBridge.installAssets}：把 jar 的
+ * {@code assets/**} 全部登记进去）。所以 Java 侧本类不需要真的实现读资产 ——
+ * 它只是「非 null 的句柄」，同时给纯 Java 代码（若能调到）一个可用的最小实现。
+ */
 public class AssetManager {
-    public static final int ACCESS_UNKNOWN = 0;
-    public static final int ACCESS_RANDOM = 1;
-    public static final int ACCESS_STREAMING = 2;
-    public static final int ACCESS_BUFFER = 3;
 
-    private final File archive;
-
-    public AssetManager() { this(null); }
-
-    public AssetManager(File archive) { this.archive = archive; }
-
-    public InputStream open(String name) throws IOException {
-        String path = assetPath(name);
-        if (archive == null) {
-            InputStream stream = AssetManager.class.getClassLoader().getResourceAsStream(path);
-            if (stream == null) throw new FileNotFoundException(name);
-            return stream;
-        }
-        ZipFile zip = new ZipFile(archive);
-        try {
-            ZipEntry entry = zip.getEntry(path);
-            if (entry == null || entry.isDirectory()) throw new FileNotFoundException(name);
-            return new FilterInputStream(zip.getInputStream(entry)) {
-                @Override public void close() throws IOException {
-                    try { super.close(); } finally { zip.close(); }
-                }
-            };
-        } catch (IOException | RuntimeException failure) {
-            zip.close();
-            throw failure;
-        }
+    public AssetManager() {
     }
 
-    public InputStream open(String fileName, int accessMode) throws IOException { return open(fileName); }
-
-    public String[] list(String path) throws IOException {
-        String prefix = assetPath(path);
-        if (!prefix.endsWith("/")) prefix += "/";
-        if (archive == null) return new String[0];
-        TreeSet<String> children = new TreeSet<>();
-        try (ZipFile zip = new ZipFile(archive)) {
-            Enumeration<? extends ZipEntry> entries = zip.entries();
-            while (entries.hasMoreElements()) {
-                String name = entries.nextElement().getName();
-                if (!name.startsWith(prefix) || name.length() == prefix.length()) continue;
-                int slash = name.indexOf('/', prefix.length());
-                String child = name.substring(prefix.length(), slash < 0 ? name.length() : slash);
-                if (!child.isEmpty() && !child.equals(".") && !child.equals("..")) children.add(child);
-            }
-        }
-        return children.toArray(new String[0]);
+    /**
+     * Java 侧读取资产（少数壳的 Java 代码会走这里）。
+     * 桌面版把 jar 的 assets 视作类路径资源 → 用类加载器取；取不到返回 null。
+     */
+    public java.io.InputStream open(String fileName) throws java.io.IOException {
+        ClassLoader cl = getClass().getClassLoader();
+        java.io.InputStream in = cl == null ? null : cl.getResourceAsStream("assets/" + fileName);
+        if (in == null) in = cl == null ? null : cl.getResourceAsStream(fileName);
+        if (in == null) throw new java.io.FileNotFoundException(fileName);
+        return in;
     }
 
-    private static String assetPath(String name) throws FileNotFoundException {
-        if (name == null || name.startsWith("/") || name.indexOf('\\') >= 0 || name.indexOf('\0') >= 0) {
-            throw new FileNotFoundException(name);
-        }
-        for (String part : name.split("/")) {
-            if (part.equals(".") || part.equals("..")) throw new FileNotFoundException(name);
-        }
-        return "assets/" + name;
+    public java.io.InputStream open(String fileName, int accessMode) throws java.io.IOException {
+        return open(fileName);
     }
 
-    public void close() { }
+    public String[] list(String path) throws java.io.IOException {
+        return new String[0];
+    }
+
+    public void close() {
+    }
 }

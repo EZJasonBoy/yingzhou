@@ -11,7 +11,6 @@ import tvbox.engine.core.config.ConfigLoader
 import tvbox.engine.core.config.RepoEntry
 import tvbox.engine.core.config.SiteRuntime
 import tvbox.engine.core.config.TvboxConfig
-import tvbox.engine.core.model.ApiError
 import tvbox.engine.core.model.ConfigSummary
 import tvbox.engine.core.model.EngineInfo
 import tvbox.engine.core.model.HomeResult
@@ -19,7 +18,6 @@ import tvbox.engine.core.model.PlayInfo
 import tvbox.engine.core.model.PlayRequest
 import tvbox.engine.core.model.RepoInfo
 import tvbox.engine.core.model.SiteInfo
-import tvbox.engine.core.model.SpiderDiagnostic
 import tvbox.engine.core.model.Subscription
 import tvbox.engine.core.model.VodDetail
 import tvbox.engine.core.model.VodPage
@@ -47,8 +45,6 @@ import tvbox.engine.core.spider.ProxyResponse
 import tvbox.engine.core.spider.SpiderLoadException
 import tvbox.engine.core.spider.SpiderRuntime
 import tvbox.engine.core.spider.SpiderSource
-import tvbox.engine.core.spider.spiderDiagnostic
-import tvbox.engine.core.spider.summary
 import tvbox.engine.core.store.EngineStore
 import tvbox.engine.core.store.Library
 import tvbox.engine.core.store.MemoryStore
@@ -57,18 +53,14 @@ import tvbox.engine.core.vod.SiteResultException
 import java.util.UUID
 
 /** Errors the API layer maps to HTTP status codes. */
-sealed class EngineException(val code: String, message: String, val diagnostic: SpiderDiagnostic? = null) : Exception(message) {
+sealed class EngineException(val code: String, message: String) : Exception(message) {
     class NotFound(message: String) : EngineException("NOT_FOUND", message)
     class BadRequest(message: String) : EngineException("BAD_REQUEST", message)
     class NoConfig : EngineException("NO_CONFIG", "no subscription is active")
-    class ConfigLoadFailed(message: String, diagnostic: SpiderDiagnostic? = null) : EngineException("CONFIG_LOAD_FAILED", message, diagnostic) {
-        constructor(diagnostic: SpiderDiagnostic) : this(diagnostic.summary(), diagnostic)
-    }
+    class ConfigLoadFailed(message: String) : EngineException("CONFIG_LOAD_FAILED", message)
     class Unsupported(message: String) : EngineException("UNSUPPORTED_SITE", message)
     /** The site (or a parser) failed: network, timeout, bad data. */
-    class SiteFailed(code: String, message: String, diagnostic: SpiderDiagnostic? = null) : EngineException(code, message, diagnostic) {
-        constructor(error: ApiError) : this(error.code, error.message, error.diagnostic)
-    }
+    class SiteFailed(code: String, message: String) : EngineException(code, message)
 }
 
 /**
@@ -126,7 +118,7 @@ class Engine(
         /** True while the config comes from the kept copies and the network has not confirmed it yet. */
         @Volatile var stored: Boolean = false,
         /** Why the last refresh of a stored config failed; empty when it did not. */
-        @Volatile var refreshFailure: ApiError? = null,
+        @Volatile var refreshError: String = "",
     ) {
         /** Site answers are kept under this: another subscription, entry or text is another scope. */
         val scope: String = tvbox.engine.core.cache.DataCache.hash(subscriptionId + "\n" + url + "\n" + trace.joinToString("\n") { it.second })
@@ -292,11 +284,8 @@ class Engine(
     suspend fun removeSubscription(id: String) {
         lock.withLock {
             subscriptions.remove(id) ?: throw EngineException.NotFound("subscription $id")
-            if (active?.subscriptionId == id) {
-                runtimes.forEach { it.onConfigRemoved() }
-                network?.onConfig(null)
-                active = null
-            }
+            if (active?.subscriptionId == id) network?.onConfig(null)
+            if (active?.subscriptionId == id) active = null
             if (savedActiveId == id) {
                 savedActiveId = null
                 savedActiveRepo = null
@@ -339,7 +328,7 @@ class Engine(
         val restored = restore()
         active?.let { return summary(it) }
         restored?.exceptionOrNull()?.let { e ->
-            throw e as? EngineException ?: EngineException.ConfigLoadFailed(spiderDiagnostic("", "config.load", e))
+            throw e as? EngineException ?: EngineException.ConfigLoadFailed(e.message ?: e.toString())
         }
         throw EngineException.NoConfig()
     }
@@ -387,15 +376,13 @@ class Engine(
             if (trace.loaded.toList() == a.trace) {
                 a.fetchedAt = trace.fetchedAt
                 a.stored = false
-                a.refreshFailure = null
             } else {
                 activate(a.subscriptionId, if (a.repos.isEmpty()) null else a.url)
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            val failure = e as? EngineException ?: EngineException.ConfigLoadFailed(spiderDiagnostic("", "config.load", e))
-            a.refreshFailure = ApiError(failure.code, failure.message ?: failure.code, failure.diagnostic)
+            a.refreshError = e.message ?: e.toString()
         } finally {
             refreshing = false
         }
@@ -407,7 +394,7 @@ class Engine(
         return try {
             activate(a.subscriptionId, if (a.repos.isEmpty()) null else a.url)
         } catch (e: EngineException) {
-            a.refreshFailure = ApiError(e.code, e.message ?: e.code, e.diagnostic)
+            a.refreshError = e.message ?: e.code
             throw e
         }
     }
@@ -426,7 +413,7 @@ class Engine(
         val (url, repos, config) = when (val doc = first.document) {
             is ConfigDocument.Single -> Triple(sub.url, emptyList<RepoEntry>(), doc.config)
             is ConfigDocument.Repository -> {
-                if (doc.entries.isEmpty()) throw EngineException.ConfigLoadFailed(ConfigLoader.invalidDocument("repository has no entries"))
+                if (doc.entries.isEmpty()) throw EngineException.ConfigLoadFailed("repository has no entries")
                 val groups = repoGroups.getOrPut(id) { java.util.concurrent.ConcurrentHashMap() }
                 // After a restart the groups around the saved repo are not known yet: open them again.
                 if (repoUrl != null && repoUrl == savedActiveRepo && id == savedActiveId) {
@@ -493,7 +480,7 @@ class Engine(
 
     /** A site's `categories` (TVBox) keeps only those classes, in that order. */
     suspend fun home(site: String, refresh: Boolean = false): HomeResult =
-        kept(site, "home", refresh, HOME_LIFETIME, HomeResult.serializer(), { it.warning == null && (it.classes.isNotEmpty() || it.list.isNotEmpty()) }) { homeNow(site) }
+        kept(site, "home", refresh, HOME_LIFETIME, HomeResult.serializer(), { it.classes.isNotEmpty() || it.list.isNotEmpty() }) { homeNow(site) }
 
     /**
      * A site answer through the data cache: served from it while young, served stale while a fresh one is fetched,
@@ -591,7 +578,8 @@ class Engine(
         } catch (e: EngineException) {
             throw e
         } catch (e: Exception) {
-            throw EngineException.SiteFailed(describe(e))
+            val (code, message) = describe(e)
+            throw EngineException.SiteFailed(code, message)
         }
     }
 
@@ -629,7 +617,8 @@ class Engine(
         } catch (e: PlayResolveException) {
             throw EngineException.SiteFailed("PLAY_FAILED", e.message ?: "play failed")
         } catch (e: Exception) {
-            throw EngineException.SiteFailed(describe(e))
+            val (code, message) = describe(e)
+            throw EngineException.SiteFailed(code, message)
         }
     }
 
@@ -702,7 +691,8 @@ class Engine(
         val bytes = try {
             http.getBytes(url, headers)
         } catch (e: Exception) {
-            throw EngineException.SiteFailed(describe(e))
+            val (code, message) = describe(e)
+            throw EngineException.SiteFailed(code, message)
         }
         return tvbox.engine.core.play.SubtitleConverter.convert(bytes, hint = hint)
     }
@@ -758,7 +748,8 @@ class Engine(
             throw EngineException.Unsupported(e.message ?: "unsupported site")
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException && e !is TimeoutCancellationException) throw e
-            throw EngineException.SiteFailed(describe(e))
+            val (code, message) = describe(e)
+            throw EngineException.SiteFailed(code, message)
         } catch (e: LinkageError) {
             // A jar spider that needs a class or method this platform does not have.
             throw EngineException.SiteFailed("SPIDER_INCOMPATIBLE", e.javaClass.simpleName + ": " + (e.message ?: ""))
@@ -766,20 +757,20 @@ class Engine(
     }
 
     /** Maps failures to (code, message) for API errors and search events. */
-    private fun describe(e: Throwable): ApiError = when (e) {
-        is TimeoutCancellationException -> ApiError("SITE_TIMEOUT", "site did not answer in time")
-        is SiteHttpException -> ApiError(if (e.message?.startsWith("timeout") == true) "SITE_TIMEOUT" else "SITE_UNREACHABLE", e.message ?: "network error")
-        is SiteResultException -> ApiError("SITE_BAD_RESULT", e.message ?: "unexpected data")
-        is UnsupportedSiteException -> ApiError("UNSUPPORTED_SITE", e.message ?: "unsupported")
-        is SpiderLoadException -> ApiError(e.code, e.message ?: "spider failed to load", e.diagnostic)
-        else -> ApiError("SITE_ERROR", e.message ?: e.javaClass.simpleName)
+    private fun describe(e: Throwable): Pair<String, String> = when (e) {
+        is TimeoutCancellationException -> "SITE_TIMEOUT" to "site did not answer in time"
+        is SiteHttpException -> (if (e.message?.startsWith("timeout") == true) "SITE_TIMEOUT" else "SITE_UNREACHABLE") to (e.message ?: "network error")
+        is SiteResultException -> "SITE_BAD_RESULT" to (e.message ?: "unexpected data")
+        is UnsupportedSiteException -> "UNSUPPORTED_SITE" to (e.message ?: "unsupported")
+        is SpiderLoadException -> e.code to (e.message ?: "spider failed to load")
+        else -> "SITE_ERROR" to (e.message ?: e.javaClass.simpleName)
     }
 
     private suspend fun load(url: String): ConfigLoader.Result = try {
         val trace = kotlin.coroutines.coroutineContext[tvbox.engine.core.cache.LoadTrace]
         loader.load(url, stored = trace?.stored == true).also { trace?.add(url, it.text, it.fetchedAt) }
     } catch (e: ConfigLoader.LoadException) {
-        throw EngineException.ConfigLoadFailed(e.message ?: "load failed", e.diagnostic)
+        throw EngineException.ConfigLoadFailed(e.message ?: "load failed")
     }
 
     /**
@@ -792,13 +783,13 @@ class Engine(
         visited: MutableSet<String>,
         depthLeft: Int,
     ): Pair<String, TvboxConfig> {
-        if (!visited.add(url)) throw EngineException.ConfigLoadFailed(ConfigLoader.invalidDocument("repository lists itself"))
+        if (!visited.add(url)) throw EngineException.ConfigLoadFailed("repository lists itself: $url")
         return when (val doc = load(url).document) {
             is ConfigDocument.Single -> url to doc.config
             is ConfigDocument.Repository -> {
                 groups[url] = doc.entries
-                if (depthLeft <= 0) throw EngineException.ConfigLoadFailed(ConfigLoader.invalidDocument("repositories nested too deep"))
-                if (doc.entries.isEmpty()) throw EngineException.ConfigLoadFailed(ConfigLoader.invalidDocument("repository has no entries"))
+                if (depthLeft <= 0) throw EngineException.ConfigLoadFailed("repositories nested too deep at $url")
+                if (doc.entries.isEmpty()) throw EngineException.ConfigLoadFailed("repository has no entries: $url")
                 openFirst(doc.entries, groups, visited, depthLeft - 1)
             }
         }
@@ -819,7 +810,7 @@ class Engine(
                 if (failure == null) failure = e
             }
         }
-        throw failure ?: EngineException.ConfigLoadFailed(ConfigLoader.invalidDocument("repository has no entries"))
+        throw failure ?: EngineException.ConfigLoadFailed("repository has no entries")
     }
 
     /** The repository entries as a flat list for the picker: each opened group is followed by its entries. */
@@ -840,25 +831,21 @@ class Engine(
         return out
     }
 
-    private fun summary(a: Active): ConfigSummary {
-        val failure = a.refreshFailure
-        return ConfigSummary(
-            subscriptionId = a.subscriptionId,
-            url = a.url,
-            fetchedUrl = githubProxy?.route(a.url) ?: a.url,
-            repos = repoInfos(a),
-            sites = a.config.sites.size,
-            parses = a.config.parses.size,
-            lives = countJsonArray(a.config.livesJson),
-            spider = a.config.spider,
-            wallpaper = a.config.wallpaper,
-            fetchedAt = a.fetchedAt,
-            stored = a.stored,
-            refreshing = refreshing && a.stored,
-            refreshError = failure?.message.orEmpty(),
-            refreshDiagnostic = failure?.diagnostic,
-        )
-    }
+    private fun summary(a: Active): ConfigSummary = ConfigSummary(
+        subscriptionId = a.subscriptionId,
+        url = a.url,
+        fetchedUrl = githubProxy?.route(a.url) ?: a.url,
+        repos = repoInfos(a),
+        sites = a.config.sites.size,
+        parses = a.config.parses.size,
+        lives = countJsonArray(a.config.livesJson),
+        spider = a.config.spider,
+        wallpaper = a.config.wallpaper,
+        fetchedAt = a.fetchedAt,
+        stored = a.stored,
+        refreshing = refreshing && a.stored,
+        refreshError = a.refreshError,
+    )
 
     private fun countJsonArray(json: String): Int =
         if (json.isBlank()) 0 else runCatching { com.google.gson.JsonParser.parseString(json).asJsonArray.size() }.getOrDefault(0)

@@ -38,7 +38,7 @@ class DesktopEngine implements LocalEngine {
   Process? get process => _process;
 
   @override
-  Future<bool> start(int port, {bool androidJni = false}) async {
+  Future<bool> start(int port) async {
     if (_process != null) return true;
     final engineDir = this.engineDir ?? _findEngineDir();
     if (engineDir == null) {
@@ -72,7 +72,7 @@ class DesktopEngine implements LocalEngine {
     ];
     _diag.store.engineStarted('$java ${args.join(' ')}');
     try {
-      final process = await Process.start(java, args, environment: androidJni ? const {'YINGZHOU_ANDROID_JNI': '1'} : null);
+      final process = await Process.start(java, args);
       _process = process;
       _stopping = false;
       const decoder = Utf8Decoder(allowMalformed: true);

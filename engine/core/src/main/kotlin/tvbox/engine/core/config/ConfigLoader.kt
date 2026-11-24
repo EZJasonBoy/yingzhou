@@ -4,9 +4,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import tvbox.engine.core.model.SpiderDiagnostic
-import tvbox.engine.core.spider.spiderDiagnostic
-import tvbox.engine.core.spider.summary
 import java.io.IOException
 
 /**
@@ -19,9 +16,7 @@ class ConfigLoader(
     /** Keeps the last good download of every address, for starts without (or ahead of) the network. */
     private val cache: tvbox.engine.core.cache.DataCache? = null,
 ) {
-    class LoadException(message: String, cause: Throwable? = null, val diagnostic: SpiderDiagnostic? = null) : IOException(message, cause) {
-        constructor(diagnostic: SpiderDiagnostic, cause: Throwable? = null) : this(diagnostic.summary(), cause, diagnostic)
-    }
+    class LoadException(message: String, cause: Throwable? = null) : IOException(message, cause)
 
     /**
      * The decoded text is returned too, so callers can compare it.
@@ -34,23 +29,17 @@ class ConfigLoader(
 
     /** With [stored] the kept copy of an earlier download is used and nothing is fetched; it fails when there is none. */
     suspend fun load(input: String, stored: Boolean = false): Result = withContext(Dispatchers.IO) {
-        val location = try {
-            locator.locate(input)
-        } catch (error: RuntimeException) {
-            throw LoadException(invalidAddress, error)
-        }
-        val copy = if (stored) cache?.get(tvbox.engine.core.cache.DataCache.CONFIG, input) ?: throw LoadException("no stored copy") else null
+        val location = locator.locate(input)
+        val copy = if (stored) cache?.get(tvbox.engine.core.cache.DataCache.CONFIG, input) ?: throw LoadException("$input: no stored copy") else null
         val body = copy?.text ?: fetch(location.fetchUrl)
-        val text: String
+        val text = locator.fixContent(location, ConfigDecoder.decode(body, location.key))
         val document = try {
-            text = locator.fixContent(location, ConfigDecoder.decode(body, location.key))
             ConfigParser.parse(text)
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
+        } catch (e: ConfigParser.InvalidConfigException) {
             // A parked domain or an error page answers 200 with HTML; say so instead of quoting a JSON parser.
             val head = body.trimStart().take(200).lowercase()
-            val what = if (head.startsWith("<!doctype html") || head.startsWith("<html")) "subscription returned a web page" else "invalid subscription document"
-            throw LoadException(invalidDocument(what), e)
+            val what = if (head.startsWith("<!doctype html") || head.startsWith("<html")) "the address returned a web page, not a config" else e.message
+            throw LoadException("${location.fetchUrl}: $what", e)
         }
         // Only what parsed is worth keeping: an error page must not replace a good copy.
         val at = copy?.at ?: cache?.put(tvbox.engine.core.cache.DataCache.CONFIG, input, body)?.at ?: System.currentTimeMillis()
@@ -65,23 +54,17 @@ class ConfigLoader(
                 .header("User-Agent", USER_AGENT)
                 .build()
             http.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw LoadException(SpiderDiagnostic("config.fetch", "", "network", "IOException: HTTP ${response.code}"))
-                return response.body?.string()?.takeIf { it.isNotBlank() }
-                    ?: throw LoadException(SpiderDiagnostic("config.fetch", "", "network", "IOException: empty subscription response"))
+                if (!response.isSuccessful) throw LoadException("$url: HTTP ${response.code}")
+                return response.body?.string() ?: throw LoadException("$url: empty body")
             }
         } catch (e: LoadException) {
             throw e
-        } catch (e: IllegalArgumentException) {
-            throw LoadException(invalidAddress, e)
         } catch (e: Exception) {
-            val diagnostic = spiderDiagnostic("", "config.fetch", e)
-            throw LoadException(if (e is IOException) diagnostic.copy(kind = "network") else diagnostic, e)
+            throw LoadException("$url: ${e.message ?: e.javaClass.simpleName}", e)
         }
     }
 
     companion object {
         const val USER_AGENT = "okhttp/3.15"
-        private val invalidAddress = SpiderDiagnostic("config.fetch", "", "invalid_result", "IllegalArgumentException: invalid subscription address")
-        internal fun invalidDocument(reason: String) = SpiderDiagnostic("config.parse", "", "invalid_result", "InvalidConfigException: $reason")
     }
 }

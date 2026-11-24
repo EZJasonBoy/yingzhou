@@ -5,7 +5,6 @@ import 'package:material_ui/material_ui.dart';
 import 'package:media_kit/media_kit.dart';
 
 import '../diagnostics/diagnostics.dart';
-import '../engine/source_diagnostic.dart';
 import '../engine/vod_models.dart';
 
 /// A player whose libmpv properties can be read by name. The real one is media_kit's `NativePlayer`; a test's fake
@@ -34,10 +33,9 @@ Future<String?> readMpvProperty(Player player, String name) async {
 /// decoder and the output are doing is libmpv's own account; where there is no libmpv to ask, the few things every
 /// player knows are shown instead.
 class PlayerStatsOverlay extends StatefulWidget {
-  const PlayerStatsOverlay({super.key, required this.player, this.sourceFailure});
+  const PlayerStatsOverlay({super.key, required this.player});
 
   final Player player;
-  final String? sourceFailure;
 
   static const _properties = [
     'video-format',
@@ -125,7 +123,6 @@ class _PlayerStatsOverlayState extends State<PlayerStatsOverlay> {
     final sampleRate = double.tryParse(v['audio-params/samplerate'] ?? '');
     final ahead = _buffer.isEmpty ? 0.0 : _buffer.last;
     final rows = <(String, String, Color?)>[
-      if (widget.sourceFailure case final failure?) ('片源', failure, const Color(0xFFF0C670)),
       (
         '视频',
         [
@@ -257,7 +254,6 @@ class PlayChain {
     required this.title,
     required this.vodId,
     required this.lineName,
-    required this.lineNumber,
     required this.lineCount,
     required this.episodeName,
     required this.episodeId,
@@ -265,7 +261,6 @@ class PlayChain {
     required this.onRelay,
     required this.parser,
     required this.resolveMs,
-    this.resolveFailed = false,
     required this.firstFrameMs,
     required this.failed,
   });
@@ -277,7 +272,6 @@ class PlayChain {
   final String title;
   final String vodId;
   final String lineName;
-  final int lineNumber;
   final int lineCount;
   final String episodeName;
   final String episodeId;
@@ -291,11 +285,10 @@ class PlayChain {
   /// How the address was found, in words (直链, 经站点解析 …).
   final String parser;
   final int? resolveMs;
-  final bool resolveFailed;
   final int? firstFrameMs;
 
   /// The lines that failed for this episode before the one playing, each with why.
-  final List<({String detail, String shareSummary})> failed;
+  final List<String> failed;
 
   /// The address the player was given.
   String get url => played == null ? '' : (onRelay && played!.relay.isNotEmpty ? played!.relay : played!.url);
@@ -303,17 +296,19 @@ class PlayChain {
   /// Everything as text, for an issue.
   String toText() {
     final p = played;
-    final site = SourceDiagnostic.publicSite(siteKey);
     return [
-      '订阅：${subscription.isEmpty ? '未使用' : '已加载'}',
-      if (site.isNotEmpty) '站点：$site',
-      if (runtime.isNotEmpty) '运行时：$runtime',
-      '线路：第 $lineNumber 条（共 $lineCount 条）',
-      for (final failure in failed) '失败的线路：${failure.shareSummary}',
-      '解析：${resolveFailed ? '失败' : p == null ? '进行中' : '完成'}${resolveMs == null ? '' : ' · $resolveMs ms'}',
-      if (p != null) '播放方式：${onRelay ? '经引擎' : '直连片源'}',
-      if (p != null && p.headers.isNotEmpty) '附带 ${p.headers.length} 个请求头',
-      if (p != null && p.cache.isNotEmpty) '引擎缓存：已启用',
+      '片名：$title',
+      '订阅：$subscription',
+      '站点：$siteName（$siteKey${runtime.isEmpty ? '' : '，$runtime'}）',
+      'vod_id：$vodId',
+      '线路：$lineName（共 $lineCount 条）',
+      '选集：$episodeName',
+      '选集地址：$episodeId',
+      for (final f in failed) '失败的线路：$f',
+      '解析：$parser${resolveMs == null ? '' : ' · $resolveMs ms'}',
+      if (p != null) '播放地址：$url',
+      if (p != null && p.headers.isNotEmpty) '请求头：${p.headers.entries.map((e) => '${e.key}: ${e.value}').join('; ')}',
+      if (p != null && p.cache.isNotEmpty) '引擎缓存：${p.cache}',
       if (firstFrameMs != null) '首帧：$firstFrameMs ms',
     ].join('\n');
   }
@@ -341,7 +336,7 @@ class PlayerChainPanel extends StatelessWidget {
         title: '站点 · ${chain.siteName}',
         body: [Text('${chain.siteKey}${chain.runtime.isEmpty ? '' : ' · ${chain.runtime}'} · vod_id ${chain.vodId}', style: _mono)],
       ),
-      for (final failure in chain.failed) _Step(color: scheme.error, title: '线路 · 打不开', body: [Text(failure.detail, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12, height: 1.5))]),
+      for (final f in chain.failed) _Step(color: scheme.error, title: '线路 · 打不开', trailing: '已跳过', body: [Text(f, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12, height: 1.5))]),
       _Step(
         color: ok,
         title: '线路 · ${chain.lineName.isEmpty ? '未命名' : chain.lineName}',
@@ -349,8 +344,8 @@ class PlayerChainPanel extends StatelessWidget {
         body: [Text(chain.episodeName, style: const TextStyle(fontSize: 12, height: 1.5)), SelectableText(chain.episodeId, minLines: 1, maxLines: 3, style: _mono.copyWith(color: scheme.onSurfaceVariant))],
       ),
       _Step(
-        color: chain.resolveFailed ? scheme.error : p == null ? scheme.outline : ok,
-        title: '解析 · ${chain.resolveFailed ? '失败' : p == null ? '正在解析…' : chain.parser}',
+        color: p == null ? scheme.outline : ok,
+        title: '解析 · ${p == null ? '正在解析…' : chain.parser}',
         trailing: chain.resolveMs == null ? null : '${chain.resolveMs} ms',
         body: const [],
       ),
@@ -393,7 +388,7 @@ class PlayerChainPanel extends StatelessWidget {
         FilledButton.icon(
           key: const Key('chain-copy'),
           onPressed: () async {
-            await Clipboard.setData(ClipboardData(text: Diagnostics.instance.redactForSharing(chain.toText())));
+            await Clipboard.setData(ClipboardData(text: Diagnostics.instance.redact(chain.toText())));
             if (context.mounted) ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(content: Text('已复制诊断信息'), duration: Duration(seconds: 2)));
           },
           icon: const Icon(Icons.copy_rounded, size: 18),

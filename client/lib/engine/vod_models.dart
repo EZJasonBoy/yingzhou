@@ -1,7 +1,5 @@
 // Normalised video data from engine protocol v1 (docs/protocol.md).
 
-import 'source_diagnostic.dart';
-
 class VodCard {
   const VodCard({required this.site, required this.id, required this.name, this.pic = '', this.remarks = '', this.tag = ''});
 
@@ -62,15 +60,13 @@ class VodFilter {
 }
 
 class HomeResult {
-  const HomeResult({required this.classes, required this.filters, required this.list, this.warning});
+  const HomeResult({required this.classes, required this.filters, required this.list});
 
   final List<VodClass> classes;
   final Map<String, List<VodFilter>> filters;
   final List<VodCard> list;
-  final SourceDiagnostic? warning;
 
   factory HomeResult.fromJson(Map<String, dynamic> j) => HomeResult(
-        warning: SourceDiagnostic.tryParse(j['warning']),
         classes: [for (final c in j['classes'] as List<dynamic>) VodClass.fromJson(c as Map<String, dynamic>)],
         filters: (j['filters'] as Map<String, dynamic>? ?? const {}).map(
           (k, v) => MapEntry(k, [for (final f in v as List<dynamic>) VodFilter.fromJson(f as Map<String, dynamic>)]),
@@ -274,7 +270,7 @@ sealed class SearchEvent {
 }
 
 class SearchSiteStatus extends SearchEvent {
-  const SearchSiteStatus({required this.site, required this.status, this.count = 0, this.ms = 0, this.message, this.diagnostic});
+  const SearchSiteStatus({required this.site, required this.status, this.count = 0, this.ms = 0, this.message});
 
   final String site;
 
@@ -283,10 +279,8 @@ class SearchSiteStatus extends SearchEvent {
   final int count;
   final int ms;
   final String? message;
-  final SourceDiagnostic? diagnostic;
 
   factory SearchSiteStatus.fromJson(Map<String, dynamic> j) => SearchSiteStatus(
-        diagnostic: SourceDiagnostic.tryParse(j['diagnostic']),
         site: j['site'] as String,
         status: j['status'] as String,
         count: j['count'] as int? ?? 0,

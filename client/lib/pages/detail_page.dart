@@ -13,7 +13,7 @@ import '../ui/common.dart';
 import '../ui/device_form.dart';
 import '../ui/episode_buttons.dart';
 import '../ui/tv/tv_focus.dart';
-import 'browse_page.dart' show FolderPage, errorText, sourceReportFor;
+import 'browse_page.dart' show FolderPage, errorText;
 import 'download_sheet.dart';
 import 'player_page.dart';
 
@@ -359,7 +359,6 @@ class _DetailPageState extends State<DetailPage> {
               message: '详情加载失败\n${errorText(_error)}',
               actionLabel: '重试',
               onAction: () => setState(_start),
-              extraAction: sourceReportFor(_error),
             )
           else
             _content(context, _d!, state.siteName(_d!.site)),

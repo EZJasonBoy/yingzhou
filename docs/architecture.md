@@ -32,7 +32,7 @@
 | 平台 | 客户端 | 引擎 | jar 蜘蛛 |
 |---|---|---|---|
 | Android 手机/TV | Flutter | **同进程内置**（Kotlin 直接打进 APK，Ktor 监听 127.0.0.1） | `DexClassLoader` 原生加载，含带 `.so` 的加固 jar |
-| Windows / macOS / Linux | Flutter | 内置引擎（精简 JRE 子进程，可关闭）或连 NAS | dex 转换、安卓桩类，以及可选的 unidbg ARM JNI 兼容路径 |
+| Windows / macOS / Linux | Flutter | 内置引擎（精简 JRE 子进程，可关闭）或连 NAS | dex 转换 + 安卓桩类；加固 jar 计划走 unidbg（未实现） |
 | NAS / 服务器 | — | Docker 镜像（amd64 / arm64） | 同桌面 |
 | iOS / iPadOS | Flutter | **无**，连局域网引擎；外出用 Tailscale 等连回家 | 由远程引擎负责 |
 
@@ -75,8 +75,7 @@
 - 转换后的类不保证过 JVM 校验器（安卓也不校验），桌面引擎用 `-XX:+UnlockDiagnosticVMOptions -XX:-BytecodeVerificationRemote` 启动。
 - jar 里的解析器（`JarParsers`）：type 2 调 `com.github.catvod.parser.Json<url>.parse(jxs, url)`，type 3（「Json聚合」）调 `Mix<url>.parse(jxs, name, flag+"111", url)`，参数与 TVBox 一致（JSON 解析带 `ext` 时以 `cat_ext` 拼进地址）；先找最近用过的 jar，再找全局 `spider`。返回 `parse=1` 时交给嗅探。
 - 伪装成图片的 jar（`img+` 前缀，或 `.png` 后面直接拼 jar）会被解包；`;md5;` 校验的是下载的原始文件。
-- 桌面为每个包建立 `Application`，供共享 `Init` 和站点实例访问自己的资源和类加载器。实验性 JNI 在加载到包内 ARM ELF 时按需创建该包的 unidbg / Unicorn2 实例，桥接 `System.loadLibrary` 和 `System.load` 及支持的 native 方法。按路径加载只接受蜘蛛数据目录里与包内库内容相同的副本。开启方法和已验证范围见 [兼容性说明](compatibility.md#蜘蛛运行时type-3)。
-- 这一设计借鉴了 tvbox-silicon 将 JVM 执行与 ARM JNI 调用分开的做法。映舟沿用现有 dex2jar、QuickJS、Python 和 Kotlin 引擎，在桌面 JAR 加载器中接入 unidbg。[参考实现](https://github.com/jo32/tvbox-silicon/tree/1d31e4feaea7c8aa24743b66749ed08bc9474ba5/Runtime/JavaHost)
+- 尚未支持：加固 jar（native 壳，计划 unidbg）。
 
 ### 2.4 网页嗅探（已实现）
 
@@ -316,8 +315,6 @@ tvbox-next/
 已保存的订阅：引擎一直按地址去重保存所有导入过的订阅（`GET /subscriptions`），2026-11-19 起记下每个订阅最后一次加载的时间 `usedAt`，并能重命名（`PUT /subscriptions/{id}`）。客户端在「源 → 订阅」下面按 `usedAt` 从新到旧列出，点一下就 `activate`。
 
 #### 诊断与反馈（已实现）
-
-源故障沿用普通 HTTP 错误和搜索事件，携带出错阶段、公开的原因摘要和可选的蜘蛛包标识。开发者日志、播放统计与链路从同一诊断生成展示。单次报告可在故障处复制，整份反馈还会带上本次运行最近 8 条源故障。
 
 出了问题之后有东西可看，但什么都不自动发出去（`client/lib/diagnostics/`）。
 

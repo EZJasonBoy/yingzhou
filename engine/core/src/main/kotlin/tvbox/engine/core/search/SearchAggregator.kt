@@ -7,7 +7,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeout
-import tvbox.engine.core.model.ApiError
 import tvbox.engine.core.model.SearchEndEvent
 import tvbox.engine.core.model.SearchResultsEvent
 import tvbox.engine.core.model.SearchSiteEvent
@@ -25,7 +24,7 @@ sealed interface SearchEvent {
  */
 class SearchAggregator(private val concurrency: Int = 8) {
 
-    fun search(sources: List<SiteSource>, keyword: String, errorMapper: (Throwable) -> ApiError): Flow<SearchEvent> =
+    fun search(sources: List<SiteSource>, keyword: String, errorMapper: (Throwable) -> Pair<String, String>): Flow<SearchEvent> =
         channelFlow {
             val start = System.currentTimeMillis()
             val gate = Semaphore(concurrency)
@@ -42,8 +41,8 @@ class SearchAggregator(private val concurrency: Int = 8) {
                                 send(SearchEvent.Site(SearchSiteEvent(key, "done", count = page.list.size, ms = System.currentTimeMillis() - t0)))
                             } catch (e: Throwable) {
                                 if (e is kotlinx.coroutines.CancellationException && e !is kotlinx.coroutines.TimeoutCancellationException) throw e
-                                val error = errorMapper(e)
-                                send(SearchEvent.Site(SearchSiteEvent(key, "error", ms = System.currentTimeMillis() - t0, code = error.code, message = error.message, diagnostic = error.diagnostic)))
+                                val (code, message) = errorMapper(e)
+                                send(SearchEvent.Site(SearchSiteEvent(key, "error", ms = System.currentTimeMillis() - t0, code = code, message = message)))
                             }
                         }
                     }

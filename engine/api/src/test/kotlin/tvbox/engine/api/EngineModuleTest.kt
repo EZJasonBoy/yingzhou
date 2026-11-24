@@ -24,94 +24,20 @@ import org.junit.jupiter.api.Test
 import tvbox.engine.core.Engine
 import tvbox.engine.core.config.ConfigLoader
 import tvbox.engine.core.config.ConfigLocator
-import tvbox.engine.core.config.SiteBean
 import tvbox.engine.core.model.Capabilities
 import tvbox.engine.core.model.EngineInfo
 import tvbox.engine.core.net.SiteHttp
-import tvbox.engine.core.spider.Spider
-import tvbox.engine.core.spider.SpiderLoadException
-import tvbox.engine.core.spider.SpiderRuntime
-import tvbox.engine.core.spider.spiderDiagnostic
-import tvbox.engine.core.spider.summary
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.jupiter.api.Assertions.assertTrue
 
 class EngineModuleTest {
-    private fun engine(runtimes: List<SpiderRuntime> = emptyList()) = Engine(
+    private fun engine() = Engine(
         EngineInfo("tvbox-engine", "test", platform = "test", capabilities = Capabilities(false, false, false, false)),
         ConfigLoader(OkHttpClient(), ConfigLocator("http://127.0.0.1:9978/file/")),
         SiteHttp(OkHttpClient()),
         proxyBase = "http://127.0.0.1:9978/proxy?",
-        runtimes = runtimes,
     )
-
-    @Test
-    fun `activate and reload report the subscription stage and keep the working config`() {
-        MockWebServer().use { upstream ->
-            upstream.enqueue(MockResponse().setResponseCode(504))
-            upstream.enqueue(MockResponse().setBody("""{"sites":[{"key":"working","type":1,"api":"http://fixture.test"}]}"""))
-            upstream.enqueue(MockResponse().setBody("<html>private page</html>"))
-            testApplication {
-                val engine = engine()
-                val id = engine.addSubscription(upstream.url("/config?token=private").toString(), null).id
-                application { engineModule(engine) }
-                val failed = client.post("/api/v1/subscriptions/$id/activate")
-                assertEquals(HttpStatusCode.BadGateway, failed.status)
-                val first = EngineJson.parseToJsonElement(failed.bodyAsText()).jsonObject.getValue("error").jsonObject
-                assertEquals("CONFIG_LOAD_FAILED", first.getValue("code").jsonPrimitive.content)
-                assertEquals("config.fetch", first.getValue("diagnostic").jsonObject.getValue("stage").jsonPrimitive.content)
-                assertEquals("IOException: HTTP 504", first.getValue("diagnostic").jsonObject.getValue("cause").jsonPrimitive.content)
-                assertTrue("private" !in first.toString())
-                assertEquals(HttpStatusCode.OK, client.post("/api/v1/subscriptions/$id/activate").status)
-                val reload = client.post("/api/v1/config/reload")
-                assertEquals(HttpStatusCode.BadGateway, reload.status)
-                val error = EngineJson.parseToJsonElement(reload.bodyAsText()).jsonObject.getValue("error").jsonObject
-                assertEquals("config.parse", error.getValue("diagnostic").jsonObject.getValue("stage").jsonPrimitive.content)
-                assertTrue("private" !in error.toString())
-                val config = EngineJson.parseToJsonElement(client.get("/api/v1/config").bodyAsText()).jsonObject
-                assertEquals("1", config.getValue("sites").jsonPrimitive.content)
-                assertEquals(error.getValue("diagnostic"), config.getValue("refreshDiagnostic"))
-            }
-        }
-    }
-
-    @Test
-    fun `a failing spider has the same diagnostic in HTTP and the search stream`() {
-        val runtime = object : SpiderRuntime {
-            override val kind = "jar"
-            override fun supports(site: SiteBean) = site.type == 3
-            override suspend fun create(site: SiteBean, ext: String): Spider {
-                val error = UnsatisfiedLinkError("/private/path/to/plugin.so?token=private-value")
-                val diagnostic = spiderDiagnostic(site.key, "spider.init", error, "b01a1234c000")
-                throw SpiderLoadException(diagnostic.summary(), error, diagnostic = diagnostic)
-            }
-        }
-        MockWebServer().use { upstream ->
-            val config = """{"sites":[{"key":"plugin","name":"蜘蛛","type":3,"api":"csp_Fixture"}]}"""
-            upstream.dispatcher = object : Dispatcher() {
-                override fun dispatch(request: RecordedRequest) = MockResponse().setBody(config)
-            }
-            testApplication {
-                val engine = engine(listOf(runtime))
-                engine.activate(engine.addSubscription(upstream.url("/config").toString(), null).id)
-                application { engineModule(engine) }
-                val response = client.get("/api/v1/sites/plugin/home")
-                assertEquals(HttpStatusCode.BadGateway, response.status)
-                val error = EngineJson.parseToJsonElement(response.bodyAsText()).jsonObject.getValue("error").jsonObject
-                assertEquals("SPIDER_LOAD_FAILED", error.getValue("code").jsonPrimitive.content)
-                val diagnostic = error.getValue("diagnostic").jsonObject
-                assertEquals("spider.init", diagnostic.getValue("stage").jsonPrimitive.content)
-                assertEquals("native", diagnostic.getValue("kind").jsonPrimitive.content)
-                val stream = client.get("/api/v1/search/stream?wd=test").bodyAsText()
-                val failed = stream.lineSequence().filter { it.startsWith("data:") }
-                    .map { EngineJson.parseToJsonElement(it.substringAfter(':')).jsonObject }
-                    .single { it["status"]?.jsonPrimitive?.content == "error" }
-                assertEquals(diagnostic, failed["diagnostic"])
-                assertTrue("private" !in stream && "private" !in error.toString())
-            }
-        }
-    }
 
     @Test
     fun `browse, search stream and play against a fake CMS site`() {

@@ -73,8 +73,6 @@ class Diagnostics {
   /// Takes the user's home folder, tokens and addresses out of [text] (the subscription addresses in [secrets] too).
   String redact(String text, {Iterable<String> secrets = const []}) => Redactor(homes: homes, secrets: secrets).apply(text);
 
-  String redactForSharing(String text, {Iterable<String> secrets = const []}) => Redactor(homes: homes, secrets: secrets).forSharing(text);
-
   // ---- catching ----
 
   FlutterExceptionHandler? _previousFlutter;

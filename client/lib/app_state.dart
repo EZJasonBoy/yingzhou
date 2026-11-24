@@ -8,7 +8,6 @@ import 'engine/engine_client.dart';
 import 'engine/lan.dart';
 import 'engine/local_engine.dart';
 import 'engine/models.dart';
-import 'engine/source_diagnostic.dart';
 import 'network_preferences.dart';
 import 'player_backend.dart';
 import 'settings.dart';
@@ -61,15 +60,6 @@ class AppState extends ChangeNotifier {
 
   static const _engineUrlKey = 'engineUrl';
   static const _siteKey = 'siteKey';
-  static const _androidJniKey = 'localEngine.androidJni';
-
-  bool get canConfigureLocalJni => _localEngine != null && _isLocal(engineUrl);
-  bool get localAndroidJni => _settings.getString(_androidJniKey) == 'true';
-
-  Future<void> setLocalAndroidJni(bool enabled) async {
-    await _settings.setString(_androidJniKey, enabled.toString());
-    notifyListeners();
-  }
 
   /// The site last chosen in one config of one subscription: `siteKey|<subscription>|<config url>`.
   String? get _configSiteKey => summary == null ? null : '$_siteKey|${summary!.subscriptionId}|${summary!.url}';
@@ -94,7 +84,7 @@ class AppState extends ChangeNotifier {
     error = null;
     notifyListeners();
     final local = _localEngine;
-    if (local != null && !await local.start(Uri.parse(engineUrl).port, androidJni: localAndroidJni)) {
+    if (local != null && !await local.start(Uri.parse(engineUrl).port)) {
       startingEngine = false;
       error = '无法启动内置引擎：${local.recentOutput.isEmpty ? '未知原因' : local.recentOutput.last}';
       notifyListeners();
@@ -183,7 +173,6 @@ class AppState extends ChangeNotifier {
   List<SiteInfo> sites = const [];
   String? currentSiteKey;
   String? error;
-  SourceDiagnostic? actionDiagnostic;
   bool busy = false;
 
   EngineClient get client => _client ?? (throw StateError('not connected'));
@@ -245,17 +234,15 @@ class AppState extends ChangeNotifier {
     final saved = _settings.getString(_tokenKey(engineUrl));
     client.token = saved == null || saved.isEmpty ? null : saved;
     client.onUnauthorized = (e) => _pairingRequired(client, e);
-    client.onSourceIssue = DevLog.instance.sourceIssue;
     info = null;
     engineSettings = null;
     summary = null;
     sites = const [];
     subscriptions = const [];
     configError = null;
-    configDiagnostic = null;
     info = await client.info();
     error = null;
-    DevLog.instance.info('引擎', '已连接 ${info!.name} ${info!.version}（${info!.platform}，协议 v${info!.protocol}）', detail: {'地址': engineUrl}, shareSummary: '已连接（协议 v${info!.protocol}）');
+    DevLog.instance.info('引擎', '已连接 ${info!.name} ${info!.version}（${info!.platform}，协议 v${info!.protocol}）', detail: {'地址': engineUrl});
     await _settings.setString(_engineUrlKey, engineUrl);
     try {
       engineSettings = await client.settings();
@@ -428,7 +415,6 @@ class AppState extends ChangeNotifier {
 
   /// Why the active subscription did not load (network, bad config); the engine is connected all the same.
   String? configError;
-  SourceDiagnostic? configDiagnostic;
 
   /// Asks the engine for its config again; after a failed load, the engine tries loading the subscription again.
   Future<void> reloadConfig() => _loadConfig();
@@ -467,17 +453,13 @@ class AppState extends ChangeNotifier {
   Future<void> _loadConfig() async {
     loadingConfig = true;
     configError = null;
-    configDiagnostic = null;
     notifyListeners();
     try {
       summary = await client.config();
       await _loadSites();
       if (summary?.refreshing == true) unawaited(_followRefresh(client));
     } on EngineException catch (e) {
-      if (e.code != 'NO_CONFIG') {
-        configDiagnostic = e.diagnostic;
-        configError = e.diagnostic?.summary ?? e.message;
-      }
+      if (e.code != 'NO_CONFIG') configError = e.message;
     } finally {
       loadingConfig = false;
       notifyListeners();
@@ -567,14 +549,9 @@ class AppState extends ChangeNotifier {
 
   Future<void> _loadSites() async {
     sites = await client.sites();
-    configError = null;
-    configDiagnostic = null;
     configVersion++;
     final s = summary;
-    if (s != null) {
-      final counts = '${s.sites} 个站点 · ${s.parses} 个解析 · ${s.lives} 组直播';
-      DevLog.instance.info('订阅', counts, detail: {'配置': s.url}, shareSummary: counts);
-    }
+    if (s != null) DevLog.instance.info('订阅', '${s.sites} 个站点 · ${s.parses} 个解析 · ${s.lives} 组直播', detail: {'配置': s.url});
     final browsable = browsableSites;
     // The site last chosen in this config, else the current one if this config has it, else its first.
     final perConfig = _configSiteKey;
@@ -589,14 +566,12 @@ class AppState extends ChangeNotifier {
   Future<void> _run(Future<void> Function() action) async {
     busy = true;
     error = null;
-    actionDiagnostic = null;
     notifyListeners();
     try {
       await action();
     } on EngineException catch (e) {
-      actionDiagnostic = e.diagnostic;
-      error = e.diagnostic?.summary ?? e.message;
-      DevLog.instance.error('引擎', e.message, detail: {'代码': e.code, if (e.statusCode != null) '状态': '${e.statusCode}'}, shareSummary: e.statusCode == null ? '请求失败' : 'HTTP ${e.statusCode}');
+      error = e.message;
+      DevLog.instance.error('引擎', e.message, detail: {'代码': e.code, if (e.statusCode != null) '状态': '${e.statusCode}'});
     } finally {
       busy = false;
       notifyListeners();

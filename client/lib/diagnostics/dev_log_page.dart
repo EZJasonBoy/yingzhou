@@ -5,7 +5,6 @@ import '../app_state.dart';
 import '../ui/tv/tv_focus.dart';
 import 'dev_log.dart';
 import 'diagnostics.dart';
-import 'redact.dart';
 
 /// 日志 (developer mode): what this client did to get a video on the screen ([DevLog]), newest first, by level and by
 /// what it says; a line shows what belongs to it (the address, the answer) when chosen. On a desktop, the last lines
@@ -39,7 +38,7 @@ class _DevLogPageState extends State<DevLogPage> {
   };
 
   Future<void> _copy(String text, String what) async {
-    await Clipboard.setData(ClipboardData(text: Diagnostics.instance.redactForSharing(text)));
+    await Clipboard.setData(ClipboardData(text: Diagnostics.instance.redact(text)));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已复制$what（订阅地址和密钥已去掉）'), duration: const Duration(seconds: 2)));
   }
@@ -92,7 +91,7 @@ class _DevLogPageState extends State<DevLogPage> {
                       ),
                       TextButton.icon(
                         key: const Key('log-copy'),
-                        onPressed: shown.isEmpty && !_engine ? null : () => _copy(_engine ? Redactor(homes: Diagnostics.instance.homes).sharedLog(engineOutput.join('\n')) : shown.reversed.map((e) => e.shareLine).join('\n'), '日志'),
+                        onPressed: shown.isEmpty && !_engine ? null : () => _copy(_engine ? engineOutput.join('\n') : shown.reversed.map((e) => e.line).join('\n'), '日志'),
                         icon: const Icon(Icons.copy_rounded, size: 18),
                         label: const Text('复制'),
                       ),
@@ -168,7 +167,7 @@ class _DevLogPageState extends State<DevLogPage> {
                                       showModalBottomSheet<void>(
                                         context: context,
                                         showDragHandle: true,
-                                        builder: (context) => SingleChildScrollView(child: _LogDetail(entry: e, color: _color(e.level, scheme), onCopy: () => _copy(e.shareLine, '这一条'))),
+                                        builder: (context) => SingleChildScrollView(child: _LogDetail(entry: e, color: _color(e.level, scheme), onCopy: () => _copy(e.line, '这一条'))),
                                       );
                                     }
                                   },
@@ -189,7 +188,7 @@ class _DevLogPageState extends State<DevLogPage> {
                                         )
                                       : SingleChildScrollView(
                                           padding: const EdgeInsets.only(right: 20, bottom: 24),
-                                          child: Card(child: _LogDetail(entry: selected, color: _color(selected.level, scheme), onCopy: () => _copy(selected.shareLine, '这一条'))),
+                                          child: Card(child: _LogDetail(entry: selected, color: _color(selected.level, scheme), onCopy: () => _copy(selected.line, '这一条'))),
                                         ),
                                 ),
                               ],

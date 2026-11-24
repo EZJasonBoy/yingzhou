@@ -2,17 +2,14 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
-import '../engine/source_diagnostic.dart';
 import '../pages/cache_settings.dart' show formatFetchedAt;
 import '../ui/device_form.dart';
 import '../ui/phone_input.dart' show QrView;
 import '../ui/tv/tv_focus.dart' show TvAutofocus, tvOwnFocusLook;
 import 'crash_record.dart';
-import 'dev_log.dart';
 import 'diagnostics.dart';
 import 'diagnostics_store.dart';
 import 'feedback.dart';
-import 'redact.dart';
 
 /// Everything the diagnostics card and pages show is collected here and passed through [Diagnostics.redact], with
 /// the subscription addresses the app knows of, before it reaches the screen or the clipboard.
@@ -23,14 +20,7 @@ class _Collected {
   final DiagnosticEnvironment env;
   final List<String> secrets;
 
-  String redact(String text) => diagnostics.redactForSharing(text, secrets: secrets);
-
-  late final _redactor = Redactor(homes: diagnostics.homes, secrets: secrets);
-
-  CrashRecord shareRecord(CrashRecord record) => CrashRecord(
-    time: record.time, version: record.version, platform: record.platform, form: record.form, source: record.source, repeated: record.repeated,
-    error: _redactor.sharedError(record.error), stack: _redactor.sharedLog(record.stack),
-  );
+  String redact(String text) => diagnostics.redact(text, secrets: secrets);
 
   static _Collected of(BuildContext context, Diagnostics d) {
     final state = context.getInheritedWidgetOfExactType<AppScope>()?.notifier;
@@ -47,11 +37,11 @@ class _Collected {
           : state.engineOnLan
           ? '局域网里的另一台设备'
           : '远程';
-      final can = ['jar', 'js', 'py', 'sniff'].where((name) => info.capabilities[name] == true);
-      final name = info.name == 'tvbox-engine' ? info.name : '自定义引擎';
-      final version = RegExp(r'^\d+(?:\.\d+){1,3}(?:\+\d+)?$').hasMatch(info.version) ? ' ${info.version}' : '';
-      final platform = RegExp(r'^(?:jvm-)?(?:windows|linux|mac|macos|darwin|android|ios|test)$').hasMatch(info.platform) ? info.platform : '其他平台';
-      engine = '$name$version（$platform，协议 v${info.protocol}${can.isEmpty ? '' : '，${can.join(' ')}'}）· $where';
+      final can = [
+        for (final e in info.capabilities.entries)
+          if (e.value) e.key,
+      ];
+      engine = '${info.name} ${info.version}（${info.platform}，协议 v${info.protocol}${can.isEmpty ? '' : '，${can.join(' ')}'}）· $where';
     }
     return DiagnosticEnvironment(appVersion: d.appVersion, platform: d.platform, form: DeviceFormScope.of(context).name, engine: engine);
   }
@@ -75,35 +65,10 @@ class _Collected {
   /// 「复制诊断信息」 and the feedback page: redacted.
   Future<String> report() async {
     await diagnostics.flush();
-    final records = [for (final r in await diagnostics.store.list()) shareRecord(r.record)];
+    final records = [for (final r in await diagnostics.store.list()) r.record];
     final (title, text) = await log();
-    return redact(buildDiagnosticReport(env: env, records: records, logTitle: title, log: _redactor.sharedLog(text), sourceIssues: DevLog.instance.recentSourceIssues));
+    return redact(buildDiagnosticReport(env: env, records: records, logTitle: title, log: text));
   }
-}
-
-class SourceReportButton extends StatelessWidget {
-  const SourceReportButton({super.key, required this.issues});
-
-  final Iterable<SourceDiagnostic> issues;
-
-  static void open(BuildContext context, Iterable<SourceDiagnostic> issues) {
-    final collected = _Collected.of(context, Diagnostics.instance);
-    final env = collected.env;
-    final text = collected.redact([
-      '映舟 ${env.appVersion} · ${env.platformAndForm}',
-      '引擎：${env.engine}',
-      for (final issue in issues) '\n${issue.report}',
-    ].join('\n'));
-    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DiagnosticTextPage(title: '源故障报告', text: text)));
-  }
-
-  @override
-  Widget build(BuildContext context) => TextButton.icon(
-    key: const Key('source-issue-report'),
-    icon: const Icon(Icons.article_outlined, size: 18),
-    label: const Text('查看故障报告'),
-    onPressed: () => open(context, issues),
-  );
 }
 
 Future<void> _copyReport(BuildContext context, Diagnostics d) async {
@@ -129,7 +94,7 @@ Future<void> _copyReport(BuildContext context, Diagnostics d) async {
 
 void _openFeedback(BuildContext context, Diagnostics d) => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => FeedbackPage(diagnostics: d)));
 
-const _privacyNote = '崩溃记录和日志只保存在这台设备上，映舟不会自己上传任何东西。复制或反馈时只保留排障字段，地址、请求头和未经识别的原始日志留在本机。';
+const _privacyNote = '崩溃记录和日志只保存在这台设备上，映舟不会自己上传任何东西。显示、复制和反馈之前，订阅地址、令牌、签名参数和你的用户目录都会被遮掉。';
 
 /// 诊断与反馈: how many crash records there are, and the way to them, to 「复制诊断信息」 and to 「反馈问题」. Self-contained:
 /// put it on any settings page.
@@ -247,7 +212,7 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => DiagnosticTextPage(title: '${r.record.source.label} · ${CrashRecord.formatTime(r.record.time)}', text: c.redact(text), shareText: c.redact(c.shareRecord(r.record).format())),
+        builder: (_) => DiagnosticTextPage(title: '${r.record.source.label} · ${CrashRecord.formatTime(r.record.time)}', text: c.redact(text)),
       ),
     );
   }
@@ -257,7 +222,7 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => DiagnosticTextPage(title: title, text: text.trim().isEmpty ? '（还没有内容）' : c.redact(text), shareText: text.trim().isEmpty ? null : c._redactor.sharedLog(text)),
+        builder: (_) => DiagnosticTextPage(title: title, text: text.trim().isEmpty ? '（还没有内容）' : c.redact(text)),
       ),
     );
   }
@@ -377,11 +342,10 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
 /// A record, the log or the diagnostic text, to read (and copy). On a TV the text takes the focus and ↑ / ↓ scroll it;
 /// at either end the focus moves on to what is above or below.
 class DiagnosticTextPage extends StatelessWidget {
-  const DiagnosticTextPage({super.key, required this.title, required this.text, this.shareText});
+  const DiagnosticTextPage({super.key, required this.title, required this.text});
 
   final String title;
   final String text;
-  final String? shareText;
 
   @override
   Widget build(BuildContext context) {
@@ -394,7 +358,7 @@ class DiagnosticTextPage extends StatelessWidget {
             tooltip: '复制',
             icon: const Icon(Icons.copy_rounded),
             onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: shareText ?? text));
+              await Clipboard.setData(ClipboardData(text: text));
               if (context.mounted) ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(content: Text('已复制')));
             },
           ),

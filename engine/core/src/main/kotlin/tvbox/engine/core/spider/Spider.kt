@@ -2,7 +2,6 @@ package tvbox.engine.core.spider
 
 import tvbox.engine.core.config.SiteBean
 import tvbox.engine.core.config.TvboxConfig
-import tvbox.engine.core.model.SpiderDiagnostic
 
 /**
  * The TVBox spider contract (`com.github.catvod.crawler.Spider`), independent of how the spider runs
@@ -10,8 +9,6 @@ import tvbox.engine.core.model.SpiderDiagnostic
  * has nothing; [SpiderSource] turns that into normalised models.
  */
 interface Spider {
-    fun diagnostic(site: String, stage: String, error: Throwable): SpiderDiagnostic = spiderDiagnostic(site, stage, error)
-
     suspend fun init(ext: String)
     suspend fun home(filter: Boolean): String?
     suspend fun homeVod(): String?
@@ -56,8 +53,6 @@ interface SpiderRuntime {
     /** Called when a config becomes active (and before its spiders are created), e.g. to pick up the global `spider` jar. */
     fun onConfig(config: TvboxConfig) {}
 
-    fun onConfigRemoved() {}
-
     /**
      * Handles a `/proxy?do=...` request (TVBox `ApiConfig.proxyLocal`). [params] holds the query parameters plus the
      * request headers (lower-case names). Null when this runtime has nothing for it.
@@ -66,4 +61,4 @@ interface SpiderRuntime {
 }
 
 /** [code] is the API error code clients get (e.g. `PY_MODULE_MISSING` when a Python spider needs a package). */
-class SpiderLoadException(message: String, cause: Throwable? = null, val code: String = "SPIDER_LOAD_FAILED", val diagnostic: SpiderDiagnostic? = null) : Exception(message, cause)
+class SpiderLoadException(message: String, cause: Throwable? = null, val code: String = "SPIDER_LOAD_FAILED") : Exception(message, cause)

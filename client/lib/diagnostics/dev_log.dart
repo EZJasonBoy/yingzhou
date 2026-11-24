@@ -3,14 +3,12 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
-import '../engine/source_diagnostic.dart';
-
 enum DevLevel { info, warn, error }
 
 /// One line of the [DevLog].
 @immutable
 class DevLogEntry {
-  const DevLogEntry({required this.time, required this.level, required this.module, required this.message, this.detail = const {}, this.shareSummary});
+  const DevLogEntry({required this.time, required this.level, required this.module, required this.message, this.detail = const {}});
 
   final DateTime time;
   final DevLevel level;
@@ -18,7 +16,6 @@ class DevLogEntry {
   /// Who says it: 引擎, 订阅, 站点, 线路, 播放器.
   final String module;
   final String message;
-  final String? shareSummary;
 
   /// What belongs to it (the address asked for, the answer, the headers), shown when the line is selected.
   final Map<String, String> detail;
@@ -37,8 +34,6 @@ class DevLogEntry {
 
   /// As one line of text, for copying.
   String get line => '$clock $levelLabel $module $message${detail.isEmpty ? '' : '  ${detail.entries.map((e) => '${e.key}=${e.value}').join('  ')}'}';
-
-  String get shareLine => '$clock $levelLabel $module${shareSummary == null ? '' : ' $shareSummary'}';
 }
 
 /// What this client did to get a video on the screen: which engine and subscription it talked to, how an episode's
@@ -61,15 +56,8 @@ class DevLog extends ChangeNotifier {
 
   int get length => _entries.length;
 
-  static const _sourceModule = '源故障';
-
-  void sourceIssue(SourceDiagnostic issue, {required bool warning}) =>
-      add(warning ? DevLevel.warn : DevLevel.error, _sourceModule, issue.summary, detail: issue.details, shareSummary: issue.report);
-
-  Iterable<String> get recentSourceIssues => _entries.toList().reversed.where((entry) => entry.module == _sourceModule).take(8).map((entry) => entry.shareLine);
-
-  void add(DevLevel level, String module, String message, {Map<String, String> detail = const {}, String? shareSummary}) {
-    _entries.addLast(DevLogEntry(time: _now(), level: level, module: module, message: message, detail: detail, shareSummary: shareSummary));
+  void add(DevLevel level, String module, String message, {Map<String, String> detail = const {}}) {
+    _entries.addLast(DevLogEntry(time: _now(), level: level, module: module, message: message, detail: detail));
     while (_entries.length > capacity) {
       _entries.removeFirst();
     }
@@ -82,9 +70,9 @@ class DevLog extends ChangeNotifier {
     });
   }
 
-  void info(String module, String message, {Map<String, String> detail = const {}, String? shareSummary}) => add(DevLevel.info, module, message, detail: detail, shareSummary: shareSummary);
+  void info(String module, String message, {Map<String, String> detail = const {}}) => add(DevLevel.info, module, message, detail: detail);
   void warn(String module, String message, {Map<String, String> detail = const {}}) => add(DevLevel.warn, module, message, detail: detail);
-  void error(String module, String message, {Map<String, String> detail = const {}, String? shareSummary}) => add(DevLevel.error, module, message, detail: detail, shareSummary: shareSummary);
+  void error(String module, String message, {Map<String, String> detail = const {}}) => add(DevLevel.error, module, message, detail: detail);
 
   void clear() {
     _entries.clear();

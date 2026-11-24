@@ -1,7 +1,6 @@
 package tvbox.engine.jarhost
 
 import android.content.Context
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -9,17 +8,12 @@ import kotlinx.coroutines.withContext
 import tvbox.engine.core.config.SiteBean
 import tvbox.engine.core.config.SiteRuntime
 import tvbox.engine.core.config.TvboxConfig
-import tvbox.engine.core.live.LiveSourceSpec
-import tvbox.engine.core.model.SpiderDiagnostic
 import tvbox.engine.core.play.JarParsers
 import tvbox.engine.core.spider.JarRepository
 import tvbox.engine.core.spider.ProxyResponse
 import tvbox.engine.core.spider.Spider
 import tvbox.engine.core.spider.SpiderLoadException
 import tvbox.engine.core.spider.SpiderRuntime
-import tvbox.engine.core.spider.spiderArchiveId
-import tvbox.engine.core.spider.spiderDiagnostic
-import tvbox.engine.core.spider.summary
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.InputStream
@@ -43,139 +37,85 @@ abstract class JarSpiderRuntime(
 ) : SpiderRuntime, JarParsers {
     override val kind = "jar"
 
-    private class LoadedJar(val loader: ClassLoader, val context: Context, val proxy: Method?, val initCause: String?)
-    private class Selection(val global: String, val referenced: Set<String>)
+    private class LoadedJar(val loader: ClassLoader, val proxy: Method?)
 
     private val loaded = ConcurrentHashMap<String, LoadedJar>()
     private val siteJars = ConcurrentHashMap<String, LoadedJar>()
     private val siteSpiders = ConcurrentHashMap<String, CatSpider>()
     private val loadLock = Mutex()
-    private val selectionLock = Any()
-    @Volatile private var selection = Selection("", emptySet())
+    @Volatile private var globalSpider = ""
     @Volatile private var recent: LoadedJar? = null
 
     /** Turns a downloaded spider jar into a class loader whose parent provides the host classes. */
     protected abstract fun classLoader(jar: File): ClassLoader
 
-    protected open fun contextFor(loader: ClassLoader, archive: File): Context = context
-
-    protected open val retireUnusedLoaders = false
-    protected open fun releaseLoader(loader: ClassLoader) {}
-
     override fun supports(site: SiteBean) = site.runtime == SiteRuntime.JAR
 
     override fun onConfig(config: TvboxConfig) {
-        val referenced = if (retireUnusedLoaders) buildSet {
-            add(config.spider)
-            config.sites.mapTo(this) { it.jar }
-            LiveSourceSpec.parseAll(config.livesJson).mapTo(this) { it.jar }
-        } else emptySet()
-        val retired = synchronized(selectionLock) {
-            selection = Selection(config.spider, referenced)
-            siteJars.clear()
-            siteSpiders.clear()
-            if (!retireUnusedLoaders) return
-            val removed = loaded.keys.filterNot { it in referenced }.mapNotNull { loaded.remove(it) }
-            if (recent in removed) recent = null
-            removed
-        }
-        retired.forEach { releaseLoader(it.loader) }
-    }
-
-    override fun onConfigRemoved() {
-        if (retireUnusedLoaders) onConfig(TvboxConfig())
+        globalSpider = config.spider
+        siteJars.clear()
+        siteSpiders.clear()
     }
 
     override suspend fun create(site: SiteBean, ext: String): Spider = withContext(Dispatchers.IO) {
-        val selected = selection
-        val spec = site.jar.ifEmpty { selected.global }
-        val archive = spiderArchiveId(spec)
-        if (spec.isEmpty()) {
-            val diagnostic = spiderDiagnostic(site.key, "jar.fetch", IllegalArgumentException()).copy(cause = "Missing JAR")
-            throw SpiderLoadException(diagnostic.summary(), diagnostic = diagnostic)
-        }
-        val jar = load(selected, spec, site.key, archive)
-        fun diagnose(stage: String, error: Throwable) = spiderDiagnostic(site.key, stage, error, archive, jar.initCause)
+        val spec = site.jar.ifEmpty { globalSpider }
+        if (spec.isEmpty()) throw SpiderLoadException("${site.name}: the config has no spider jar")
+        val jar = load(spec, site)
         val className = "com.github.catvod.spider." + if (site.api.contains("csp_")) site.api.substringAfter("csp_") else site.api
         val spider = try {
             jar.loader.loadClass(className).getDeclaredConstructor().newInstance() as CatSpider
         } catch (e: ClassNotFoundException) {
-            val diagnostic = diagnose("spider.create", e)
-            throw failure(if (e.isAbsent(className)) diagnostic.copy(kind = "missing_spider") else diagnostic, e)
+            throw SpiderLoadException("${site.name}: $className is not in the jar ${spec.substringBefore(";md5;").trim()}")
         } catch (e: Throwable) {
-            throw failure(diagnose("spider.create", e), e)
+            throw SpiderLoadException("${site.name}: cannot create $className: ${e.message ?: e.javaClass.simpleName}", e)
         }
         try {
             spider.siteKey = site.key
             spider.initApi(com.github.catvod.crawler.SpiderApi())
-            spider.init(jar.context, ext)
+            spider.init(context, ext)
         } catch (e: Throwable) {
-            throw failure(diagnose("spider.init", e), e)
+            throw SpiderLoadException("${site.name}: init failed: ${e.message ?: e.javaClass.simpleName}", e)
         }
-        synchronized(selectionLock) {
-            if (selected === selection) {
-                siteJars[site.key] = jar
-                siteSpiders[site.key] = spider
-                recent = jar
-            }
-        }
-        CatSpiderAdapter(spider, ::diagnose, onUse = { synchronized(selectionLock) { if (selected === selection) recent = jar } })
+        siteJars[site.key] = jar
+        siteSpiders[site.key] = spider
+        recent = jar
+        CatSpiderAdapter(spider, onUse = { recent = jar })
     }
 
-    private suspend fun load(selected: Selection, spec: String, site: String = "", archive: String? = spiderArchiveId(spec)): LoadedJar {
+    private suspend fun load(spec: String, site: SiteBean?): LoadedJar {
+        val name = site?.name ?: "spider jar"
         loaded[spec]?.let { return it }
         return loadLock.withLock {
             loaded[spec] ?: run {
                 val file = try {
                     jars.fetch(spec)
                 } catch (e: Exception) {
-                    throw failure(spiderDiagnostic(site, "jar.fetch", e, archive), e)
+                    throw SpiderLoadException("$name: cannot download the spider jar: ${e.message}", e)
                 }
                 val loader = try {
                     classLoader(file)
+                } catch (e: SpiderLoadException) {
+                    throw e
                 } catch (e: Throwable) {
-                    throw failure(spiderDiagnostic(site, "jar.load", e, archive), e)
+                    throw SpiderLoadException("$name: cannot load the spider jar: ${e.message ?: e.javaClass.simpleName}", e)
                 }
-                var published = false
-                try {
-                    val pluginContext = try {
-                        contextFor(loader, file)
-                    } catch (e: Throwable) {
-                        throw failure(spiderDiagnostic(site, "jar.load", e, archive), e)
-                    }
-                    val initCause = initJar(loader, pluginContext, site, archive)
-                    val result = LoadedJar(loader, pluginContext, proxyMethod(loader), initCause)
-                    synchronized(selectionLock) {
-                        if (retireUnusedLoaders && selected !== selection && spec !in selection.referenced) {
-                            throw CancellationException("subscription changed while loading the spider jar")
-                        }
-                        loaded[spec] = result
-                        published = true
-                    }
-                    result
-                } finally {
-                    if (retireUnusedLoaders && !published) releaseLoader(loader)
-                }
+                initJar(loader)
+                LoadedJar(loader, proxyMethod(loader)).also { loaded[spec] = it }
             }
         }
     }
 
     /** `Init.init(Context)`, and tell the jar's own copy of com.github.catvod.Proxy (if any) where the engine is. */
-    private fun initJar(loader: ClassLoader, pluginContext: Context, site: String, archive: String?): String? {
-        val className = "com.github.catvod.spider.Init"
-        val initCause = try {
-            loader.loadClass(className).getMethod("init", Context::class.java).invoke(null, pluginContext)
-            null
+    private fun initJar(loader: ClassLoader) {
+        try {
+            loader.loadClass("com.github.catvod.spider.Init").getMethod("init", Context::class.java).invoke(null, context)
+        } catch (e: ClassNotFoundException) {
+            // Some jars have no Init.
         } catch (e: Throwable) {
-            if (e is ClassNotFoundException && e.isAbsent(className)) null else {
-                val diagnostic = spiderDiagnostic(site, "jar.init", e, archive)
-                System.err.println(diagnostic.summary())
-                diagnostic.cause
-            }
+            System.err.println("jar Init failed: ${e.cause ?: e}")
         }
         com.github.catvod.Proxy.set(port())
         runCatching { loader.loadClass("com.github.catvod.Proxy").getMethod("set", Int::class.javaPrimitiveType).invoke(null, port()) }
-        return initCause
     }
 
     private fun proxyMethod(loader: ClassLoader): Method? =
@@ -196,8 +136,7 @@ abstract class JarSpiderRuntime(
 
     /** Looks the class up in the most recently used jar, then the config's spider jar. */
     private suspend fun parser(className: String, call: (Class<*>) -> Any?): String? = withContext(Dispatchers.IO) {
-        val selected = selection
-        val candidates = listOfNotNull(recent, selected.global.takeIf { it.isNotEmpty() }?.let { runCatching { load(selected, it) }.getOrNull() })
+        val candidates = listOfNotNull(recent, globalSpider.takeIf { it.isNotEmpty() }?.let { runCatching { load(it, null) }.getOrNull() })
         val cls = candidates.firstNotNullOfOrNull { jar -> runCatching { jar.loader.loadClass(className) }.getOrNull() } ?: return@withContext null
         try {
             resolvingPlayback { call(cls)?.toString() }
@@ -212,8 +151,7 @@ abstract class JarSpiderRuntime(
             runCatching { sp.proxy(HashMap(params)) }.getOrNull()?.let { toProxyResponse(it) }?.let { return@withContext it }
         }
         // A proxy url can arrive before any site was opened (a live playlist served by the jar): load the config's jar.
-        val selected = selection
-        if (loaded.isEmpty() && selected.global.isNotEmpty()) runCatching { load(selected, selected.global) }
+        if (loaded.isEmpty() && globalSpider.isNotEmpty()) runCatching { load(globalSpider, null) }
         val ordered = listOfNotNull(params["siteKey"]?.let { siteJars[it] }, recent) + loaded.values
         for (jar in ordered.distinct()) {
             val method = jar.proxy ?: continue
@@ -225,50 +163,25 @@ abstract class JarSpiderRuntime(
     }
 }
 
-private fun ClassNotFoundException.isAbsent(className: String) = cause == null &&
-    (message == className || message?.startsWith("Didn't find class \"$className\" on path:") == true)
-
-private fun failure(diagnostic: SpiderDiagnostic, error: Throwable, fallbackCode: String = "SPIDER_LOAD_FAILED"): SpiderLoadException {
-    val code = (error as? SpiderLoadException)?.code ?: fallbackCode
-    System.err.println(diagnostic.summary())
-    return SpiderLoadException(diagnostic.summary(), error, code, diagnostic)
-}
-
 /** Adapts a TVBox jar spider (blocking calls) to the engine's suspending [Spider]. */
-private class CatSpiderAdapter(
-    private val spider: CatSpider,
-    private val diagnose: (String, Throwable) -> SpiderDiagnostic,
-    private val onUse: () -> Unit,
-) : Spider {
-    override fun diagnostic(site: String, stage: String, error: Throwable): SpiderDiagnostic = diagnose(stage, error)
-
-    private suspend fun <T> io(stage: String, block: () -> T): T = withContext(Dispatchers.IO) {
+class CatSpiderAdapter(private val spider: CatSpider, private val onUse: () -> Unit) : Spider {
+    private suspend fun <T> io(block: () -> T): T = withContext(Dispatchers.IO) {
         onUse()
-        try {
-            block()
-        } catch (error: Throwable) {
-            val diagnostic = diagnose(stage, error)
-            val code = when {
-                error is LinkageError -> "SPIDER_INCOMPATIBLE"
-                error is tvbox.engine.core.net.SiteHttpException -> if (error.message?.startsWith("timeout") == true) "SITE_TIMEOUT" else "SITE_UNREACHABLE"
-                else -> "SITE_ERROR"
-            }
-            throw failure(diagnostic, error, code)
-        }
+        block()
     }
 
     override suspend fun init(ext: String) {}
-    override suspend fun home(filter: Boolean): String? = io("spider.home") { spider.homeContent(filter) }
-    override suspend fun homeVod(): String? = io("spider.recommend") { spider.homeVideoContent() }
+    override suspend fun home(filter: Boolean): String? = io { spider.homeContent(filter) }
+    override suspend fun homeVod(): String? = io { spider.homeVideoContent() }
     override suspend fun category(tid: String, pg: String, filter: Boolean, extend: Map<String, String>): String? =
-        io("spider.category") { spider.categoryContent(tid, pg, filter, HashMap(extend)) }
-    override suspend fun detail(id: String): String? = io("spider.detail") { spider.detailContent(listOf(id)) }
-    override suspend fun search(key: String, quick: Boolean, pg: String): String? = io("spider.search") { spider.searchContent(key, quick, pg) }
-    override suspend fun play(flag: String, id: String, vipFlags: List<String>): String? = io("spider.play") { resolvingPlayback { spider.playerContent(flag, id, vipFlags) } }
-    override suspend fun live(url: String): String? = io("spider.live") { spider.liveContent(url) }
+        io { spider.categoryContent(tid, pg, filter, HashMap(extend)) }
+    override suspend fun detail(id: String): String? = io { spider.detailContent(listOf(id)) }
+    override suspend fun search(key: String, quick: Boolean, pg: String): String? = io { spider.searchContent(key, quick, pg) }
+    override suspend fun play(flag: String, id: String, vipFlags: List<String>): String? = io { resolvingPlayback { spider.playerContent(flag, id, vipFlags) } }
+    override suspend fun live(url: String): String? = io { spider.liveContent(url) }
 
     override suspend fun proxy(params: Map<String, String>): ProxyResponse? =
-        io("spider.proxy") { spider.proxy(HashMap(params)) }?.let { toProxyResponse(it) }
+        io { spider.proxy(HashMap(params)) }?.let { toProxyResponse(it) }
 
     override fun destroy() {
         runCatching { spider.destroy() }
