@@ -65,7 +65,7 @@ void main() {
   testWidgets('check now: a newer version shows what changed, and the desktop saves the package', (tester) async {
     final backend = FakeUpdateBackend(result: newerRelease());
     final (_, service) = await pumpApp(tester, backend);
-    expect(text(tester, 'update-version'), '映舟 0.4.1468250');
+    expect(text(tester, 'update-version'), '映舟 0.4.146825098');
     expect(text(tester, 'update-status'), '还没有检查过');
     expect(tester.widget<SwitchListTile>(find.byKey(const Key('update-auto'))).value, isFalse, reason: 'off by default');
     expect(backend.checks, isEmpty, reason: 'nothing is asked on its own');

@@ -1,7 +1,7 @@
 name: tvbox_client
 description: "A new Flutter project."
 publish_to: 'none'
-version: 0.4.1468250+12
+version: 0.4.146825098+13
 
 environment:
   sdk: ^3.14.0

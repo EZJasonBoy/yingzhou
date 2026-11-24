@@ -1,6 +1,6 @@
 # 设计说明：线路体检
 
-> 状态：✅ 已做（2026-11-22，未发布）：引擎 `engine/core/.../play/LineProbe.kt`、接口见 [protocol.md](../protocol.md)「线路体检」；客户端 `client/lib/engine/line_probe.dart`、详情页、`pages/player_switching.dart`。和下文不同的地方：取视频测速时用配置的 `hosts`、请求头和 DNS，但不走用户设的「播放」HTTP 代理（和引擎的播放缓存取视频一样；解析仍走代理）；等结果时每 400 毫秒发一行 SSE 注释保活；没有订阅回 409，站点不存在回 404。来由见 [ux-review.md](ux-review.md) 的 1.3；电视上的样子见[原型](prototypes/README.md)里的「线路」和「正在换线路」两块画板。
+> 状态：✅ 已做（v0.4.146825098）：引擎 `engine/core/.../play/LineProbe.kt`、接口见 [protocol.md](../protocol.md)「线路体检」；客户端 `client/lib/engine/line_probe.dart`、详情页、`pages/player_switching.dart`。和下文不同的地方：取视频测速时用配置的 `hosts`、请求头和 DNS，但不走用户设的「播放」HTTP 代理（和引擎的播放缓存取视频一样；解析仍走代理）；等结果时每 400 毫秒发一行 SSE 注释保活；没有订阅回 409，站点不存在回 404。来由见 [ux-review.md](ux-review.md) 的 1.3；电视上的样子见[原型](prototypes/README.md)里的「线路」和「正在换线路」两块画板。
 
 ## 要解决什么
 
