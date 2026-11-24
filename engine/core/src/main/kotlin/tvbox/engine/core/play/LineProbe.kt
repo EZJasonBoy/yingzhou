@@ -12,6 +12,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -108,10 +109,14 @@ class LineProbe(
         val permits = Semaphore(budgets.parallel)
         withTimeoutOrNull(budgets.requestMs) {
             coroutineScope {
+                val probing = coroutineContext.job
                 for (i in 0 until tested) launch {
                     val line = lines[i]
                     val key = scope + "\n" + request.site + "\n" + line.line + "\n" + line.episodeId
                     val result = cached(key)?.copy(index = i, line = line.line) ?: permits.withPermit {
+                        // A place freed by lines cancelled with the whole probe can reach this line before its own
+                        // cancelling does: the probe is going away (it is marked so before any line), nothing new starts.
+                        if (!probing.isActive) throw CancellationException("the probe was cancelled")
                         val outcome = measure(ProbeResult(i, line.line, ProbeState.DEAD), line, request, resolve) { progress.set(i, it) }
                         // Cancelled meanwhile (time is up, or the client left): what failed then was the cancelling.
                         currentCoroutineContext().ensureActive()

@@ -22,6 +22,11 @@ subprojects {
         }
         tasks.withType<Test>().configureEach {
             useJUnitPlatform()
+            // A failure says which assertion and why (on CI there is no report to open).
+            testLogging {
+                events("failed")
+                exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+            }
         }
     }
 }
