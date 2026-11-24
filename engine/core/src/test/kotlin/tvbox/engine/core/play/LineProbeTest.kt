@@ -30,6 +30,7 @@ import tvbox.engine.core.net.SiteHttp
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -38,6 +39,9 @@ class LineProbeTest {
 
     /** Paths as the server got them, with the Range and Referer they came with. */
     private val requests = ConcurrentLinkedQueue<RecordedRequest>()
+
+    /** Lets go of the requests a test holds (`/hang.m3u8?hold=…`) when it ends. */
+    private val release = CountDownLatch(1)
 
     /** Short budgets, so that a test waits fractions of a second where the engine waits seconds. */
     private val budgets = LineProbe.Budgets(resolveMs = 2_000, firstByteMs = 2_000, readMs = 400, requestMs = 6_000)
@@ -60,7 +64,12 @@ class LineProbeTest {
                     "/plain.m3u8" -> playlist("#EXTM3U\n#EXTINF:6,\nseg/p0.ts\n#EXT-X-ENDLIST\n")
                     "/slow.m3u8" -> playlist("#EXTM3U\n#EXTINF:6,\nseg/slow.ts\n#EXT-X-ENDLIST\n")
                     "/empty.m3u8" -> playlist("#EXTM3U\n#EXT-X-ENDLIST\n")
-                    "/hang.m3u8" -> { Thread.sleep(3_000); playlist("#EXTM3U\n#EXTINF:6,\nseg/p0.ts\n#EXT-X-ENDLIST\n") }
+                    "/hang.m3u8" -> {
+                        // `hold` keeps the answer back that many milliseconds, or until the test ends.
+                        val hold = request.requestUrl!!.queryParameter("hold")?.toLongOrNull()
+                        if (hold == null) Thread.sleep(3_000) else release.await(hold, TimeUnit.MILLISECONDS)
+                        playlist("#EXTM3U\n#EXTINF:6,\nseg/p0.ts\n#EXT-X-ENDLIST\n")
+                    }
                     "/seg/slow.ts" -> MockResponse().setBody(Buffer().write(ByteArray(400 * 1024))).throttleBody(8 * 1024, 100, TimeUnit.MILLISECONDS)
                     "/film.mp4" -> MockResponse().setResponseCode(206).setBody(Buffer().write(ByteArray(200 * 1024)))
                     "/forbidden.mp4" -> MockResponse().setResponseCode(403)
@@ -75,6 +84,7 @@ class LineProbeTest {
 
     @AfterEach
     fun stop() {
+        release.countDown()
         server.shutdown()
     }
 
@@ -297,21 +307,22 @@ class LineProbeTest {
 
     @Test
     fun `cancelling the probe stops it, and no further line is fetched`() = runBlocking {
-        val lines = (1..6).map { ProbeLine("线路$it", url("/hang.m3u8?n=$it")) }
+        // The server holds each answer far longer than this test waits, and no line gives up on its own before the
+        // cancel (either would rightly let the fourth start): also on a slow machine (CI).
+        val lines = (1..6).map { ProbeLine("线路$it", url("/hang.m3u8?n=$it&hold=30000")) }
         val got = ConcurrentLinkedQueue<ProbeResult>()
         val job = launch(Dispatchers.IO) {
-            // No line may give up on its own before the cancel (that would rightly let the fourth start): a first-byte
-            // budget far longer than the wait, also on a busy machine.
-            lineProbe(budgets.copy(firstByteMs = 10_000, requestMs = 20_000)).probe(ProbeRequest("cms", lines), "scope", direct).collect { got += it }
+            lineProbe(budgets.copy(firstByteMs = 40_000, requestMs = 60_000)).probe(ProbeRequest("cms", lines), "scope", direct).collect { got += it }
         }
-        val until = System.nanoTime() + 2_000_000_000L
+        val until = System.nanoTime() + 10_000_000_000L
         while (requests.size < 3 && System.nanoTime() < until) delay(20)
-        delay(100)
-        assertEquals(3, requests.size, "three lines at a time")
+        delay(300)
+        assertEquals(3, requests.size, "three lines at a time: ${requests.map { it.path }}")
         job.cancel()
         job.join()
-        // The first three answer after 3 s; had the probe gone on, the others would be asked for then.
-        delay(3_500)
+        // Cancelling cancels the three calls, which frees their places: had the probe gone on, the others would be
+        // asked for now.
+        delay(1_500)
         assertEquals(3, requests.size, "the other three were never asked for: ${requests.map { it.path }}")
         assertEquals(3, resolved.get())
         assertTrue(got.isEmpty(), got.toString())
