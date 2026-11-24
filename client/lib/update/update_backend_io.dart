@@ -19,6 +19,9 @@ class IoUpdateBackend implements UpdateBackend {
   bool get supported => Platform.isWindows || Platform.isMacOS || Platform.isLinux || Platform.isAndroid;
 
   @override
+  bool get opensPackageInstaller => Platform.isAndroid;
+
+  @override
   Future<UpdateCheckResult> check({String mirror = '', String proxy = ''}) => client.check(mirror: mirror, proxy: proxy);
 
   @override

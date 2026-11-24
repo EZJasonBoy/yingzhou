@@ -421,9 +421,14 @@ class FakeUpdateBackend implements UpdateBackend {
   final revealed = <String>[];
   bool canOpen = true;
   Object? downloadError;
+  Object? revealError;
+  Future<void>? downloadGate;
 
   @override
   bool get supported => true;
+
+  @override
+  bool get opensPackageInstaller => keys.any((key) => key.startsWith('android-'));
 
   @override
   Future<UpdateCheckResult> check({String mirror = '', String proxy = ''}) async {
@@ -452,7 +457,8 @@ class FakeUpdateBackend implements UpdateBackend {
     downloadMirrors.add(mirror);
     expectedSizes.add(expectedSize);
     progress?.call(512, 1024);
-    await Future<void>.delayed(Duration.zero);
+    await (downloadGate ?? Future<void>.delayed(Duration.zero));
+    if (cancelled?.call() ?? false) throw const UpdateCancelled();
     if (downloadError != null) throw downloadError!;
     progress?.call(1024, 1024);
     return 'C:/Users/me/Downloads/$fileName';
@@ -465,7 +471,10 @@ class FakeUpdateBackend implements UpdateBackend {
   }
 
   @override
-  Future<void> reveal(String path) async => revealed.add(path);
+  Future<void> reveal(String path) async {
+    revealed.add(path);
+    if (revealError != null) throw revealError!;
+  }
 
   @override
   String describe(Object error) => '$error';

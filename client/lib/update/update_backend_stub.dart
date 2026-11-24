@@ -9,6 +9,9 @@ class _NoUpdates implements UpdateBackend {
   bool get supported => false;
 
   @override
+  bool get opensPackageInstaller => false;
+
+  @override
   Future<UpdateCheckResult> check({String mirror = '', String proxy = ''}) async =>
       UpdateCheckResult(current: '', at: DateTime.now(), failures: const ['网页版不检查更新']);
 

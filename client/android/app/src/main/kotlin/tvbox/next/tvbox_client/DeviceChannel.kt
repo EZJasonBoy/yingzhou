@@ -48,13 +48,25 @@ object DeviceChannel {
         require(file.parentFile == directory && file.extension.equals("apk", ignoreCase = true) && file.isFile) { "找不到已下载的安装包，请重新下载" }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
             val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
-            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            throw IllegalStateException("允许映舟安装应用后，请返回并再次点「打开安装包」")
+            try {
+                context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (error: ActivityNotFoundException) {
+                throw IllegalStateException("请在系统安全设置中允许映舟安装未知应用，再返回点「安装更新」", error)
+            } catch (error: SecurityException) {
+                throw IllegalStateException("系统限制了映舟的安装权限，请检查设备的安全设置", error)
+            }
+            throw IllegalStateException("允许映舟安装未知应用后，请返回点「安装更新」")
         }
         val uri = FileProvider.getUriForFile(context, context.packageName + ".exports", file)
         val install = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(install)
+        try {
+            context.startActivity(install)
+        } catch (error: ActivityNotFoundException) {
+            throw IllegalStateException("这台设备没有可用的 APK 安装程序，请检查系统安装程序是否已启用", error)
+        } catch (error: SecurityException) {
+            throw IllegalStateException("系统限制了安装更新，请检查设备的安全设置", error)
+        }
     }
 
     fun info(context: Context): Map<String, Any> {

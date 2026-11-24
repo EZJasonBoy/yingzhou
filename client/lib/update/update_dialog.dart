@@ -24,6 +24,7 @@ class UpdateDialog extends StatefulWidget {
 class _UpdateDialogState extends State<UpdateDialog> {
   /// Set when the browser could not be opened: the address, for the user to take elsewhere.
   String? _address;
+  String? _installMessage;
 
   Future<void> _open(UpdateService service, String url) async {
     final opened = await service.backend.openInBrowser(url);
@@ -32,11 +33,19 @@ class _UpdateDialogState extends State<UpdateDialog> {
   }
 
   Future<void> _reveal(UpdateService service, String path) async {
+    setState(() => _installMessage = null);
     try {
       await service.backend.reveal(path);
     } on PlatformException catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message ?? '无法打开安装包')));
+      if (mounted) setState(() => _installMessage = error.message ?? '无法打开安装包');
     }
+  }
+
+  Future<void> _download(UpdateService service, ReleaseAsset asset) async {
+    final path = await service.startDownload(widget.release, asset);
+    if (path == null || !service.backend.opensPackageInstaller || !mounted) return;
+    if (ModalRoute.of(context)?.isCurrent != true || WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) return;
+    await _reveal(service, path);
   }
 
   @override
@@ -47,6 +56,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
     final theme = Theme.of(context);
     final small = theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant);
     final asset = service.assetOf(release);
+    final downloadLabel = service.backend.opensPackageInstaller ? '下载并安装' : '下载';
 
     return ListenableBuilder(
       listenable: service,
@@ -75,6 +85,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
                 const SizedBox(height: 8),
                 if (asset == null) Text('这次没有适合这台设备的安装包，可以到发布页看看', style: small),
                 if (download != null) _DownloadLine(download: download, service: service),
+                if (_installMessage != null) Text(_installMessage!, style: small),
                 if (_address != null) ...[
                   const SizedBox(height: 8),
                   Text('没有可以打开链接的浏览器。发布页地址：', style: small),
@@ -92,7 +103,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
                   key: const Key('update-reveal'),
                   autofocus: true,
                   onPressed: () => _reveal(service, download!.path!),
-                  child: Text(theme.platform == TargetPlatform.android ? '打开安装包' : '打开所在文件夹'),
+                  child: Text(service.backend.opensPackageInstaller ? '安装更新' : '打开所在文件夹'),
                 )
               else if (download?.running ?? false)
                 FilledButton.tonal(key: const Key('update-cancel'), autofocus: true, onPressed: service.cancelDownload, child: const Text('取消下载'))
@@ -100,8 +111,8 @@ class _UpdateDialogState extends State<UpdateDialog> {
                 FilledButton(
                   key: const Key('update-download'),
                   autofocus: true,
-                  onPressed: () => service.startDownload(release, asset),
-                  child: Text(download?.error != null ? '重新下载' : '下载'),
+                  onPressed: () => _download(service, asset),
+                  child: Text(download?.error != null ? '重新下载' : downloadLabel),
                 ),
           ],
         );
@@ -123,7 +134,11 @@ class _DownloadLine extends StatelessWidget {
       return Text('下载失败：${download.error}', key: const Key('update-download-error'), style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error));
     }
     if (download.path != null) {
-      return Text('已下载到 ${download.path}', key: const Key('update-downloaded'), style: theme.textTheme.bodySmall);
+      return Text(
+        service.backend.opensPackageInstaller ? '安装包已下载并校验' : '已下载到 ${download.path}',
+        key: const Key('update-downloaded'),
+        style: theme.textTheme.bodySmall,
+      );
     }
     final fraction = download.fraction;
     return Column(
